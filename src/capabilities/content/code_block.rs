@@ -215,7 +215,9 @@ fn tokenize<'a>(line: &'a str, is_rust: bool) -> Vec<(TokenKind, &'a str)> {
             if pos < len && bytes[pos] == b'\\' && pos + 1 < len {
                 pos += 2;
             } else if pos < len {
-                pos += 1;
+                // Advance a full UTF-8 character, not a single byte; slicing
+                // into a multi-byte character panics at runtime.
+                pos += line[pos..].chars().next().map_or(1, char::len_utf8);
             }
             if pos < len && bytes[pos] == b'\'' {
                 pos += 1;
@@ -223,7 +225,7 @@ fn tokenize<'a>(line: &'a str, is_rust: bool) -> Vec<(TokenKind, &'a str)> {
                 continue;
             }
             pos = start + 1;
-            tokens.push((TokenKind::Plain, &line[start..start + 1]));
+            tokens.push((TokenKind::Plain, &line[start..pos]));
             continue;
         }
 
@@ -276,7 +278,9 @@ fn tokenize<'a>(line: &'a str, is_rust: bool) -> Vec<(TokenKind, &'a str)> {
         }
 
         let start = pos;
-        pos += 1;
+        // Advance a full UTF-8 character, not a single byte; slicing into a
+        // multi-byte character panics at runtime (CJK content in code blocks).
+        pos += line[start..].chars().next().map_or(1, char::len_utf8);
         tokens.push((TokenKind::Plain, &line[start..pos]));
     }
 
@@ -343,5 +347,36 @@ impl StatefulInteractiveElement for CodeBlock {}
 impl ParentElement for CodeBlock {
     fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
         self.base.extend(elements)
+    }
+}
+
+#[cfg(test)]
+mod cjk_tests {
+    use super::tokenize;
+
+    // Regression: multi-byte UTF-8 content must not panic the tokenizer.
+    // Reported against fc-ui 0.8.1 via the Obelisk app: a code block whose
+    // first character is CJK (e.g. a Chinese note) panicked with
+    // "end byte index 1 is not a char boundary".
+    #[test]
+    fn tokenize_cjk_content_does_not_panic() {
+        // Plain CJK text (the reported crash: fallback branch).
+        let tokens = tokenize("读后感:这段代码很好", false);
+        assert_eq!(tokens[0].1.chars().next(), Some('读'));
+
+        // CJK inside a string literal.
+        let tokens = tokenize(r#"let s = "你好世界";"#, true);
+        assert!(tokens.iter().any(|(kind, text)| {
+            *kind == super::TokenKind::StringLiteral && text.contains("你好世界")
+        }));
+
+        // A Rust char literal holding a CJK character.
+        let tokens = tokenize("let c = '读';", true);
+        assert!(tokens
+            .iter()
+            .any(|(kind, text)| *kind == super::TokenKind::StringLiteral && text.contains('读')));
+
+        // Mixed emoji + CJK + code.
+        let _ = tokenize("fn 計算(x: i32) -> i32 { x * 2 } // 🚀 加速", true);
     }
 }
