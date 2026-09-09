@@ -352,7 +352,9 @@ impl ParentElement for CodeBlock {
 
 #[cfg(test)]
 mod cjk_tests {
-    use super::tokenize;
+    // Absolute paths only: this crate's boundary checker forbids relative
+    // `super::` paths inside src/capabilities/.
+    use crate::capabilities::content::code_block::{tokenize, TokenKind};
 
     // Regression: multi-byte UTF-8 content must not panic the tokenizer.
     // Reported against fc-ui 0.8.1 via the Obelisk app: a code block whose
@@ -366,15 +368,15 @@ mod cjk_tests {
 
         // CJK inside a string literal.
         let tokens = tokenize(r#"let s = "你好世界";"#, true);
-        assert!(tokens.iter().any(|(kind, text)| {
-            *kind == super::TokenKind::StringLiteral && text.contains("你好世界")
-        }));
+        assert!(tokens
+            .iter()
+            .any(|(kind, text)| *kind == TokenKind::StringLiteral && text.contains("你好世界")));
 
         // A Rust char literal holding a CJK character.
         let tokens = tokenize("let c = '读';", true);
         assert!(tokens
             .iter()
-            .any(|(kind, text)| *kind == super::TokenKind::StringLiteral && text.contains('读')));
+            .any(|(kind, text)| *kind == TokenKind::StringLiteral && text.contains('读')));
 
         // Mixed emoji + CJK + code.
         let _ = tokenize("fn 計算(x: i32) -> i32 { x * 2 } // 🚀 加速", true);
