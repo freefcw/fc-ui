@@ -99,6 +99,7 @@ impl InlineEditState {
         let len = self.edit_value.len();
         self.selected_range = 0..len;
         self.selection_reversed = false;
+        self.marked_range = None;
         self.invalidate_layout_cache();
         cx.notify();
     }
@@ -110,6 +111,7 @@ impl InlineEditState {
         self.value = self.edit_value.clone();
         self.editing = false;
         self.selected_range = 0..0;
+        self.marked_range = None;
         self.invalidate_layout_cache();
         cx.notify();
     }
@@ -121,6 +123,7 @@ impl InlineEditState {
         self.edit_value = self.value.clone();
         self.editing = false;
         self.selected_range = 0..0;
+        self.marked_range = None;
         self.invalidate_layout_cache();
         cx.notify();
     }
@@ -392,8 +395,8 @@ impl EntityInputHandler for InlineEditState {
         }
         self.selected_range = new_selected_range_utf16
             .as_ref()
-            .map(|range_utf16| self.range_from_utf16(range_utf16))
-            .map(|new_range| new_range.start + range.start..new_range.end + range.end)
+            .map(|range_utf16| text_util::range_from_utf16(new_text, range_utf16))
+            .map(|new_range| new_range.start + range.start..new_range.end + range.start)
             .unwrap_or_else(|| range.start + new_text.len()..range.start + new_text.len());
 
         self.invalidate_layout_cache();

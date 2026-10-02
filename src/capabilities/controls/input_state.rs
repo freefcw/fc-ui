@@ -160,6 +160,7 @@ pub struct InputState {
     last_layout: Option<gpui::ShapedLine>,
     last_bounds: Option<Bounds<Pixels>>,
     is_selecting: bool,
+    was_focused: bool,
     last_click_time: Option<std::time::Instant>,
     last_click_position: Option<Point<Pixels>>,
 
@@ -210,6 +211,7 @@ impl InputState {
             last_layout: None,
             last_bounds: None,
             is_selecting: false,
+            was_focused: false,
             last_click_time: None,
             last_click_position: None,
             cursor_visible: true,
@@ -399,7 +401,7 @@ impl InputState {
         }
 
         if let Some(min_length) = self.validation_rules.min_length {
-            if value.len() < min_length {
+            if value.chars().count() < min_length {
                 let error = ValidationError {
                     message: format!("Must be at least {} characters", min_length).into(),
                     field_name: self.aria_label.clone(),
@@ -412,7 +414,7 @@ impl InputState {
         }
 
         if let Some(max_length) = self.validation_rules.max_length {
-            if value.len() > max_length {
+            if value.chars().count() > max_length {
                 let error = ValidationError {
                     message: format!("Must be no more than {} characters", max_length).into(),
                     field_name: self.aria_label.clone(),
@@ -819,6 +821,7 @@ impl InputState {
         }
 
         let click_index = self.index_for_mouse_position(event.position);
+        self.cursor_position_override = Some(click_index);
 
         if event.modifiers.shift {
             self.select_to(click_index, cx);
@@ -864,6 +867,11 @@ impl InputState {
 
     pub fn enter(&mut self, _: &Enter, _: &mut Window, cx: &mut Context<Self>) {
         cx.emit(InputEvent::Enter);
+        // Enter is a semantic action for a single-line input. Stop the action
+        // here so GPUI does not fall through to character input and insert a
+        // newline into a field that cannot represent one. Forms subscribe to
+        // InputEvent::Enter instead of relying on action bubbling.
+        cx.stop_propagation();
     }
 
     pub fn escape(&mut self, _: &Escape, _window: &mut Window, cx: &mut Context<Self>) {
@@ -877,7 +885,10 @@ impl InputState {
         self.start_blink(cx);
         if self.select_on_focus && !self.content.is_empty() {
             self.selected_range = 0..self.content.len();
-        } else if !self.content.is_empty() && self.cursor_position_override.is_none() {
+        } else if let Some(position) = self.cursor_position_override.take() {
+            let position = self.clamp_offset(position);
+            self.selected_range = position..position;
+        } else if !self.content.is_empty() {
             let len = self.content.len();
             self.selected_range = len..len;
         }
@@ -889,6 +900,7 @@ impl InputState {
     /// Called when the input loses focus
     pub fn on_blur(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.stop_blink();
+        self.cursor_position_override.take();
         if self.trim_on_blur {
             let trimmed = self.content.trim().to_string();
             if trimmed != self.content.as_ref() {
@@ -902,6 +914,22 @@ impl InputState {
 
         cx.emit(InputEvent::Blur);
         cx.notify();
+    }
+
+    // Syncs focus transitions observed during paint with focus/blur side
+    // effects, mirroring TextareaState::sync_focus_state.
+    fn sync_focus_state(&mut self, is_focused: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if self.was_focused == is_focused {
+            return;
+        }
+
+        self.was_focused = is_focused;
+        if is_focused {
+            self.on_focus(window, cx);
+        } else {
+            self.is_selecting = false;
+            self.on_blur(window, cx);
+        }
     }
 
     fn move_to(&mut self, offset: usize, cx: &mut Context<Self>) {
@@ -1146,34 +1174,24 @@ impl EntityInputHandler for InputState {
             filtered_text
         };
 
-        if let Some(max_length) = self.validation_rules.max_length {
-            let new_length = self.content.len() - (range.end - range.start) + formatted_text.len();
-            if new_length > max_length {
-                let allowed_length =
-                    max_length.saturating_sub(self.content.len() - (range.end - range.start));
-                let truncated: String = formatted_text.chars().take(allowed_length).collect();
-
-                self.content = (self.content[0..range.start].to_owned()
-                    + &truncated
-                    + &self.content[range.end..])
-                    .into();
-                self.selected_range = range.start + truncated.len()..range.start + truncated.len();
-            } else {
-                self.content = (self.content[0..range.start].to_owned()
-                    + &formatted_text
-                    + &self.content[range.end..])
-                    .into();
-                self.selected_range =
-                    range.start + formatted_text.len()..range.start + formatted_text.len();
-            }
+        let formatted_text = if let Some(max_length) = self.validation_rules.max_length {
+            let retained_chars =
+                self.content.chars().count() - self.content[range.clone()].chars().count();
+            let allowed_chars = max_length.saturating_sub(retained_chars);
+            formatted_text
+                .chars()
+                .take(allowed_chars)
+                .collect::<String>()
         } else {
-            self.content = (self.content[0..range.start].to_owned()
-                + &formatted_text
-                + &self.content[range.end..])
-                .into();
-            self.selected_range =
-                range.start + formatted_text.len()..range.start + formatted_text.len();
-        }
+            formatted_text
+        };
+
+        self.content = (self.content[0..range.start].to_owned()
+            + &formatted_text
+            + &self.content[range.end..])
+            .into();
+        self.selected_range =
+            range.start + formatted_text.len()..range.start + formatted_text.len();
 
         self.marked_range.take();
         self.selection_reversed = false;
@@ -1215,8 +1233,8 @@ impl EntityInputHandler for InputState {
         }
         self.selected_range = new_selected_range_utf16
             .as_ref()
-            .map(|range_utf16| self.range_from_utf16(range_utf16))
-            .map(|new_range| new_range.start + range.start..new_range.end + range.end)
+            .map(|range_utf16| text_util::range_from_utf16(&filtered_text, range_utf16))
+            .map(|new_range| new_range.start + range.start..new_range.end + range.start)
             .unwrap_or_else(|| {
                 range.start + filtered_text.len()..range.start + filtered_text.len()
             });
@@ -1468,12 +1486,15 @@ impl gpui::Element for InputTextElement {
         cx: &mut App,
     ) {
         let focus_handle = self.input.read(cx).focus_handle.clone();
+        let disabled = self.input.read(cx).disabled;
 
-        window.handle_input(
-            &focus_handle,
-            ElementInputHandler::new(bounds, self.input.clone()),
-            cx,
-        );
+        if !disabled {
+            window.handle_input(
+                &focus_handle,
+                ElementInputHandler::new(bounds, self.input.clone()),
+                cx,
+            );
+        }
 
         if let Some(selection) = prepaint.selection.take() {
             window.paint_quad(selection)
@@ -1488,7 +1509,8 @@ impl gpui::Element for InputTextElement {
             return;
         }
 
-        if focus_handle.is_focused(window) {
+        let is_focused = focus_handle.is_focused(window);
+        if is_focused {
             let cursor_visible = self.input.read(cx).cursor_visible;
             if cursor_visible {
                 if let Some(cursor) = prepaint.cursor.take() {
@@ -1497,9 +1519,10 @@ impl gpui::Element for InputTextElement {
             }
         }
 
-        self.input.update(cx, |input, _cx| {
+        self.input.update(cx, |input, cx| {
             input.last_layout = Some(line);
             input.last_bounds = Some(bounds);
+            input.sync_focus_state(is_focused, window, cx);
         });
     }
 }
@@ -1635,6 +1658,63 @@ mod tests {
                 assert_eq!(state.selected_range, 7..7, "should stop before test");
                 state.word_left(&WordLeft, window, cx);
                 assert_eq!(state.selected_range, 0..0, "should reach start");
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn ime_marked_replacement_maps_selection_into_inserted_text() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| cx.new(|cx| InputState::new(cx)));
+        let mut window = app.open_window(|_, _| TestView {
+            state: state.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.set_value("ab中文cd", window, cx);
+                state.selected_range = 2..8; // "中文"
+
+                // IME 组字提交：替换非空选区；new_selected_range 是相对新插入文本的
+                // UTF-16 区间，修复后的语义是 new_range + range.start
+                state.replace_and_mark_text_in_range(None, "xy测试", Some(2..4), window, cx);
+
+                assert_eq!(state.content(), "abxy测试cd");
+                // "xy测试" 的 UTF-16 2..4 == 其字节 2..8（"测试"），再整体偏移到插入点 2
+                let range = state.selected_range.clone();
+                assert_eq!(range, 4..10);
+                assert_eq!(&state.content()[range.clone()], "测试");
+                assert!(state.content().is_char_boundary(range.start));
+                assert!(state.content().is_char_boundary(range.end));
+                assert_eq!(state.marked_range, Some(2..10));
+                assert_eq!(
+                    &state.content()[state.marked_range.clone().unwrap()],
+                    "xy测试"
+                );
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn ime_commit_replacing_nonempty_selection_places_cursor_after_insert() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| cx.new(|cx| InputState::new(cx)));
+        let mut window = app.open_window(|_, _| TestView {
+            state: state.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.set_value("ab中文cd", window, cx);
+                state.selected_range = 2..8; // "中文"
+
+                state.replace_text_in_range(None, "新字", window, cx);
+
+                assert_eq!(state.content(), "ab新字cd");
+                assert_eq!(state.selected_range, 8..8);
+                assert!(state.content().is_char_boundary(state.selected_range.start));
             });
         });
     }

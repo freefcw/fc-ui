@@ -148,12 +148,15 @@ impl SearchInput {
     pub fn new(cx: &mut Context<Self>) -> Self {
         let state = cx.new(SearchInputState::new);
 
-        let state_clone = state.clone();
+        let state_weak = state.downgrade();
         let input_entity = state.read(cx).input.clone();
         cx.subscribe(&input_entity, move |_this, _input, event, cx| match event {
             InputEvent::Change => {
-                let query = state_clone.read(cx).input.read(cx).content().to_string();
-                let handler = state_clone.read(cx).on_search.clone();
+                let Some(state) = state_weak.upgrade() else {
+                    return;
+                };
+                let query = state.read(cx).input.read(cx).content().to_string();
+                let handler = state.read(cx).on_search.clone();
                 if let Some(handler) = handler {
                     cx.defer(move |cx| {
                         handler(&query, cx);

@@ -232,9 +232,14 @@ impl RenderOnce for HotkeyInput {
 
         let state_data = self.state.read(cx);
         let hotkey = state_data.hotkey.clone();
-        let recording = state_data.recording;
+        let mut recording = state_data.recording;
         let focus_handle = state_data.focus_handle(cx);
         let is_focused = focus_handle.is_focused(window);
+
+        if recording && !is_focused {
+            self.state.update(cx, |state, cx| state.stop_recording(cx));
+            recording = false;
+        }
 
         let display_text: SharedString = if recording {
             "Press a key...".into()

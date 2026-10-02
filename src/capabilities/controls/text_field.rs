@@ -1,5 +1,8 @@
 //! Text field component - Simple text input field.
 
+#![allow(deprecated)]
+
+use crate::capabilities::controls::text_util;
 use crate::capabilities::foundation::theme::use_theme;
 use gpui::{prelude::FluentBuilder as _, *};
 use std::ops::Range;
@@ -59,10 +62,9 @@ impl EntityInputHandler for TextFieldState {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<String> {
-        actual_range.replace(range_utf16.clone());
-        let start = range_utf16.start.min(self.text.len());
-        let end = range_utf16.end.min(self.text.len());
-        Some(self.text[start..end].to_string())
+        let range = text_util::range_from_utf16(&self.text, &range_utf16);
+        actual_range.replace(text_util::range_to_utf16(&self.text, &range));
+        Some(self.text[range].to_string())
     }
 
     fn selected_text_range(
@@ -71,8 +73,9 @@ impl EntityInputHandler for TextFieldState {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<UTF16Selection> {
+        let position = text_util::offset_to_utf16(&self.text, self.cursor_position);
         Some(UTF16Selection {
-            range: self.cursor_position..self.cursor_position,
+            range: position..position,
             reversed: false,
         })
     }
@@ -82,7 +85,9 @@ impl EntityInputHandler for TextFieldState {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<Range<usize>> {
-        self.marked_range.clone()
+        self.marked_range
+            .as_ref()
+            .map(|range| text_util::range_to_utf16(&self.text, range))
     }
 
     fn unmark_text(&mut self, _window: &mut Window, _cx: &mut Context<Self>) {
@@ -96,11 +101,10 @@ impl EntityInputHandler for TextFieldState {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(range) = range_utf16 {
-            let start = range.start.min(self.text.len());
-            let end = range.end.min(self.text.len());
-            self.text.replace_range(start..end, new_text);
-            self.cursor_position = start + new_text.len();
+        if let Some(range_utf16) = range_utf16 {
+            let range = text_util::range_from_utf16(&self.text, &range_utf16);
+            self.text.replace_range(range.clone(), new_text);
+            self.cursor_position = range.start + new_text.len();
         } else {
             self.insert_text(new_text, cx);
         }
@@ -115,19 +119,19 @@ impl EntityInputHandler for TextFieldState {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(range) = range_utf16 {
-            let start = range.start.min(self.text.len());
-            let end = range.end.min(self.text.len());
-            self.text.replace_range(start..end, new_text);
-            self.cursor_position = start + new_text.len();
+        if let Some(range_utf16) = range_utf16 {
+            let range = text_util::range_from_utf16(&self.text, &range_utf16);
+            self.text.replace_range(range.clone(), new_text);
+            self.cursor_position = range.start + new_text.len();
+
+            if let Some(sel_range) = new_selected_range_utf16 {
+                self.cursor_position =
+                    range.start + text_util::offset_from_utf16(new_text, sel_range.end);
+            }
 
             if !new_text.is_empty() {
-                self.marked_range = Some(start..start + new_text.len());
+                self.marked_range = Some(range.start..range.start + new_text.len());
             }
-        }
-
-        if let Some(sel_range) = new_selected_range_utf16 {
-            self.cursor_position = sel_range.end.min(self.text.len());
         }
 
         cx.notify();
@@ -160,6 +164,8 @@ impl Render for TextFieldState {
 }
 
 #[derive(IntoElement)]
+#[deprecated(note = "TextField is incomplete; use Input instead")]
+#[allow(deprecated)]
 pub struct TextField {
     state: Entity<TextFieldState>,
     size: TextFieldSize,
@@ -169,6 +175,7 @@ pub struct TextField {
     style: StyleRefinement,
 }
 
+#[allow(deprecated)]
 impl TextField {
     pub fn new(cx: &mut App) -> Self {
         let state = cx.new(TextFieldState::new);
@@ -218,12 +225,14 @@ impl TextField {
     }
 }
 
+#[allow(deprecated)]
 impl Styled for TextField {
     fn style(&mut self) -> &mut StyleRefinement {
         &mut self.style
     }
 }
 
+#[allow(deprecated)]
 impl RenderOnce for TextField {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = use_theme(cx);

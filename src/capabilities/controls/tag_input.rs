@@ -1,3 +1,4 @@
+use crate::capabilities::controls::text_util;
 use crate::capabilities::foundation::theme::use_theme;
 use gpui::{prelude::FluentBuilder as _, *};
 use std::rc::Rc;
@@ -101,6 +102,25 @@ impl TagInputState {
             false
         }
     }
+
+    /// Handle Backspace. Returns true when either pending text or a tag was
+    /// actually removed.
+    fn backspace(&mut self, cx: &mut Context<Self>) -> bool {
+        if !self.input_value.is_empty() {
+            let start =
+                text_util::previous_grapheme_boundary(&self.input_value, self.input_value.len());
+            self.input_value.truncate(start);
+            cx.notify();
+            return true;
+        }
+
+        if !self.tags.is_empty() {
+            self.remove_last_tag(cx);
+            return true;
+        }
+
+        false
+    }
 }
 
 impl Focusable for TagInputState {
@@ -203,8 +223,51 @@ impl RenderOnce for TagInput {
                     })
                     .rounded(theme.tokens.radius_md)
                     .when(self.disabled, |d| d.opacity(0.5))
-                    .when(!self.disabled, |d| {
-                        d.track_focus(&focus_handle.tab_index(0).tab_stop(true))
+                    .when(!self.disabled, {
+                        let state = state.clone();
+                        let on_change = self.on_change.clone();
+                        move |d| {
+                            d.track_focus(&focus_handle.tab_index(0).tab_stop(true))
+                                .on_key_down(move |event: &KeyDownEvent, window, cx| {
+                                    match event.keystroke.key.as_str() {
+                                        "enter" => {
+                                            state.update(cx, |s, cx| {
+                                                if s.commit_input(cx) {
+                                                    if let Some(ref handler) = on_change {
+                                                        handler(&s.tags, window, cx);
+                                                    }
+                                                }
+                                            });
+                                            cx.stop_propagation();
+                                        }
+                                        "backspace" => {
+                                            state.update(cx, |s, cx| {
+                                                let had_input = !s.input_value.is_empty();
+                                                if s.backspace(cx) {
+                                                    if !had_input {
+                                                        if let Some(ref handler) = on_change {
+                                                            handler(&s.tags, window, cx);
+                                                        }
+                                                    }
+                                                    cx.stop_propagation();
+                                                }
+                                            });
+                                        }
+                                        _ => {
+                                            if let Some(key_char) = &event.keystroke.key_char {
+                                                if !event.keystroke.modifiers.platform
+                                                    && !event.keystroke.modifiers.control
+                                                {
+                                                    state.update(cx, |s, cx| {
+                                                        s.input_value.push_str(key_char);
+                                                        cx.notify();
+                                                    });
+                                                }
+                                            }
+                                        }
+                                    }
+                                })
+                        }
                     })
                     .children(tags.iter().enumerate().map(|(idx, tag)| {
                         let state_for_remove = state.clone();
@@ -246,8 +309,6 @@ impl RenderOnce for TagInput {
                             })
                     }))
                     .when(!self.disabled, {
-                        let state_for_input = state.clone();
-                        let on_change = self.on_change.clone();
                         let placeholder = self.placeholder.clone();
 
                         move |container| {
@@ -263,40 +324,6 @@ impl RenderOnce for TagInput {
                                             theme.tokens.foreground
                                         })
                                         .font_family(theme.tokens.font_family.clone())
-                                        .on_key_down({
-                                            let state = state_for_input.clone();
-                                            let on_change = on_change.clone();
-                                            move |event, window, cx| match event
-                                                .keystroke
-                                                .key
-                                                .as_str()
-                                            {
-                                                "enter" => {
-                                                    state.update(cx, |s, cx| {
-                                                        if s.commit_input(cx) {
-                                                            if let Some(ref handler) = on_change {
-                                                                handler(&s.tags, window, cx);
-                                                            }
-                                                        }
-                                                    });
-                                                    cx.stop_propagation();
-                                                }
-                                                "backspace" => {
-                                                    state.update(cx, |s, cx| {
-                                                        if s.input_value.is_empty()
-                                                            && !s.tags.is_empty()
-                                                        {
-                                                            s.remove_last_tag(cx);
-                                                            if let Some(ref handler) = on_change {
-                                                                handler(&s.tags, window, cx);
-                                                            }
-                                                            cx.stop_propagation();
-                                                        }
-                                                    });
-                                                }
-                                                _ => {}
-                                            }
-                                        })
                                         .child(if input_value.is_empty() {
                                             placeholder.to_string()
                                         } else {
@@ -307,5 +334,45 @@ impl RenderOnce for TagInput {
                         }
                     }),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[gpui::test]
+    fn backspace_removes_pending_unicode_graphemes() {
+        let mut app = TestApp::new();
+        let state = app.update(|cx| cx.new(TagInputState::new));
+
+        app.update(|cx| {
+            state.update(cx, |state, cx| {
+                state.set_input_value("中😀x", cx);
+                assert!(state.backspace(cx));
+                assert_eq!(state.input_value(), "中😀");
+                assert!(state.backspace(cx));
+                assert_eq!(state.input_value(), "中");
+                assert!(state.backspace(cx));
+                assert_eq!(state.input_value(), "");
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn backspace_removes_last_tag_when_pending_text_is_empty() {
+        let mut app = TestApp::new();
+        let state =
+            app.update(|cx| cx.new(|cx| TagInputState::with_tags(cx, vec!["first", "second"])));
+
+        app.update(|cx| {
+            state.update(cx, |state, cx| {
+                assert!(state.backspace(cx));
+                assert_eq!(state.tags(), &[SharedString::from("first")]);
+                assert!(state.backspace(cx));
+                assert!(state.tags().is_empty());
+                assert!(!state.backspace(cx));
+            });
+        });
     }
 }

@@ -85,7 +85,7 @@ pub enum InputSize {
 #[derive(IntoElement)]
 pub struct Input {
     state: Entity<InputState>,
-    placeholder: SharedString,
+    placeholder: Option<SharedString>,
     variant: InputVariant,
     size: InputSize,
     disabled: bool,
@@ -128,7 +128,7 @@ impl Input {
     pub fn new(state: &Entity<InputState>) -> Self {
         Self {
             state: state.clone(),
-            placeholder: "".into(),
+            placeholder: None,
             variant: InputVariant::Default,
             size: InputSize::default(),
             disabled: false,
@@ -189,7 +189,7 @@ impl Input {
 
     /// Set placeholder text
     pub fn placeholder(mut self, placeholder: impl Into<SharedString>) -> Self {
-        self.placeholder = placeholder.into();
+        self.placeholder = Some(placeholder.into());
         self
     }
 
@@ -530,10 +530,12 @@ impl RenderOnce for Input {
 
         self.state.update(cx, |state, cx| {
             state.disabled = self.disabled;
-            if state.placeholder != self.placeholder {
-                state.placeholder = self.placeholder.clone();
-                if state.content().is_empty() {
-                    state.invalidate_layout_cache();
+            if let Some(placeholder) = self.placeholder.clone() {
+                if state.placeholder != placeholder {
+                    state.placeholder = placeholder;
+                    if state.content().is_empty() {
+                        state.invalidate_layout_cache();
+                    }
                 }
             }
 
@@ -680,7 +682,7 @@ impl RenderOnce for Input {
         let input_state = self.state.read(cx);
         let validation_error = input_state.validation_error.clone();
         let success_message = input_state.success_message.clone();
-        let content_length = input_state.content.len();
+        let content_length = input_state.content.chars().count();
         let max_length = input_state.validation_rules.max_length;
         let is_focused = input_state.focus_handle(cx).is_focused(window);
         let is_masked = input_state.masked;

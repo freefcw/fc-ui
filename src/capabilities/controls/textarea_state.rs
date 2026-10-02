@@ -856,8 +856,8 @@ impl EntityInputHandler for TextareaState {
         }
         self.selected_range = new_selected_range_utf16
             .as_ref()
-            .map(|r| self.range_from_utf16(r))
-            .map(|new_range| new_range.start + range.start..new_range.end + range.end)
+            .map(|r| text_util::range_from_utf16(new_text, r))
+            .map(|new_range| new_range.start + range.start..new_range.end + range.start)
             .unwrap_or_else(|| range.start + new_text.len()..range.start + new_text.len());
 
         self.selection_reversed = false;
@@ -1218,14 +1218,17 @@ impl Element for TextareaTextElement {
         cx: &mut App,
     ) {
         let focus_handle = self.state.read(cx).focus_handle.clone();
+        let disabled = self.state.read(cx).disabled;
         let line_height = window.line_height();
 
         // Register input handler — this is THE KEY to receiving keyboard input
-        window.handle_input(
-            &focus_handle,
-            ElementInputHandler::new(bounds, self.state.clone()),
-            cx,
-        );
+        if !disabled {
+            window.handle_input(
+                &focus_handle,
+                ElementInputHandler::new(bounds, self.state.clone()),
+                cx,
+            );
+        }
 
         // Paint selections
         for selection in prepaint.selections.drain(..) {

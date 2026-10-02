@@ -73,6 +73,7 @@ pub struct MentionInputState {
     pub disabled: bool,
     selected_range: Range<usize>,
     selection_reversed: bool,
+    marked_range: Option<Range<usize>>,
     last_layout: Option<gpui::ShapedLine>,
     last_bounds: Option<Bounds<Pixels>>,
     is_selecting: bool,
@@ -97,6 +98,7 @@ impl MentionInputState {
             disabled: false,
             selected_range: 0..0,
             selection_reversed: false,
+            marked_range: None,
             last_layout: None,
             last_bounds: None,
             is_selecting: false,
@@ -132,6 +134,7 @@ impl MentionInputState {
         self.content = value.into();
         self.mentions.clear();
         self.selected_range = self.content.len()..self.content.len();
+        self.marked_range = None;
         self.invalidate_layout_cache();
         cx.emit(MentionInputEvent::Change);
         cx.notify();
@@ -141,6 +144,7 @@ impl MentionInputState {
         self.content.clear();
         self.mentions.clear();
         self.selected_range = 0..0;
+        self.marked_range = None;
         self.invalidate_layout_cache();
         self.close_dropdown(cx);
         cx.emit(MentionInputEvent::Change);
@@ -170,6 +174,13 @@ impl MentionInputState {
 
         let mention_text = format!("@{} ", item.name);
         let end_pos = self.selected_range.end;
+
+        self.adjust_mentions_after_edit(
+            trigger_start,
+            end_pos.saturating_sub(trigger_start),
+            mention_text.len(),
+        );
+        self.marked_range = None;
 
         let before = &self.content[..trigger_start];
         let after = &self.content[end_pos..];
@@ -281,12 +292,12 @@ impl MentionInputState {
         let text_before = &content[..cursor];
 
         if let Some(trigger_pos) = text_before.rfind(trigger_char) {
-            let between = text_before[trigger_pos + 1..].to_string();
+            let between = text_before[trigger_pos + trigger_char.len_utf8()..].to_string();
             let has_space = between.contains(' ');
             let at_word_boundary = trigger_pos == 0
-                || text_before
+                || text_before[..trigger_pos]
                     .chars()
-                    .nth(trigger_pos.saturating_sub(1))
+                    .last()
                     .map_or(true, |c| c.is_whitespace());
 
             if !has_space && at_word_boundary {
@@ -524,10 +535,13 @@ impl EntityInputHandler for MentionInputState {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<Range<usize>> {
-        None
+        self.marked_range
+            .as_ref()
+            .map(|range| self.range_to_utf16(range))
     }
 
     fn unmark_text(&mut self, _window: &mut Window, _cx: &mut Context<Self>) {
+        self.marked_range = None;
         self.invalidate_layout_cache();
     }
 
@@ -541,6 +555,7 @@ impl EntityInputHandler for MentionInputState {
         let range = range_utf16
             .as_ref()
             .map(|range_utf16| self.range_from_utf16(range_utf16))
+            .or(self.marked_range.clone())
             .unwrap_or(self.selected_range.clone());
 
         let old_len = range.end - range.start;
@@ -553,6 +568,7 @@ impl EntityInputHandler for MentionInputState {
             &self.content[range.end..]
         );
         self.selected_range = range.start + new_text.len()..range.start + new_text.len();
+        self.marked_range.take();
 
         self.invalidate_layout_cache();
         self.check_for_trigger(cx);
@@ -571,6 +587,7 @@ impl EntityInputHandler for MentionInputState {
         let range = range_utf16
             .as_ref()
             .map(|range_utf16| self.range_from_utf16(range_utf16))
+            .or(self.marked_range.clone())
             .unwrap_or(self.selected_range.clone());
 
         let old_len = range.end - range.start;
@@ -583,10 +600,16 @@ impl EntityInputHandler for MentionInputState {
             &self.content[range.end..]
         );
 
+        if !new_text.is_empty() {
+            self.marked_range = Some(range.start..range.start + new_text.len());
+        } else {
+            self.marked_range = None;
+        }
+
         self.selected_range = new_selected_range_utf16
             .as_ref()
-            .map(|range_utf16| self.range_from_utf16(range_utf16))
-            .map(|new_range| new_range.start + range.start..new_range.end + range.end)
+            .map(|range_utf16| text_util::range_from_utf16(new_text, range_utf16))
+            .map(|new_range| new_range.start + range.start..new_range.end + range.start)
             .unwrap_or_else(|| range.start + new_text.len()..range.start + new_text.len());
 
         self.invalidate_layout_cache();
@@ -1293,12 +1316,15 @@ impl gpui::Element for MentionTextElement {
         cx: &mut App,
     ) {
         let focus_handle = self.input.read(cx).focus_handle.clone();
+        let disabled = self.input.read(cx).disabled;
 
-        window.handle_input(
-            &focus_handle,
-            ElementInputHandler::new(bounds, self.input.clone()),
-            cx,
-        );
+        if !disabled {
+            window.handle_input(
+                &focus_handle,
+                ElementInputHandler::new(bounds, self.input.clone()),
+                cx,
+            );
+        }
 
         if let Some(selection) = prepaint.selection.take() {
             window.paint_quad(selection)
