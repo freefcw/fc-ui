@@ -1,4 +1,9 @@
 //! Accordion - Collapsible content sections with smooth animations.
+//!
+//! `Accordion` is a controlled component: it keeps no open state of its own.
+//! Drive each section via `AccordionItem::open` from caller-owned state and
+//! persist the indices reported by `on_change` so the accordion is rebuilt
+//! with the new open set on the next render.
 
 use crate::capabilities::foundation::theme::use_theme;
 use crate::capabilities::primitives::icon::Icon;
@@ -78,7 +83,7 @@ impl RenderOnce for Accordion {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let _theme = use_theme(cx);
         let user_style = self.style;
-        let open_indices = Rc::new(std::cell::RefCell::new(self.open_indices));
+        let open_indices = self.open_indices;
         let multiple = self.multiple;
         let on_change = self.on_change;
 
@@ -90,7 +95,7 @@ impl RenderOnce for Accordion {
             .gap(if self.bordered { px(8.0) } else { px(0.0) })
             .children(self.items.into_iter().map(|item| {
                 let item_index = item.index;
-                let is_open = open_indices.borrow().contains(&item_index);
+                let is_open = open_indices.contains(&item_index);
                 let open_indices_clone = open_indices.clone();
                 let on_change_clone = on_change.clone();
 
@@ -98,20 +103,21 @@ impl RenderOnce for Accordion {
                     .disabled(self.disabled)
                     .is_open(is_open)
                     .on_toggle(move |is_opening, window, cx| {
-                        let mut indices = open_indices_clone.borrow_mut();
+                        let mut indices = open_indices_clone.clone();
 
                         if is_opening {
                             if !multiple {
                                 indices.clear();
+                                indices.push(item_index);
+                            } else if !indices.contains(&item_index) {
+                                indices.push(item_index);
                             }
-                            indices.push(item_index);
                         } else {
                             indices.retain(|&i| i != item_index);
                         }
 
                         if let Some(ref callback) = on_change_clone {
-                            let open_vec: Vec<usize> = indices.iter().copied().collect();
-                            callback(&open_vec, window, cx);
+                            callback(&indices, window, cx);
                         }
                     })
             }))

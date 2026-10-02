@@ -310,10 +310,21 @@ fn dispatch_link_click(
     window: &mut Window,
     cx: &mut App,
 ) {
+    if !is_allowed_link_scheme(url) {
+        return;
+    }
     match handler.as_ref() {
         Some(handler) => handler(url, window, cx),
         None => cx.open_url(url),
     }
+}
+
+fn is_allowed_link_scheme(url: &str) -> bool {
+    let url = url.trim_start();
+    ["http://", "https://", "mailto:"].iter().any(|scheme| {
+        url.get(..scheme.len())
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case(scheme))
+    })
 }
 
 pub fn render_inlines(
@@ -339,7 +350,7 @@ pub fn render_inlines(
 
     let styled = StyledText::new(SharedString::from(flattened.text)).with_runs(flattened.runs);
 
-    if !flattened.links.is_empty() && link_handler.is_some() {
+    if !flattened.links.is_empty() {
         let id = element_id.unwrap_or_else(|| ElementId::Name("rich-text-inline".into()));
         let click_ranges: Vec<std::ops::Range<usize>> =
             flattened.links.iter().map(|l| l.range.clone()).collect();
@@ -807,6 +818,27 @@ mod tests {
 
         window.update(|_, window, cx| {
             dispatch_link_click(&handler, "https://example.com", window, cx);
+        });
+
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[gpui::test]
+    fn disallowed_link_schemes_are_ignored() {
+        let calls = Rc::new(Cell::new(0));
+        let calls_for_handler = calls.clone();
+        let handler: Option<LinkClickHandler> = Some(Rc::new(move |_, _, _| {
+            calls_for_handler.set(calls_for_handler.get() + 1);
+        }));
+        let none_handler: Option<LinkClickHandler> = None;
+        let mut app = TestApp::new();
+        let mut window = app.open_window(|_, _| Empty);
+
+        window.update(|_, window, cx| {
+            dispatch_link_click(&handler, "javascript:alert(1)", window, cx);
+            dispatch_link_click(&handler, "ftp://example.com/file", window, cx);
+            dispatch_link_click(&none_handler, "file:///etc/passwd", window, cx);
+            dispatch_link_click(&handler, "mailto:user@example.com", window, cx);
         });
 
         assert_eq!(calls.get(), 1);

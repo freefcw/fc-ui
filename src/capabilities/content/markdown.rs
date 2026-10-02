@@ -123,6 +123,7 @@ struct ListState {
     items: Vec<ListItem>,
     current_item_inlines: Vec<RichInline>,
     current_item_checked: Option<bool>,
+    current_item_children: Vec<ListItem>,
 }
 
 #[cfg(feature = "markdown")]
@@ -244,12 +245,14 @@ impl UrlTrackingBlockBuilder {
                     items: Vec::new(),
                     current_item_inlines: Vec::new(),
                     current_item_checked: None,
+                    current_item_children: Vec::new(),
                 });
             }
             Tag::Item => {
                 if let Some(list) = self.list_stack.last_mut() {
                     list.current_item_inlines.clear();
                     list.current_item_checked = None;
+                    list.current_item_children.clear();
                 }
                 self.inline_stack.push(Vec::new());
             }
@@ -352,7 +355,7 @@ impl UrlTrackingBlockBuilder {
                     list.items.push(ListItem {
                         checked: list.current_item_checked,
                         content: inlines,
-                        children: Vec::new(),
+                        children: std::mem::take(&mut list.current_item_children),
                     });
                 }
             }
@@ -380,7 +383,7 @@ impl UrlTrackingBlockBuilder {
                 let alt_inlines = self.inline_stack.pop().unwrap_or_default();
                 let alt = inlines_to_plain_text(&alt_inlines);
                 let url = self.url_stack.pop().unwrap_or_default();
-                self.push_block(RichBlock::Image { alt, url });
+                self.push_inline(RichInline::Image { alt, url });
             }
             TagEnd::Table => {
                 if let Some(ts) = self.table_state.take() {
@@ -430,6 +433,21 @@ impl UrlTrackingBlockBuilder {
     }
 
     fn push_block(&mut self, block: RichBlock) {
+        if let Some(list) = self.list_stack.last_mut() {
+            match block {
+                RichBlock::OrderedList { items, .. } | RichBlock::UnorderedList { items, .. } => {
+                    list.current_item_children.extend(items);
+                    return;
+                }
+                RichBlock::Paragraph(inlines) => {
+                    if let Some(current) = self.inline_stack.last_mut() {
+                        current.extend(inlines);
+                    }
+                    return;
+                }
+                _ => {}
+            }
+        }
         if self.blockquote_depth > 0 {
             if let Some(blocks) = self.blockquote_blocks.last_mut() {
                 blocks.push(block);
@@ -483,5 +501,62 @@ mod tests {
         cx.simulate_mouse_up(link_position, MouseButton::Left, Modifiers::none());
 
         assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
+    fn nested_list_attaches_to_parent_item() {
+        use super::parse_markdown_with_urls;
+        use crate::capabilities::content::rich_text::{RichBlock, RichInline};
+
+        let blocks = parse_markdown_with_urls("- a\n  - b");
+        assert_eq!(blocks.len(), 1);
+        match &blocks[0] {
+            RichBlock::UnorderedList { items } => {
+                assert_eq!(items.len(), 1);
+                assert!(matches!(&items[0].content[0], RichInline::Text(t) if t == "a"));
+                assert_eq!(items[0].children.len(), 1);
+                assert!(
+                    matches!(&items[0].children[0].content[0], RichInline::Text(t) if t == "b")
+                );
+            }
+            other => panic!("expected unordered list, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn loose_list_item_content_stays_in_item() {
+        use super::parse_markdown_with_urls;
+        use crate::capabilities::content::rich_text::{RichBlock, RichInline};
+
+        let blocks = parse_markdown_with_urls("- a\n\n- b");
+        assert_eq!(blocks.len(), 1);
+        match &blocks[0] {
+            RichBlock::UnorderedList { items } => {
+                assert_eq!(items.len(), 2);
+                assert!(matches!(&items[0].content[0], RichInline::Text(t) if t == "a"));
+                assert!(matches!(&items[1].content[0], RichInline::Text(t) if t == "b"));
+            }
+            other => panic!("expected unordered list, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn inline_image_stays_in_paragraph_flow() {
+        use super::parse_markdown_with_urls;
+        use crate::capabilities::content::rich_text::{RichBlock, RichInline};
+
+        let blocks = parse_markdown_with_urls("文字 ![x](u) 后缀");
+        assert_eq!(blocks.len(), 1);
+        match &blocks[0] {
+            RichBlock::Paragraph(inlines) => {
+                assert_eq!(inlines.len(), 3);
+                assert!(matches!(&inlines[0], RichInline::Text(t) if t == "文字 "));
+                assert!(
+                    matches!(&inlines[1], RichInline::Image { alt, url } if alt == "x" && url == "u")
+                );
+                assert!(matches!(&inlines[2], RichInline::Text(t) if t == " 后缀"));
+            }
+            other => panic!("expected paragraph, got {:?}", other),
+        }
     }
 }

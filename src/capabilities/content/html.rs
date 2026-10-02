@@ -119,8 +119,12 @@ fn find_body(node: &Handle) -> Option<Handle> {
 #[cfg(feature = "html-render")]
 fn flush_inlines(pending: &mut Vec<RichInline>, blocks: &mut Vec<RichBlock>) {
     if !pending.is_empty() {
-        let inlines = std::mem::take(pending);
-        blocks.push(RichBlock::Paragraph(inlines));
+        let mut inlines = std::mem::take(pending);
+        collapse_boundary_spaces(&mut inlines);
+        trim_inlines(&mut inlines);
+        if !inlines.is_empty() {
+            blocks.push(RichBlock::Paragraph(inlines));
+        }
     }
 }
 
@@ -139,7 +143,7 @@ fn walk_children_blocks(node: &Handle) -> Vec<RichBlock> {
                 match tag {
                     "p" | "div" => {
                         flush_inlines(&mut pending_inlines, &mut blocks);
-                        let inlines = walk_children_inlines(child);
+                        let inlines = walk_block_inlines(child);
                         if !inlines.is_empty() {
                             blocks.push(RichBlock::Paragraph(inlines));
                         }
@@ -147,7 +151,7 @@ fn walk_children_blocks(node: &Handle) -> Vec<RichBlock> {
                     "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
                         flush_inlines(&mut pending_inlines, &mut blocks);
                         let level = tag.as_bytes()[1] - b'0';
-                        let inlines = walk_children_inlines(child);
+                        let inlines = walk_block_inlines(child);
                         blocks.push(RichBlock::Heading {
                             level,
                             content: inlines,
@@ -201,7 +205,7 @@ fn walk_children_blocks(node: &Handle) -> Vec<RichBlock> {
                 }
             }
             NodeData::Text { contents } => {
-                let text = contents.borrow().to_string();
+                let text = collapse_html_whitespace(&contents.borrow());
                 if !text.trim().is_empty() {
                     pending_inlines.push(RichInline::Text(text));
                 }
@@ -221,7 +225,7 @@ fn walk_children_inlines(node: &Handle) -> Vec<RichInline> {
     for child in node.children.borrow().iter() {
         match &child.data {
             NodeData::Text { contents } => {
-                let text = contents.borrow().to_string();
+                let text = collapse_html_whitespace(&contents.borrow());
                 if !text.is_empty() {
                     inlines.push(RichInline::Text(text));
                 }
@@ -285,6 +289,7 @@ fn walk_children_inlines(node: &Handle) -> Vec<RichInline> {
                             inlines.extend(children);
                         }
                     }
+                    "ul" | "ol" => {}
                     _ => {
                         let children = walk_children_inlines(child);
                         inlines.extend(children);
@@ -295,7 +300,166 @@ fn walk_children_inlines(node: &Handle) -> Vec<RichInline> {
         }
     }
 
+    collapse_boundary_spaces(&mut inlines);
     inlines
+}
+
+#[cfg(feature = "html-render")]
+fn walk_block_inlines(node: &Handle) -> Vec<RichInline> {
+    let mut inlines = walk_children_inlines(node);
+    trim_inlines(&mut inlines);
+    inlines
+}
+
+#[cfg(feature = "html-render")]
+fn collapse_html_whitespace(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut in_whitespace = false;
+    for ch in text.chars() {
+        if ch.is_whitespace() {
+            if !in_whitespace {
+                out.push(' ');
+                in_whitespace = true;
+            }
+        } else {
+            out.push(ch);
+            in_whitespace = false;
+        }
+    }
+    out
+}
+
+#[cfg(feature = "html-render")]
+fn starts_with_space(inline: &RichInline) -> bool {
+    match inline {
+        RichInline::Text(s) => s.starts_with(' '),
+        RichInline::Bold(children)
+        | RichInline::Italic(children)
+        | RichInline::Strikethrough(children) => children.first().is_some_and(starts_with_space),
+        RichInline::Link { text, .. } => text.first().is_some_and(starts_with_space),
+        RichInline::Styled { children, .. } => children.first().is_some_and(starts_with_space),
+        _ => false,
+    }
+}
+
+#[cfg(feature = "html-render")]
+fn ends_with_space(inline: &RichInline) -> bool {
+    match inline {
+        RichInline::Text(s) => s.ends_with(' '),
+        RichInline::Bold(children)
+        | RichInline::Italic(children)
+        | RichInline::Strikethrough(children) => children.last().is_some_and(ends_with_space),
+        RichInline::Link { text, .. } => text.last().is_some_and(ends_with_space),
+        RichInline::Styled { children, .. } => children.last().is_some_and(ends_with_space),
+        _ => false,
+    }
+}
+
+#[cfg(feature = "html-render")]
+fn strip_leading_space(inline: &mut RichInline) {
+    match inline {
+        RichInline::Text(s) => {
+            *s = s.trim_start().to_string();
+        }
+        RichInline::Bold(children)
+        | RichInline::Italic(children)
+        | RichInline::Strikethrough(children) => {
+            if let Some(first) = children.first_mut() {
+                strip_leading_space(first);
+            }
+        }
+        RichInline::Link { text, .. } => {
+            if let Some(first) = text.first_mut() {
+                strip_leading_space(first);
+            }
+        }
+        RichInline::Styled { children, .. } => {
+            if let Some(first) = children.first_mut() {
+                strip_leading_space(first);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[cfg(feature = "html-render")]
+fn strip_trailing_space(inline: &mut RichInline) {
+    match inline {
+        RichInline::Text(s) => {
+            *s = s.trim_end().to_string();
+        }
+        RichInline::Bold(children)
+        | RichInline::Italic(children)
+        | RichInline::Strikethrough(children) => {
+            if let Some(last) = children.last_mut() {
+                strip_trailing_space(last);
+            }
+        }
+        RichInline::Link { text, .. } => {
+            if let Some(last) = text.last_mut() {
+                strip_trailing_space(last);
+            }
+        }
+        RichInline::Styled { children, .. } => {
+            if let Some(last) = children.last_mut() {
+                strip_trailing_space(last);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[cfg(feature = "html-render")]
+fn is_empty_text(inline: &RichInline) -> bool {
+    matches!(inline, RichInline::Text(s) if s.is_empty())
+}
+
+#[cfg(feature = "html-render")]
+fn collapse_boundary_spaces(inlines: &mut Vec<RichInline>) {
+    let mut after_space = false;
+    let mut i = 0;
+    while i < inlines.len() {
+        if after_space && starts_with_space(&inlines[i]) {
+            strip_leading_space(&mut inlines[i]);
+            if is_empty_text(&inlines[i]) {
+                inlines.remove(i);
+                continue;
+            }
+        }
+        after_space = ends_with_space(&inlines[i]);
+        i += 1;
+    }
+}
+
+#[cfg(feature = "html-render")]
+fn trim_inlines(inlines: &mut Vec<RichInline>) {
+    loop {
+        match inlines.first() {
+            Some(first) if starts_with_space(first) => {
+                strip_leading_space(&mut inlines[0]);
+                if is_empty_text(&inlines[0]) {
+                    inlines.remove(0);
+                } else {
+                    break;
+                }
+            }
+            _ => break,
+        }
+    }
+    loop {
+        match inlines.last() {
+            Some(last) if ends_with_space(last) => {
+                let idx = inlines.len() - 1;
+                strip_trailing_space(&mut inlines[idx]);
+                if is_empty_text(&inlines[idx]) {
+                    inlines.pop();
+                } else {
+                    break;
+                }
+            }
+            _ => break,
+        }
+    }
 }
 
 #[cfg(feature = "html-render")]
@@ -323,7 +487,7 @@ fn walk_list_items(node: &Handle) -> Vec<ListItem> {
     for child in node.children.borrow().iter() {
         if let NodeData::Element { name, .. } = &child.data {
             if name.local.as_ref() == "li" {
-                let inlines = walk_children_inlines(child);
+                let inlines = walk_block_inlines(child);
                 let mut sub_items = Vec::new();
 
                 for sub in child.children.borrow().iter() {
@@ -409,7 +573,7 @@ fn walk_table_cells(
         if let NodeData::Element { name, .. } = &child.data {
             let tag = name.local.as_ref();
             if tag == "th" || tag == "td" {
-                let inlines = walk_children_inlines(child);
+                let inlines = walk_block_inlines(child);
                 cells.push(inlines);
 
                 if is_header {
@@ -742,5 +906,45 @@ mod tests {
         cx.simulate_mouse_up(link_position, MouseButton::Left, Modifiers::none());
 
         assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
+    fn nested_list_text_is_not_duplicated_in_parent_item() {
+        use super::parse_html;
+        use crate::capabilities::content::rich_text::{RichBlock, RichInline};
+
+        let blocks = parse_html("<ul><li>a\n  <ul><li>b</li></ul>\n</li></ul>");
+        assert_eq!(blocks.len(), 1);
+        match &blocks[0] {
+            RichBlock::UnorderedList { items } => {
+                assert_eq!(items.len(), 1);
+                assert_eq!(items[0].content.len(), 1);
+                assert!(matches!(&items[0].content[0], RichInline::Text(t) if t == "a"));
+                assert_eq!(items[0].children.len(), 1);
+                assert!(
+                    matches!(&items[0].children[0].content[0], RichInline::Text(t) if t == "b")
+                );
+            }
+            other => panic!("expected unordered list, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn inline_whitespace_collapses_and_trims_at_block_edges() {
+        use super::parse_html;
+        use crate::capabilities::content::rich_text::{RichBlock, RichInline};
+
+        let blocks = parse_html("<p>\n  hello\n   <strong>world</strong>\n</p>");
+        assert_eq!(blocks.len(), 1);
+        match &blocks[0] {
+            RichBlock::Paragraph(inlines) => {
+                assert_eq!(inlines.len(), 2);
+                assert!(matches!(&inlines[0], RichInline::Text(t) if t == "hello "));
+                assert!(
+                    matches!(&inlines[1], RichInline::Bold(children) if children.len() == 1 && matches!(&children[0], RichInline::Text(t) if t == "world"))
+                );
+            }
+            other => panic!("expected paragraph, got {:?}", other),
+        }
     }
 }
