@@ -27,6 +27,12 @@ struct PendingScroll {
 /// The list layer must use the same formula as the scroll container it wraps.
 /// If the two disagree, the list paints a frame from an offset GPUI is about to
 /// reject, producing a visible jump on the next frame.
+///
+/// Callers must pass padding already snapped to the device-pixel grid
+/// (`Window::pixel_snap`), matching upstream's `clamp_scroll_position` after
+/// the phantom-scrollbar fix: layout snaps authored padding, so the recomputed
+/// value must be snapped too or a fitting container looks scrollable by a
+/// sub-pixel amount.
 fn scroll_max(
     content_size: Size<Pixels>,
     padding: Edges<Pixels>,
@@ -389,9 +395,12 @@ impl Element for UniformVirtualList {
             .interactivity()
             .compute_style(global_id, None, window, cx);
         let border = style.border_widths.to_pixels(window.rem_size());
+        // Layout snaps authored padding to the device-pixel grid, so every
+        // recomputation of it (content bounds, scroll max) must snap too.
         let padding = style
             .padding
-            .to_pixels(bounds.size.into(), window.rem_size());
+            .to_pixels(bounds.size.into(), window.rem_size())
+            .map(|edge| window.pixel_snap(*edge));
 
         let content_bounds = Bounds::from_corners(
             bounds.origin + point(border.left + padding.left, border.top + padding.top),
@@ -953,9 +962,12 @@ impl<P: ItemExtentProvider + 'static> Element for VariableVirtualList<P> {
             .interactivity()
             .compute_style(global_id, None, window, cx);
         let border = style.border_widths.to_pixels(window.rem_size());
+        // Layout snaps authored padding to the device-pixel grid, so every
+        // recomputation of it (content bounds, scroll max) must snap too.
         let padding = style
             .padding
-            .to_pixels(bounds.size.into(), window.rem_size());
+            .to_pixels(bounds.size.into(), window.rem_size())
+            .map(|edge| window.pixel_snap(*edge));
 
         let content_bounds = Bounds::from_corners(
             bounds.origin + point(border.left + padding.left, border.top + padding.top),

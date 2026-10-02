@@ -335,8 +335,12 @@ impl RenderOnce for SplitPane {
         );
 
         let container_mouse_up =
-            window.listener_for(&state_for_up, move |state, _: &MouseUpEvent, _, _cx| {
-                state.is_dragging = false;
+            window.listener_for(&state_for_up, move |state, _: &MouseUpEvent, _, cx| {
+                if state.is_dragging {
+                    state.is_dragging = false;
+                    cx.emit(SplitPaneEvent::Resized { ratio: state.ratio });
+                    cx.notify();
+                }
             });
 
         let mut container = div()

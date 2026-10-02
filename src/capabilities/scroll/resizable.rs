@@ -751,19 +751,18 @@ impl Element for ResizePanelGroupElement {
         _: &mut Self::RequestLayoutState,
         _: &mut Self::PrepaintState,
         window: &mut Window,
-        cx: &mut App,
+        _cx: &mut App,
     ) {
         window.on_mouse_event({
             let state = self.state.clone();
             let axis = self.axis;
-            let current_ix = state.read(cx).resizing_panel_ix;
 
             move |event: &MouseMoveEvent, phase, window, cx| {
                 if !phase.bubble() {
                     return;
                 }
 
-                let Some(panel_index) = current_ix else {
+                let Some(panel_index) = state.read(cx).resizing_panel_ix else {
                     return;
                 };
 
@@ -784,10 +783,9 @@ impl Element for ResizePanelGroupElement {
 
         window.on_mouse_event({
             let state = self.state.clone();
-            let current_ix = state.read(cx).resizing_panel_ix;
 
             move |_: &MouseUpEvent, phase, _, cx| {
-                if current_ix.is_none() {
+                if state.read(cx).resizing_panel_ix.is_none() {
                     return;
                 }
 

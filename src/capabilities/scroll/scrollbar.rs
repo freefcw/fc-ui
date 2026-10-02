@@ -1,6 +1,10 @@
 //! Scrollbar component - Scrollbar control for scrollable containers.
 
-use std::{cell::Cell, rc::Rc, time::Instant};
+use std::{
+    cell::Cell,
+    rc::Rc,
+    time::{Duration, Instant},
+};
 
 use gpui::{
     fill, point, px, relative, size, App, Axis, Bounds, ContentMask, Corner, CursorStyle, Element,
@@ -478,6 +482,24 @@ impl Element for Scrollbar {
 
         if !is_visible && !self.always_visible {
             return;
+        }
+
+        if !self.always_visible {
+            let state = self.state.0.get();
+            if state.dragged_axis.is_none() && state.hovered_on_thumb.is_none() {
+                if let Some(last_scroll_time) = state.last_scroll_time {
+                    let remaining = FADE_OUT_DURATION - last_scroll_time.elapsed().as_secs_f32();
+                    if remaining > 0.0 {
+                        cx.spawn(async move |cx| {
+                            cx.background_executor()
+                                .timer(Duration::from_secs_f32(remaining))
+                                .await;
+                            _ = cx.update(|cx| cx.notify(view_id));
+                        })
+                        .detach();
+                    }
+                }
+            }
         }
 
         window.with_content_mask(

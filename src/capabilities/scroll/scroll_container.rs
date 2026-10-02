@@ -148,6 +148,14 @@ impl PhysicsScrollState {
         inner.generation += 1;
         let gen = inner.generation;
 
+        let max_offset = handle.max_offset();
+        inner
+            .physics_y
+            .set_bounds(0.0, f32::from(max_offset.height).max(0.0));
+        inner
+            .physics_x
+            .set_bounds(0.0, f32::from(max_offset.width).max(0.0));
+
         match direction {
             ScrollDirection::Vertical => inner.physics_y.apply_delta(-delta_y),
             ScrollDirection::Horizontal => inner.physics_x.apply_delta(-delta_x),
@@ -234,6 +242,7 @@ fn drive_physics_frame(
         }
 
         let mut offset = handle_c.offset();
+        let max_offset = handle_c.max_offset();
         let y_managed = inner.physics_y.is_moving()
             || inner.physics_y.is_overscrolled()
             || inner.scroll_target.as_ref().is_some_and(|t| t.animate_y);
@@ -241,11 +250,24 @@ fn drive_physics_frame(
             || inner.physics_x.is_overscrolled()
             || inner.scroll_target.as_ref().is_some_and(|t| t.animate_x);
 
+        // A live overshoot is the bounce animation: physics pulls it back into
+        // range. Anything else must settle inside the current scroll range so
+        // the handle cannot drift past it.
         if y_managed {
-            offset.y = px(-inner.physics_y.position());
+            let position = inner.physics_y.position();
+            offset.y = if inner.physics_y.is_overscrolled() {
+                px(-position)
+            } else {
+                px(-position).clamp(-max_offset.height, px(0.))
+            };
         }
         if x_managed {
-            offset.x = px(-inner.physics_x.position());
+            let position = inner.physics_x.position();
+            offset.x = if inner.physics_x.is_overscrolled() {
+                px(-position)
+            } else {
+                px(-position).clamp(-max_offset.width, px(0.))
+            };
         }
         handle_c.set_offset(offset);
 
@@ -279,10 +301,11 @@ impl ScrollContainer {
         let location = Location::caller();
         let auto_id = ElementId::Name(
             format!(
-                "scroll-container:{}:{}:{}",
+                "scroll-container:{}:{}:{}:{}",
                 location.file(),
                 location.line(),
-                location.column()
+                location.column(),
+                SCROLL_CONTAINER_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
             )
             .into(),
         );
@@ -327,6 +350,7 @@ impl ScrollContainer {
         self
     }
 
+    #[deprecated(note = "no-op")]
     pub fn no_auto_size(mut self) -> Self {
         self.auto_size = false;
         self
@@ -433,13 +457,17 @@ impl IntoElement for ScrollContainer {
                 ScrollDirection::Both => scrollable.overflow_scroll(),
             };
 
-            if let Some(ref physics) = self.physics_state {
-                let physics_c = physics.clone();
-                let handle_c = handle.clone();
-                let dir = self.direction;
-                scrollable = scrollable.on_scroll_wheel(move |event, window, _cx| {
-                    physics_c.handle_scroll_event(&handle_c, dir, event, window);
-                });
+            // With smooth scrolling disabled, GPUI's built-in wheel handling
+            // applies the delta directly, skipping the physics simulation.
+            if self.smooth_scroll {
+                if let Some(ref physics) = self.physics_state {
+                    let physics_c = physics.clone();
+                    let handle_c = handle.clone();
+                    let dir = self.direction;
+                    scrollable = scrollable.on_scroll_wheel(move |event, window, _cx| {
+                        physics_c.handle_scroll_event(&handle_c, dir, event, window);
+                    });
+                }
             }
 
             return scrollable;
@@ -467,13 +495,17 @@ impl IntoElement for ScrollContainer {
 
             scrollable = scrollable.relative().size_full();
 
-            if let Some(ref physics) = self.physics_state {
-                let physics_c = physics.clone();
-                let handle_c = handle.clone();
-                let dir = self.direction;
-                scrollable = scrollable.on_scroll_wheel(move |event, window, _cx| {
-                    physics_c.handle_scroll_event(&handle_c, dir, event, window);
-                });
+            // With smooth scrolling disabled, GPUI's built-in wheel handling
+            // applies the delta directly, skipping the physics simulation.
+            if self.smooth_scroll {
+                if let Some(ref physics) = self.physics_state {
+                    let physics_c = physics.clone();
+                    let handle_c = handle.clone();
+                    let dir = self.direction;
+                    scrollable = scrollable.on_scroll_wheel(move |event, window, _cx| {
+                        physics_c.handle_scroll_event(&handle_c, dir, event, window);
+                    });
+                }
             }
 
             let wrapper = div()

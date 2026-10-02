@@ -2,9 +2,9 @@
 
 use crate::capabilities::scroll::scrollbar::{Scrollbar, ScrollbarAxis, ScrollbarState};
 use gpui::{
-    div, relative, AnyElement, App, Bounds, Div, Element, ElementId, GlobalElementId,
+    div, relative, AnyElement, App, Bounds, Element, ElementId, GlobalElementId,
     InspectorElementId, InteractiveElement, Interactivity, IntoElement, LayoutId, ParentElement,
-    Pixels, Position, ScrollHandle, SharedString, Stateful, StatefulInteractiveElement, Style,
+    Pixels, Position, ScrollHandle, SharedString, StatefulInteractiveElement, Style,
     StyleRefinement, Styled, Window,
 };
 
@@ -15,7 +15,6 @@ pub struct Scrollable<E> {
     axis: ScrollbarAxis,
     always_show_scrollbars: bool,
     external_scroll_handle: Option<ScrollHandle>,
-    _element: Stateful<Div>,
 }
 
 impl<E> Scrollable<E>
@@ -27,7 +26,6 @@ where
 
         Self {
             element: Some(element),
-            _element: div().id("fake"),
             id,
             axis,
             always_show_scrollbars: false,
@@ -94,9 +92,10 @@ where
     E: Element + ParentElement,
 {
     fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
-        if let Some(element) = &mut self.element {
-            element.extend(elements);
-        }
+        self.element
+            .as_mut()
+            .expect("Scrollable: children must be added before the element is rendered")
+            .extend(elements);
     }
 }
 
@@ -105,11 +104,10 @@ where
     E: Element + Styled,
 {
     fn style(&mut self) -> &mut StyleRefinement {
-        if let Some(element) = &mut self.element {
-            element.style()
-        } else {
-            self._element.style()
-        }
+        self.element
+            .as_mut()
+            .expect("Scrollable: styling must be applied before the element is rendered")
+            .style()
     }
 }
 
@@ -118,11 +116,10 @@ where
     E: Element + InteractiveElement,
 {
     fn interactivity(&mut self) -> &mut Interactivity {
-        if let Some(element) = &mut self.element {
-            element.interactivity()
-        } else {
-            self._element.interactivity()
-        }
+        self.element
+            .as_mut()
+            .expect("Scrollable: interaction handlers must be registered before the element is rendered")
+            .interactivity()
     }
 }
 
@@ -144,7 +141,7 @@ where
     E: Element,
 {
     type RequestLayoutState = AnyElement;
-    type PrepaintState = ScrollViewState;
+    type PrepaintState = ();
 
     fn id(&self) -> Option<ElementId> {
         Some(self.id.clone())
@@ -235,7 +232,6 @@ where
         cx: &mut App,
     ) -> Self::PrepaintState {
         element.prepaint(window, cx);
-        ScrollViewState::default()
     }
 
     fn paint(

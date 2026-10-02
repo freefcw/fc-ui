@@ -1,8 +1,11 @@
 use gpui::{prelude::FluentBuilder as _, *};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::capabilities::foundation::theme::use_theme;
 use crate::capabilities::primitives::spinner::Spinner;
+
+static INFINITE_SCROLL_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum LoadingState {
@@ -87,10 +90,11 @@ impl InfiniteScroll {
         Self {
             id: ElementId::Name(
                 format!(
-                    "infinite-scroll:{}:{}:{}",
+                    "infinite-scroll:{}:{}:{}:{}",
                     location.file(),
                     location.line(),
-                    location.column()
+                    location.column(),
+                    INFINITE_SCROLL_COUNTER.fetch_add(1, Ordering::Relaxed)
                 )
                 .into(),
             ),

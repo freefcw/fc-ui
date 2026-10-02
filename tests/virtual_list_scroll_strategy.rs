@@ -409,3 +409,42 @@ fn padded_immediate_center_uses_the_padded_viewport(cx: &mut TestAppContext) {
 
     assert_eq!(handle.offset().y, px(-170.));
 }
+
+struct FractionalPaddingTestView {
+    handle: ScrollHandle,
+}
+
+impl Render for FractionalPaddingTestView {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        // 4 items of 23px plus py(4.25) snapped to 4px per side = 100px,
+        // exactly the viewport. Unsnapped padding (8.5px) would push the
+        // content 0.5px past the bounds and grow a phantom scrollbar.
+        vlist_uniform(
+            "fractional-padding-test",
+            4,
+            px(23.),
+            |range: Range<usize>, _, _| {
+                range.map(|_| div().h(px(23.)).w_full()).collect::<Vec<_>>()
+            },
+        )
+        .track_scroll(&self.handle)
+        .py(px(4.25))
+    }
+}
+
+#[gpui::test]
+fn fractional_padding_does_not_create_phantom_scroll(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    let handle = ScrollHandle::new();
+    let view: Entity<FractionalPaddingTestView> = cx.update(|_, cx| {
+        cx.new(|_| FractionalPaddingTestView {
+            handle: handle.clone(),
+        })
+    });
+    cx.draw(point(px(0.), px(0.)), size(px(100.), px(100.)), |_, _| {
+        view.into_any_element()
+    });
+
+    assert_eq!(handle.max_offset().height, px(0.));
+    assert_eq!(handle.offset().y, px(0.));
+}
