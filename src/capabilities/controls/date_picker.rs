@@ -3,7 +3,9 @@
 use gpui::{prelude::FluentBuilder as _, *};
 use std::rc::Rc;
 
-use crate::capabilities::controls::calendar::{Calendar, CalendarLocale, DateRange, DateValue};
+use crate::capabilities::controls::calendar::{
+    is_weekend, today, Calendar, CalendarLocale, DateRange, DateValue,
+};
 use crate::capabilities::foundation::theme::use_theme;
 use crate::capabilities::overlays::popover::{Popover, PopoverContent};
 use crate::capabilities::primitives::button::{Button, ButtonSize, ButtonVariant};
@@ -70,7 +72,7 @@ pub struct DatePickerState {
 
 impl DatePickerState {
     pub fn new(cx: &mut App) -> Self {
-        let today = DateValue::new(2025, 1, 23);
+        let today = today();
         Self {
             selected_date: None,
             selected_range: None,
@@ -95,7 +97,7 @@ impl DatePickerState {
     }
 
     pub fn new_with_mode(mode: DateSelectionMode, cx: &mut App) -> Self {
-        let today = DateValue::new(2025, 1, 23);
+        let today = today();
         Self {
             selected_date: None,
             selected_range: None,
@@ -172,8 +174,7 @@ impl DatePickerState {
     }
 
     pub fn jump_to_today(&mut self, _cx: &mut App) {
-        let today = DateValue::new(2025, 1, 23);
-        self.viewing_month = today;
+        self.viewing_month = today();
     }
 }
 
@@ -212,6 +213,7 @@ pub struct DatePicker {
     min_date: Option<DateValue>,
     max_date: Option<DateValue>,
     disabled_dates: Vec<DateValue>,
+    disable_weekends: bool,
     disabled: bool,
     clearable: bool,
     show_today_button: bool,
@@ -230,6 +232,7 @@ impl DatePicker {
             min_date: None,
             max_date: None,
             disabled_dates: Vec::new(),
+            disable_weekends: false,
             disabled: false,
             clearable: true,
             show_today_button: true,
@@ -277,7 +280,8 @@ impl DatePicker {
     }
 
     /// Disable weekends
-    pub fn disable_weekends(self) -> Self {
+    pub fn disable_weekends(mut self) -> Self {
+        self.disable_weekends = true;
         self
     }
 
@@ -365,6 +369,7 @@ impl RenderOnce for DatePicker {
         let min_date = self.min_date;
         let max_date = self.max_date;
         let disabled_dates = self.disabled_dates.clone();
+        let disable_weekends = self.disable_weekends;
 
         let user_style = self.style;
 
@@ -510,7 +515,10 @@ impl RenderOnce for DatePicker {
 
                                                 let is_in_disabled_list =
                                                     disabled.iter().any(|d| d == date);
-                                                is_before_min || is_after_max || is_in_disabled_list
+                                                is_before_min
+                                                    || is_after_max
+                                                    || is_in_disabled_list
+                                                    || (disable_weekends && is_weekend(date))
                                             }
                                         })
                                         .on_date_select({
@@ -545,7 +553,8 @@ impl RenderOnce for DatePicker {
                                                     disabled_dates_clone.iter().any(|d| d == date);
                                                 let is_disabled = is_before_min
                                                     || is_after_max
-                                                    || is_in_disabled_list;
+                                                    || is_in_disabled_list
+                                                    || (disable_weekends && is_weekend(date));
 
                                                 if !is_disabled {
                                                     // Check if we should close (different logic for single vs range mode)
@@ -608,7 +617,7 @@ impl RenderOnce for DatePicker {
                                                     .variant(ButtonVariant::Outline)
                                                     .size(ButtonSize::Sm)
                                                     .on_click(move |_, window, app_cx| {
-                                                        let today = DateValue::new(2025, 1, 23);
+                                                        let today = today();
                                                         state_today.update(app_cx, |state, cx| {
                                                             state.select_date(today, cx);
                                                             state.close(cx);

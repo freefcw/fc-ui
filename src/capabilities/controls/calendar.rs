@@ -2,6 +2,7 @@
 
 use gpui::{prelude::FluentBuilder as _, *};
 use std::rc::Rc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::capabilities::foundation::theme::use_theme;
 use crate::capabilities::primitives::button::{Button, ButtonSize, ButtonVariant};
@@ -216,6 +217,48 @@ pub struct DateRange {
     pub end: DateValue,
 }
 
+/// Days from civil epoch (1970-01-01) to y/m/d — Howard Hinnant's algorithm.
+fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = (y - era * 400) as u64;
+    let mp = if m > 2 { m - 3 } else { m + 9 } as u64;
+    let doy = (153 * mp + 2) / 5 + (d - 1) as u64;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe as i64 - 719_468
+}
+
+/// Civil y/m/d from days since civil epoch (1970-01-01) — Howard Hinnant's algorithm.
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = (z - era * 146_097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    (if m <= 2 { y + 1 } else { y }, m, d)
+}
+
+/// Today's date taken from the system clock (UTC-civil date, no local-zone shift).
+pub(crate) fn today() -> DateValue {
+    let days = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| (d.as_secs() / 86_400) as i64)
+        .unwrap_or(0);
+    let (year, month, day) = civil_from_days(days);
+    DateValue::new(year as i32, month, day)
+}
+
+/// Whether the date falls on a Saturday or Sunday.
+pub(crate) fn is_weekend(date: &DateValue) -> bool {
+    // Day 0 (1970-01-01) was a Thursday; shift so 0 == Sunday.
+    let weekday = (days_from_civil(date.year as i64, date.month, date.day) + 4).rem_euclid(7);
+    weekday == 0 || weekday == 6
+}
+
 #[derive(IntoElement)]
 pub struct Calendar {
     current_month: DateValue,
@@ -232,7 +275,7 @@ pub struct Calendar {
 
 impl Calendar {
     pub fn new() -> Self {
-        let current_month = DateValue::new(2025, 1, 1);
+        let current_month = today();
 
         Self {
             current_month,
@@ -350,6 +393,7 @@ impl RenderOnce for Calendar {
         let next_month_date = self.next_month();
 
         let on_month_change_handler = self.on_month_change.clone();
+        let month_nav_disabled = on_month_change_handler.is_none();
         let on_date_select_handler = self.on_date_select;
         let is_date_disabled_fn = self.is_date_disabled;
         let disabled_dates = self.disabled_dates;
@@ -384,8 +428,8 @@ impl RenderOnce for Calendar {
                         Button::new("prev-month-btn", "‹")
                             .variant(ButtonVariant::Ghost)
                             .size(ButtonSize::Sm)
-                            .when(handler.is_some(), |btn| {
-                                let handler = handler.unwrap();
+                            .disabled(month_nav_disabled)
+                            .when_some(handler, |btn, handler| {
                                 btn.on_click(move |_, window, cx| {
                                     handler(&prev_month_date, window, cx);
                                 })
@@ -405,8 +449,8 @@ impl RenderOnce for Calendar {
                         Button::new("next-month-btn", "›")
                             .variant(ButtonVariant::Ghost)
                             .size(ButtonSize::Sm)
-                            .when(handler.is_some(), |btn| {
-                                let handler = handler.unwrap();
+                            .disabled(month_nav_disabled)
+                            .when_some(handler, |btn, handler| {
                                 btn.on_click(move |_, window, cx| {
                                     handler(&next_month_date, window, cx);
                                 })

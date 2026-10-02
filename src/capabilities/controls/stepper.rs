@@ -408,7 +408,7 @@ impl Stepper {
         steps: Vec<StepItem>,
         current_step: usize,
         completed_steps: HashSet<usize>,
-        linear: bool,
+        accessible: Vec<bool>,
         user_style: StyleRefinement,
     ) -> Div {
         let steps_len = steps.len();
@@ -433,14 +433,7 @@ impl Stepper {
                     StepStatus::Pending
                 };
 
-                let is_accessible = if !linear {
-                    true
-                } else if index == 0 || index <= current_step {
-                    true
-                } else {
-                    index == current_step + 1
-                        || (index > 0 && completed_steps.contains(&(index - 1)))
-                };
+                let is_accessible = accessible.get(index).copied().unwrap_or(false);
 
                 let is_last = index == steps_len - 1;
                 let on_change = self.on_step_change.clone();
@@ -514,7 +507,7 @@ impl Stepper {
         steps: Vec<StepItem>,
         current_step: usize,
         completed_steps: HashSet<usize>,
-        linear: bool,
+        accessible: Vec<bool>,
         user_style: StyleRefinement,
     ) -> Div {
         let steps_len = steps.len();
@@ -539,14 +532,7 @@ impl Stepper {
                     StepStatus::Pending
                 };
 
-                let is_accessible = if !linear {
-                    true
-                } else if index == 0 || index <= current_step {
-                    true
-                } else {
-                    index == current_step + 1
-                        || (index > 0 && completed_steps.contains(&(index - 1)))
-                };
+                let is_accessible = accessible.get(index).copied().unwrap_or(false);
 
                 let is_last = index == steps_len - 1;
                 let on_change = self.on_step_change.clone();
@@ -635,7 +621,9 @@ impl RenderOnce for Stepper {
         let steps = state.steps.clone();
         let current_step = state.current_step;
         let completed_steps = state.completed_steps.clone();
-        let linear = state.linear;
+        let accessible: Vec<bool> = (0..steps.len())
+            .map(|index| state.is_step_accessible(index))
+            .collect();
         let user_style = self.style.clone();
 
         match self.orientation {
@@ -645,7 +633,7 @@ impl RenderOnce for Stepper {
                 steps,
                 current_step,
                 completed_steps,
-                linear,
+                accessible,
                 user_style,
             ),
             StepperOrientation::Vertical => self.render_vertical(
@@ -654,7 +642,7 @@ impl RenderOnce for Stepper {
                 steps,
                 current_step,
                 completed_steps,
-                linear,
+                accessible,
                 user_style,
             ),
         }

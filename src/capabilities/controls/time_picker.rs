@@ -118,6 +118,7 @@ impl Default for TimeValue {
 
 pub struct TimePickerState {
     value: TimeValue,
+    has_value: bool,
     format: TimeFormat,
     show_seconds: bool,
     open: bool,
@@ -128,6 +129,7 @@ impl TimePickerState {
     pub fn new(cx: &mut Context<Self>) -> Self {
         Self {
             value: TimeValue::default(),
+            has_value: false,
             format: TimeFormat::Hour24,
             show_seconds: false,
             open: false,
@@ -139,8 +141,13 @@ impl TimePickerState {
         self.value
     }
 
+    pub fn has_value(&self) -> bool {
+        self.has_value
+    }
+
     pub fn set_value(&mut self, value: TimeValue, cx: &mut Context<Self>) {
         self.value = value;
+        self.has_value = true;
         cx.notify();
     }
 
@@ -153,21 +160,25 @@ impl TimePickerState {
         if self.format == TimeFormat::Hour12 && self.value.hour == 0 {
             self.value.hour = 12;
         }
+        self.has_value = true;
         cx.notify();
     }
 
     pub fn set_minute(&mut self, minute: u8, cx: &mut Context<Self>) {
         self.value.minute = minute.min(59);
+        self.has_value = true;
         cx.notify();
     }
 
     pub fn set_second(&mut self, second: u8, cx: &mut Context<Self>) {
         self.value.second = Some(second.min(59));
+        self.has_value = true;
         cx.notify();
     }
 
     pub fn set_period(&mut self, period: TimePeriod, cx: &mut Context<Self>) {
         self.value.period = Some(period);
+        self.has_value = true;
         cx.notify();
     }
 
@@ -185,6 +196,7 @@ impl TimePickerState {
         } else {
             self.value.hour + 1
         };
+        self.has_value = true;
         cx.notify();
     }
 
@@ -202,6 +214,7 @@ impl TimePickerState {
         } else {
             self.value.hour - 1
         };
+        self.has_value = true;
         cx.notify();
     }
 
@@ -211,6 +224,7 @@ impl TimePickerState {
         } else {
             self.value.minute + 1
         };
+        self.has_value = true;
         cx.notify();
     }
 
@@ -220,12 +234,14 @@ impl TimePickerState {
         } else {
             self.value.minute - 1
         };
+        self.has_value = true;
         cx.notify();
     }
 
     pub fn increment_second(&mut self, cx: &mut Context<Self>) {
         if let Some(sec) = self.value.second {
             self.value.second = Some(if sec >= 59 { 0 } else { sec + 1 });
+            self.has_value = true;
             cx.notify();
         }
     }
@@ -233,6 +249,7 @@ impl TimePickerState {
     pub fn decrement_second(&mut self, cx: &mut Context<Self>) {
         if let Some(sec) = self.value.second {
             self.value.second = Some(if sec == 0 { 59 } else { sec - 1 });
+            self.has_value = true;
             cx.notify();
         }
     }
@@ -342,12 +359,17 @@ impl RenderOnce for TimePicker {
         let user_style = self.style;
         let state_data = self.state.read(cx);
         let is_open = state_data.open;
+        let has_value = state_data.has_value;
         let value = state_data.value;
         let format = state_data.format;
         let show_seconds = state_data.show_seconds;
         let state = self.state.clone();
 
-        let display_text = value.format_string(format);
+        let display_text: SharedString = if has_value {
+            value.format_string(format).into()
+        } else {
+            self.placeholder.clone()
+        };
 
         div()
             .relative()
@@ -374,7 +396,11 @@ impl RenderOnce for TimePicker {
                     })
                     .rounded(theme.tokens.radius_md)
                     .text_size(px(14.0))
-                    .text_color(theme.tokens.foreground)
+                    .text_color(if has_value {
+                        theme.tokens.foreground
+                    } else {
+                        theme.tokens.muted_foreground
+                    })
                     .font_family(theme.tokens.font_family.clone())
                     .when(!self.disabled, |d| d.cursor_pointer())
                     .when(self.disabled, |d| d.opacity(0.5))
