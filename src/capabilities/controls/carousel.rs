@@ -44,12 +44,28 @@ impl CarouselSize {
     }
 }
 
+fn emit_if_index_changed(
+    before: usize,
+    state: &CarouselState,
+    on_change: &Option<Rc<dyn Fn(usize, &mut Window, &mut App)>>,
+    window: &mut Window,
+    cx: &mut Context<CarouselState>,
+) {
+    if state.current_index != before {
+        if let Some(handler) = on_change {
+            handler(state.current_index, window, cx);
+        }
+    }
+}
+
 pub struct CarouselState {
     current_index: usize,
     previous_index: Option<usize>,
     slide_count: usize,
     focus_handle: FocusHandle,
     transition_id: usize,
+    auto_play_running: bool,
+    auto_play_generation: usize,
 }
 
 impl CarouselState {
@@ -60,6 +76,8 @@ impl CarouselState {
             slide_count: 0,
             focus_handle: cx.focus_handle(),
             transition_id: 0,
+            auto_play_running: false,
+            auto_play_generation: 0,
         }
     }
 
@@ -327,21 +345,40 @@ impl RenderOnce for Carousel {
         let icon_size = self.size.icon_size();
         let user_style = self.style.clone();
 
-        if self.auto_play && !self.disabled && slide_count > 1 {
-            let state_clone = self.state.clone();
+        let want_auto_play = self.auto_play && !self.disabled && slide_count > 1;
+        if want_auto_play && !state.read(cx).auto_play_running {
             let infinite = self.infinite;
             let interval = self.auto_play_interval;
+            let generation = state.update(cx, |s, _| {
+                s.auto_play_running = true;
+                s.auto_play_generation = s.auto_play_generation.wrapping_add(1);
+                s.auto_play_generation
+            });
 
-            cx.spawn({
-                let state_clone = state_clone.clone();
-                async move |cx| {
-                    cx.background_executor().timer(interval).await;
-                    _ = state_clone.update(cx, |s, cx| {
-                        s.next(infinite, cx);
-                    });
+            let state_loop = self.state.clone();
+            cx.spawn(async move |cx| loop {
+                cx.background_executor().timer(interval).await;
+                let keep_running = state_loop
+                    .update(cx, |s, cx| {
+                        if s.auto_play_running && s.auto_play_generation == generation {
+                            s.next(infinite, cx);
+                            true
+                        } else {
+                            s.auto_play_running = false;
+                            false
+                        }
+                    })
+                    .unwrap_or(false);
+                if !keep_running {
+                    break;
                 }
             })
             .detach();
+        } else if !want_auto_play && state.read(cx).auto_play_running {
+            state.update(cx, |s, _| {
+                s.auto_play_running = false;
+                s.auto_play_generation = s.auto_play_generation.wrapping_add(1);
+            });
         }
 
         div()
@@ -372,32 +409,28 @@ impl RenderOnce for Carousel {
                     move |state, event: &KeyDownEvent, window, cx| {
                         match event.keystroke.key.as_str() {
                             "left" | "ArrowLeft" => {
+                                let before = state.current_index;
                                 state.prev(infinite, cx);
-                                if let Some(ref handler) = on_change_key {
-                                    handler(state.current_index, window, cx);
-                                }
+                                emit_if_index_changed(before, state, &on_change_key, window, cx);
                                 cx.stop_propagation();
                             }
                             "right" | "ArrowRight" => {
+                                let before = state.current_index;
                                 state.next(infinite, cx);
-                                if let Some(ref handler) = on_change_key {
-                                    handler(state.current_index, window, cx);
-                                }
+                                emit_if_index_changed(before, state, &on_change_key, window, cx);
                                 cx.stop_propagation();
                             }
                             "home" | "Home" => {
+                                let before = state.current_index;
                                 state.go_to(0, infinite, cx);
-                                if let Some(ref handler) = on_change_key {
-                                    handler(state.current_index, window, cx);
-                                }
+                                emit_if_index_changed(before, state, &on_change_key, window, cx);
                                 cx.stop_propagation();
                             }
                             "end" | "End" => {
+                                let before = state.current_index;
                                 let last = state.slide_count.saturating_sub(1);
                                 state.go_to(last, infinite, cx);
-                                if let Some(ref handler) = on_change_key {
-                                    handler(state.current_index, window, cx);
-                                }
+                                emit_if_index_changed(before, state, &on_change_key, window, cx);
                                 cx.stop_propagation();
                             }
                             _ => {}
@@ -520,10 +553,15 @@ impl RenderOnce for Carousel {
                                 .on_click(window.listener_for(
                                     &state_prev,
                                     move |state, _, window, cx| {
+                                        let before = state.current_index;
                                         state.prev(infinite, cx);
-                                        if let Some(ref handler) = on_change_prev {
-                                            handler(state.current_index, window, cx);
-                                        }
+                                        emit_if_index_changed(
+                                            before,
+                                            state,
+                                            &on_change_prev,
+                                            window,
+                                            cx,
+                                        );
                                     },
                                 ))
                         })
@@ -565,10 +603,15 @@ impl RenderOnce for Carousel {
                                 .on_click(window.listener_for(
                                     &state_next,
                                     move |state, _, window, cx| {
+                                        let before = state.current_index;
                                         state.next(infinite, cx);
-                                        if let Some(ref handler) = on_change_next {
-                                            handler(state.current_index, window, cx);
-                                        }
+                                        emit_if_index_changed(
+                                            before,
+                                            state,
+                                            &on_change_next,
+                                            window,
+                                            cx,
+                                        );
                                     },
                                 ))
                         })
@@ -626,10 +669,15 @@ impl RenderOnce for Carousel {
                                         .on_click(window.listener_for(
                                             &state_dot,
                                             move |state, _, window, cx| {
+                                                let before = state.current_index;
                                                 state.go_to(idx, infinite, cx);
-                                                if let Some(ref handler) = on_change_dot {
-                                                    handler(state.current_index, window, cx);
-                                                }
+                                                emit_if_index_changed(
+                                                    before,
+                                                    state,
+                                                    &on_change_dot,
+                                                    window,
+                                                    cx,
+                                                );
                                             },
                                         ))
                                 })

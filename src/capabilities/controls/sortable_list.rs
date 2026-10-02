@@ -62,8 +62,9 @@ impl<T: Clone + 'static> SortableListState<T> {
         &self.items
     }
 
-    pub fn set_items(&mut self, items: Vec<T>) {
+    pub fn set_items(&mut self, items: Vec<T>, cx: &mut Context<Self>) {
         self.items = items;
+        cx.notify();
     }
 
     pub fn dragging_index(&self) -> Option<usize> {
@@ -133,6 +134,7 @@ impl<T: Clone + 'static> RenderOnce for SortableList<T> {
         let dragging_index = self.state.read(cx).dragging_index;
         let drag_over_bg = theme.tokens.primary.opacity(0.1);
         let indicator_color = theme.tokens.primary;
+        let instance_id = self.state.entity_id().as_u64();
 
         let mut container = div()
             .flex()
@@ -146,9 +148,12 @@ impl<T: Clone + 'static> RenderOnce for SortableList<T> {
             let state_drop = self.state.clone();
             let on_reorder = self.on_reorder.clone();
             let state_drag = self.state.clone();
+            let state_hover = self.state.clone();
 
             let item_el = div()
-                .id(ElementId::Name(format!("sortable-item-{}", idx).into()))
+                .id(ElementId::Name(
+                    format!("sortable-item-{}-{}", instance_id, idx).into(),
+                ))
                 .child(rendered)
                 .on_drag(
                     SortableItemDrag {
@@ -156,8 +161,9 @@ impl<T: Clone + 'static> RenderOnce for SortableList<T> {
                         position: Point::default(),
                     },
                     move |data: &SortableItemDrag, pos, _window, cx| {
-                        state_drag.update(cx, |s, _| {
+                        state_drag.update(cx, |s, cx| {
                             s.dragging_index = Some(data.index);
+                            cx.notify();
                         });
                         cx.new(|_| SortableItemDrag {
                             index: data.index,
@@ -165,7 +171,13 @@ impl<T: Clone + 'static> RenderOnce for SortableList<T> {
                         })
                     },
                 )
-                .drag_over::<SortableItemDrag>(move |style, _, _, _| {
+                .drag_over::<SortableItemDrag>(move |style, _, _, cx| {
+                    state_hover.update(cx, |s, cx| {
+                        if s.hover_index != Some(idx) {
+                            s.hover_index = Some(idx);
+                            cx.notify();
+                        }
+                    });
                     style
                         .bg(drag_over_bg)
                         .border_t(px(2.0))
@@ -206,9 +218,27 @@ impl<T: Clone + 'static> RenderOnce for SortableList<T> {
             container = container.child(item_el);
         }
 
-        container.map(|mut this| {
-            this.style().refine(&user_style);
-            this
-        })
+        container
+            .on_mouse_up(MouseButton::Left, clear_drag_state(&self.state))
+            .on_mouse_up_out(MouseButton::Left, clear_drag_state(&self.state))
+            .map(|mut this| {
+                this.style().refine(&user_style);
+                this
+            })
+    }
+}
+
+fn clear_drag_state<T: Clone + 'static>(
+    state: &Entity<SortableListState<T>>,
+) -> impl Fn(&MouseUpEvent, &mut Window, &mut App) + 'static {
+    let state = state.clone();
+    move |_, _, cx| {
+        state.update(cx, |s, cx| {
+            if s.dragging_index.is_some() || s.hover_index.is_some() {
+                s.dragging_index = None;
+                s.hover_index = None;
+                cx.notify();
+            }
+        });
     }
 }

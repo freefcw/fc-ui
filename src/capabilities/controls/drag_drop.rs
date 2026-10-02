@@ -79,8 +79,8 @@ impl<T: Clone + Debug + 'static> Render for DragData<T> {
         let size = gpui::size(px(250.0), px(80.0));
 
         div()
-            .pl(self.position.x - size.width / 2.0)
-            .pt(self.position.y - size.height / 2.0)
+            .pl((self.position.x - size.width / 2.0).max(px(0.0)))
+            .pt((self.position.y - size.height / 2.0).max(px(0.0)))
             .child(
                 div()
                     .flex()
@@ -338,6 +338,9 @@ impl<T: Clone + Debug + 'static> RenderOnce for DropZone<T> {
                 let mut div = this;
                 div.style().refine(&user_style);
                 div
+            })
+            .when_some(self.on_drop, |this, handler| {
+                this.on_drop(move |data, window, cx| (handler)(data, window, cx))
             })
             .children(self.children)
     }
