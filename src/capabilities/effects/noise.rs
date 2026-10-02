@@ -38,7 +38,7 @@ impl Noise {
     }
 
     pub fn grain_size(mut self, size: Pixels) -> Self {
-        self.grain_size = size;
+        self.grain_size = size.max(px(1.0));
         self
     }
 

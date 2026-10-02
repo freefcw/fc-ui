@@ -27,7 +27,7 @@ impl DotPattern {
     }
 
     pub fn spacing(mut self, spacing: impl Into<Pixels>) -> Self {
-        self.spacing = spacing.into();
+        self.spacing = spacing.into().max(px(1.0));
         self
     }
 

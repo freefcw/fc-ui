@@ -73,7 +73,7 @@ impl RenderOnce for GradientBorder {
                 self.inner
                     .flex_grow()
                     .bg(theme.tokens.card)
-                    .rounded(radius - border_w),
+                    .rounded((radius - border_w).max(px(0.0))),
             )
     }
 }

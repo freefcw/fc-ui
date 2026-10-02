@@ -79,7 +79,6 @@ impl RenderOnce for GlassMorphism {
         };
 
         let border_color = hsla(0.0, 0.0, 1.0, border_alpha);
-        let highlight_color = hsla(0.0, 0.0, 1.0, border_alpha * 0.5);
 
         let shadow = BoxShadow {
             offset: point(px(0.0), px(4.0)),
@@ -95,12 +94,9 @@ impl RenderOnce for GlassMorphism {
             .rounded(theme.tokens.radius_lg)
             .shadow(smallvec::smallvec![shadow]);
 
+        // gpui 不支持单边异色边框，统一使用单一 border_color。
         if self.show_border {
-            element = element
-                .border_1()
-                .border_color(border_color)
-                .border_t_1()
-                .border_color(highlight_color);
+            element = element.border_1().border_color(border_color);
         }
 
         let noise = self.noise;

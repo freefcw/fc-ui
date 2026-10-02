@@ -5,8 +5,7 @@ use gpui::{prelude::FluentBuilder as _, *};
 use smallvec::smallvec;
 
 pub struct TiltCardState {
-    mouse_position: Option<Point<Pixels>>,
-    #[allow(dead_code)]
+    mouse_position: Option<Point<f32>>,
     bounds: Option<Bounds<Pixels>>,
 }
 
@@ -83,8 +82,8 @@ impl RenderOnce for TiltCard {
 
         let (shadow_offset_x, shadow_offset_y, highlight_opacity) =
             if let Some(mouse) = state.mouse_position {
-                let norm_x: f32 = mouse.x / px(1.0);
-                let norm_y: f32 = mouse.y / px(1.0);
+                let norm_x = mouse.x;
+                let norm_y = mouse.y;
 
                 let offset_x = -norm_x * 8.0 * intensity;
                 let offset_y = -norm_y * 8.0 * intensity;
@@ -108,6 +107,7 @@ impl RenderOnce for TiltCard {
             inset: false,
         };
 
+        let state_bounds = self.state.clone();
         let state_move = self.state.clone();
         let state_hover = self.state.clone();
 
@@ -120,10 +120,30 @@ impl RenderOnce for TiltCard {
             .border_color(theme.tokens.border)
             .shadow(smallvec![shadow])
             .children(self.children)
+            .child(
+                canvas(
+                    move |bounds, _window, cx| {
+                        state_bounds.update(cx, |s, _| s.bounds = Some(bounds));
+                    },
+                    |_bounds, _, _window, _cx| {},
+                )
+                .absolute()
+                .inset_0()
+                .size_full(),
+            )
             .on_mouse_move(move |event: &MouseMoveEvent, _window, cx| {
                 state_move.update(cx, |s, cx| {
-                    s.mouse_position = Some(event.position);
-                    cx.notify();
+                    if let Some(bounds) = s.bounds {
+                        let width = bounds.size.width.max(px(1.0));
+                        let height = bounds.size.height.max(px(1.0));
+                        let rel_x = (event.position.x - bounds.left()) / width;
+                        let rel_y = (event.position.y - bounds.top()) / height;
+                        s.mouse_position = Some(point(
+                            (rel_x * 2.0 - 1.0).clamp(-1.0, 1.0),
+                            (rel_y * 2.0 - 1.0).clamp(-1.0, 1.0),
+                        ));
+                        cx.notify();
+                    }
                 });
             })
             .on_hover(move |hovered: &bool, _window, cx| {

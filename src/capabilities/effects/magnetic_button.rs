@@ -4,6 +4,7 @@ use gpui::{prelude::FluentBuilder as _, *};
 
 pub struct MagneticButtonState {
     mouse_offset: Point<f32>,
+    bounds: Option<Bounds<Pixels>>,
     is_hovering: bool,
 }
 
@@ -11,6 +12,7 @@ impl MagneticButtonState {
     pub fn new(_cx: &mut Context<Self>) -> Self {
         Self {
             mouse_offset: Point::default(),
+            bounds: None,
             is_hovering: false,
         }
     }
@@ -27,7 +29,6 @@ pub struct MagneticButton {
     id: ElementId,
     state: Entity<MagneticButtonState>,
     strength: f32,
-    #[allow(dead_code)]
     range: Pixels,
     style: StyleRefinement,
     children: Vec<AnyElement>,
@@ -73,16 +74,18 @@ impl RenderOnce for MagneticButton {
         let user_style = self.style;
         let state = self.state.read(cx);
         let strength = self.strength;
+        let range = self.range;
 
         let (final_x, final_y) = if state.is_hovering {
             (
-                state.mouse_offset.x * strength * 20.0,
-                state.mouse_offset.y * strength * 20.0,
+                state.mouse_offset.x * strength,
+                state.mouse_offset.y * strength,
             )
         } else {
             (0.0, 0.0)
         };
 
+        let state_bounds = self.state.clone();
         let state_move = self.state.clone();
         let state_hover = self.state.clone();
 
@@ -96,11 +99,29 @@ impl RenderOnce for MagneticButton {
                     .mt(px(final_y))
                     .children(self.children),
             )
+            .child(
+                canvas(
+                    move |bounds, _window, cx| {
+                        state_bounds.update(cx, |s, _| s.bounds = Some(bounds));
+                    },
+                    |_bounds, _, _window, _cx| {},
+                )
+                .absolute()
+                .inset_0()
+                .size_full(),
+            )
             .on_mouse_move(move |event: &MouseMoveEvent, _window, cx| {
                 state_move.update(cx, |s, cx| {
-                    s.mouse_offset.x = event.position.x / px(1.0);
-                    s.mouse_offset.y = event.position.y / px(1.0);
-                    cx.notify();
+                    if let Some(bounds) = s.bounds {
+                        let range_f32: f32 = range.into();
+                        let center_x: f32 = bounds.center().x.into();
+                        let center_y: f32 = bounds.center().y.into();
+                        let event_x: f32 = event.position.x.into();
+                        let event_y: f32 = event.position.y.into();
+                        s.mouse_offset.x = (event_x - center_x).clamp(-range_f32, range_f32);
+                        s.mouse_offset.y = (event_y - center_y).clamp(-range_f32, range_f32);
+                        cx.notify();
+                    }
                 });
             })
             .on_hover(move |hovered: &bool, _window, cx| {

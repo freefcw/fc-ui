@@ -1,4 +1,5 @@
-use gpui::*;
+use gpui::{prelude::FluentBuilder as _, *};
+use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -77,39 +78,53 @@ impl RenderOnce for Marquee {
         let gap = self.gap;
         let content_width = self.content_width;
         let direction = self.direction;
+        let pause_on_hover = self.pause_on_hover;
+        let anim_id = ElementId::Name(format!("{}-scroll", self.id).into());
 
         let copy_one = (self.render_content)();
         let copy_two = (self.render_content)();
 
-        self.base.overflow_hidden().child(
-            div()
-                .id(self.id)
-                .flex()
-                .flex_row()
-                .items_center()
-                .w(content_width * 2.0 + gap * 2.0)
-                .child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .flex_shrink_0()
-                        .w(content_width)
-                        .mr(gap)
-                        .child(copy_one),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .flex_shrink_0()
-                        .w(content_width)
-                        .mr(gap)
-                        .child(copy_two),
-                )
-                .with_animation(
-                    "marquee-scroll",
+        let hovered = Rc::new(Cell::new(false));
+        let hovered_cb = hovered.clone();
+
+        let scroll = div()
+            .id(self.id)
+            .flex()
+            .flex_row()
+            .items_center()
+            .w(content_width * 2.0 + gap * 2.0)
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .flex_shrink_0()
+                    .w(content_width)
+                    .mr(gap)
+                    .child(copy_one),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .flex_shrink_0()
+                    .w(content_width)
+                    .mr(gap)
+                    .child(copy_two),
+            );
+
+        let scroll = scroll.when(pause_on_hover, |el| {
+            el.on_hover(move |hovering: &bool, window, _cx| {
+                hovered_cb.set(*hovering);
+                window.refresh();
+            })
+        });
+
+        let scroll = scroll.map(|el| {
+            if !pause_on_hover || !hovered.get() {
+                el.with_animation(
+                    anim_id,
                     Animation::new(duration).repeat().with_easing(gpui::linear),
                     move |el, delta| {
                         let offset = total_travel * delta;
@@ -118,7 +133,13 @@ impl RenderOnce for Marquee {
                             MarqueeDirection::Right => el.left(offset - total_travel),
                         }
                     },
-                ),
-        )
+                )
+                .into_any_element()
+            } else {
+                el.into_any_element()
+            }
+        });
+
+        self.base.overflow_hidden().child(scroll)
     }
 }

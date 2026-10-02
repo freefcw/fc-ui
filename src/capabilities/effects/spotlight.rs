@@ -2,11 +2,15 @@ use gpui::{prelude::FluentBuilder as _, *};
 
 pub struct SpotlightState {
     mouse_pos: Option<Point<Pixels>>,
+    bounds: Option<Bounds<Pixels>>,
 }
 
 impl SpotlightState {
     pub fn new() -> Self {
-        Self { mouse_pos: None }
+        Self {
+            mouse_pos: None,
+            bounds: None,
+        }
     }
 }
 
@@ -71,17 +75,43 @@ impl RenderOnce for Spotlight {
         let half_size = px(f32::from(spot_size) / 2.0);
         let user_style = self.style;
 
+        let state_bounds = self.state.clone();
         let state_for_move = self.state.clone();
+        let state_for_hover = self.state.clone();
 
         let mut container = div()
             .id(self.id)
             .relative()
             .overflow_hidden()
+            .child(
+                canvas(
+                    move |bounds, _window, cx| {
+                        state_bounds.update(cx, |s, _| s.bounds = Some(bounds));
+                    },
+                    |_bounds, _, _window, _cx| {},
+                )
+                .absolute()
+                .inset_0()
+                .size_full(),
+            )
             .on_mouse_move(move |event: &MouseMoveEvent, _, cx| {
                 state_for_move.update(cx, |s, cx| {
-                    s.mouse_pos = Some(event.position);
-                    cx.notify();
+                    if let Some(bounds) = s.bounds {
+                        s.mouse_pos = Some(point(
+                            event.position.x - bounds.left(),
+                            event.position.y - bounds.top(),
+                        ));
+                        cx.notify();
+                    }
                 });
+            })
+            .on_hover(move |hovered: &bool, _window, cx| {
+                if !*hovered {
+                    state_for_hover.update(cx, |s, cx| {
+                        s.mouse_pos = None;
+                        cx.notify();
+                    });
+                }
             })
             .map(|mut el| {
                 el.style().refine(&user_style);

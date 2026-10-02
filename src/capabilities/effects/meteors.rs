@@ -136,7 +136,7 @@ impl RenderOnce for Meteors {
             let trail_f32 = trail_length / px(1.0);
             let meteor_color = color;
 
-            let time_offset = version as f32 * 0.016 * speed * speed_var;
+            let time_offset = version as f32 * 0.1 * speed * speed_var;
             let cycle_secs = duration.as_secs_f32();
             let phase = ((time_offset + delay_pct * cycle_secs) % cycle_secs) / cycle_secs;
 
