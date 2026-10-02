@@ -383,7 +383,7 @@ impl Render for AccordionStyledDemo {
                                     Accordion::new("multi-select-styled")
                                         .item(|item| {
                                             item.title("Feature 1: Multiple Open Items")
-                                                .icon("check-circle")
+                                                .icon("circle-check")
                                                 .content(div().child("This accordion allows multiple items to be open simultaneously"))
                                                 .open(true)
                                         })

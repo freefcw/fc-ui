@@ -20,7 +20,8 @@
 //! - **Limited Weights**: Only essential weights to minimize binary size
 //! - **Cross-platform**: Fonts chosen for excellent rendering across all platforms
 //! - **Performance**: Fonts loaded once at startup, cached by GPUI's text system
-//! - **Fallback**: System fonts used if custom fonts fail to load
+//! - **Fallback**: System fonts used if custom fonts fail to load (a warning
+//!   is logged to stderr instead of panicking)
 //!
 //! ## Usage
 //!
@@ -68,6 +69,8 @@ const JETBRAINS_MONO_BOLD: &[u8] = include_bytes!("../../../assets/fonts/JetBrai
 /// Register embedded fonts with GPUI
 ///
 /// Should be called during application initialization before any UI is rendered.
+/// Registration failures only log a warning; text rendering then falls back
+/// to system fonts.
 ///
 /// The set of fonts actually registered is controlled by Cargo feature flags
 /// (e.g. `bundled-fonts`, `bundled-fonts-inter-minimal`, `font-inter-regular`, ...).
@@ -99,9 +102,11 @@ pub fn register_fonts(cx: &mut App) {
     inter_fonts.push(INTER_BOLD.into());
 
     if !inter_fonts.is_empty() {
-        cx.text_system()
-            .add_fonts(inter_fonts)
-            .expect("Failed to load Inter fonts");
+        if let Err(error) = cx.text_system().add_fonts(inter_fonts) {
+            eprintln!(
+                "adabraka-ui: failed to load Inter fonts, falling back to system fonts: {error}"
+            );
+        }
     }
 
     // Register JetBrains Mono family (monospace font)
@@ -113,9 +118,9 @@ pub fn register_fonts(cx: &mut App) {
     mono_fonts.push(JETBRAINS_MONO_BOLD.into());
 
     if !mono_fonts.is_empty() {
-        cx.text_system()
-            .add_fonts(mono_fonts)
-            .expect("Failed to load JetBrains Mono fonts");
+        if let Err(error) = cx.text_system().add_fonts(mono_fonts) {
+            eprintln!("adabraka-ui: failed to load JetBrains Mono fonts, falling back to system fonts: {error}");
+        }
     }
 }
 

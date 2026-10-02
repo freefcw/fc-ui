@@ -115,8 +115,10 @@ impl ThemeTokens {
             Duration::from_millis(300),
             Duration::from_millis(400),
             Duration::from_millis(500),
+            // z_dropdown: menus/popovers must render above sticky content
             1000,
-            1100,
+            // z_sticky: sticky headers stay below dropdowns
+            900,
             1300,
             1400,
             1500,

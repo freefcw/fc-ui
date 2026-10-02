@@ -142,6 +142,11 @@ impl Button {
         self
     }
 
+    /// Store a tooltip string. Never rendered: the button primitive is not
+    /// allowed to depend on the overlays capability, so nothing displays it.
+    #[deprecated(
+        note = "use overlays::tooltip to wrap the button; primitives cannot depend on overlays"
+    )]
     pub fn tooltip(mut self, tooltip: impl Into<SharedString>) -> Self {
         self.tooltip = Some(tooltip.into());
         self

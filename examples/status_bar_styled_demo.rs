@@ -150,7 +150,7 @@ impl Render for StatusBarStyledDemo {
                         cx.new(|_| {
                             StatusBar::new()
                                 .left(vec![
-                                    StatusItem::icon_text("alert-circle", "Build Success"),
+                                    StatusItem::icon_text("circle-alert", "Build Success"),
                                 ])
                                 .center(vec![
                                     StatusItem::text("Green Theme"),
@@ -182,7 +182,7 @@ impl Render for StatusBarStyledDemo {
                         cx.new(|_| {
                             StatusBar::new()
                                 .left(vec![
-                                    StatusItem::icon_text("alert-triangle", "Warning"),
+                                    StatusItem::icon_text("triangle-alert", "Warning"),
                                 ])
                                 .center(vec![
                                     StatusItem::text("Orange Theme"),
@@ -396,7 +396,7 @@ impl Render for StatusBarStyledDemo {
                         cx.new(|_| {
                             StatusBar::new()
                                 .left(vec![
-                                    StatusItem::icon_text("check-circle", "Success"),
+                                    StatusItem::icon_text("circle-check", "Success"),
                                 ])
                                 .center(vec![
                                     StatusItem::text("All tests passed"),
@@ -418,7 +418,7 @@ impl Render for StatusBarStyledDemo {
                         cx.new(|_| {
                             StatusBar::new()
                                 .left(vec![
-                                    StatusItem::icon_text("alert-triangle", "Error"),
+                                    StatusItem::icon_text("triangle-alert", "Error"),
                                 ])
                                 .center(vec![
                                     StatusItem::text("Build failed - check console"),

@@ -352,7 +352,7 @@ impl Render for StatusBarDemo {
                             },
                             if self.warnings > 0 {
                                 StatusItem::icon_badge(
-                                    IconSource::Named("alert-triangle".into()),
+                                    IconSource::Named("triangle-alert".into()),
                                     format!("{}", self.warnings)
                                 )
                                 .badge_variant(BadgeVariant::Warning)
@@ -366,12 +366,12 @@ impl Render for StatusBarDemo {
                                     }
                                 })
                             } else {
-                                StatusItem::icon(IconSource::Named("alert-triangle".into()))
+                                StatusItem::icon(IconSource::Named("triangle-alert".into()))
                                     .disabled(true)
                             },
                             if self.errors > 0 {
                                 StatusItem::icon_badge(
-                                    IconSource::Named("alert-circle".into()),
+                                    IconSource::Named("circle-alert".into()),
                                     format!("{}", self.errors)
                                 )
                                 .badge_variant(BadgeVariant::Destructive)
@@ -385,7 +385,7 @@ impl Render for StatusBarDemo {
                                     }
                                 })
                             } else {
-                                StatusItem::icon(IconSource::Named("alert-circle".into()))
+                                StatusItem::icon(IconSource::Named("circle-alert".into()))
                                     .disabled(true)
                             },
                             StatusItem::text(&self.encoding)

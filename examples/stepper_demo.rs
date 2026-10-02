@@ -129,7 +129,7 @@ impl StepperDemo {
                     .icon("credit-card"),
                 StepItem::new("Done")
                     .description("Order placed")
-                    .icon("check-circle"),
+                    .icon("circle-check"),
             ])
         });
 

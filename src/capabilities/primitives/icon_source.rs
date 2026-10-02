@@ -14,17 +14,26 @@ pub enum IconSource {
     FilePath(SharedString),
 }
 
+/// Strip a trailing ".svg" extension regardless of its casing,
+/// returning the icon name without the extension.
+fn strip_svg_extension(s: &str) -> &str {
+    let trimmed = s.trim_end();
+    if trimmed.to_lowercase().ends_with(".svg") {
+        &trimmed[..trimmed.len() - ".svg".len()]
+    } else {
+        s
+    }
+}
+
 impl From<&str> for IconSource {
     fn from(s: &str) -> Self {
         // Check for path separators FIRST (more reliable than .svg check)
         if s.contains('/') || s.contains('\\') {
             IconSource::FilePath(SharedString::from(s.to_string()))
-        } else if s.trim_end().to_lowercase().ends_with(".svg") {
+        } else {
             // If it ends with .svg but has no path separator, treat as named icon
             // This handles cases like "my-icon.svg" which should be resolved
-            IconSource::Named(s.trim_end_matches(".svg").to_string())
-        } else {
-            IconSource::Named(s.to_string())
+            IconSource::Named(strip_svg_extension(s).to_string())
         }
     }
 }
@@ -33,10 +42,8 @@ impl From<String> for IconSource {
     fn from(s: String) -> Self {
         if s.contains('/') || s.contains('\\') {
             IconSource::FilePath(s.into())
-        } else if s.trim_end().to_lowercase().ends_with(".svg") {
-            IconSource::Named(s.trim_end_matches(".svg").to_string())
         } else {
-            IconSource::Named(s)
+            IconSource::Named(strip_svg_extension(&s).to_string())
         }
     }
 }
@@ -46,10 +53,8 @@ impl From<SharedString> for IconSource {
         let s_str = s.to_string();
         if s_str.contains('/') || s_str.contains('\\') {
             IconSource::FilePath(s)
-        } else if s_str.trim_end().to_lowercase().ends_with(".svg") {
-            IconSource::Named(s_str.trim_end_matches(".svg").to_string())
         } else {
-            IconSource::Named(s_str)
+            IconSource::Named(strip_svg_extension(&s_str).to_string())
         }
     }
 }
@@ -74,6 +79,12 @@ mod tests {
 
         // Edge case: .svg without path separator (treat as named)
         match IconSource::from("my-icon.svg") {
+            IconSource::Named(name) => assert_eq!(name, "my-icon"),
+            _ => panic!("Should be Named"),
+        }
+
+        // Uppercase extension is stripped like the lowercase one
+        match IconSource::from("my-icon.SVG") {
             IconSource::Named(name) => assert_eq!(name, "my-icon"),
             _ => panic!("Should be Named"),
         }

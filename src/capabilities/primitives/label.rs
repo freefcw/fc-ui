@@ -1,9 +1,9 @@
-//! Label component - Form labels with accessibility support.
+//! Label component - Form labels with required indicator and helper text.
 
 use crate::capabilities::foundation::theme::use_theme;
 use gpui::{prelude::FluentBuilder as _, *};
 
-/// Form label component with accessibility support
+/// Form label component with required indicator and helper text
 ///
 /// # Example
 ///
@@ -36,6 +36,9 @@ impl Label {
     }
 
     /// Associate this label with a form control's element ID
+    #[deprecated(
+        note = "has no effect: GPUI cannot resolve a FocusHandle from an ElementId, so the association is never rendered"
+    )]
     pub fn for_id(mut self, id: impl Into<ElementId>) -> Self {
         self.for_id = Some(id.into());
         self

@@ -255,7 +255,12 @@ impl IntoElement for HStack {
                 Justify::End => self.base.justify_end(),
                 Justify::Between => self.base.justify_between(),
                 Justify::Around => self.base.justify_around(),
-                Justify::Evenly => self.base.justify_around(),
+                Justify::Evenly => {
+                    // Styled has no justify_evenly() helper, but taffy supports it
+                    let mut base = self.base;
+                    base.style().justify_content = Some(JustifyContent::SpaceEvenly);
+                    base
+                }
             };
         }
 
@@ -429,8 +434,13 @@ impl IntoElement for Grid {
                 row = row.gap(gap);
             }
 
+            let cell_count = row_children.len();
             for child in row_children {
                 row = row.child(div().flex_1().child(child));
+            }
+            // Pad the final row so its cells keep the same width as full rows
+            for _ in cell_count..self.columns {
+                row = row.child(div().flex_1());
             }
 
             self.base = self.base.child(row);
@@ -727,6 +737,7 @@ pub struct MasonryGrid {
     base: Div,
     columns: usize,
     gap: Option<Pixels>,
+    default_estimated_height: f32,
     items: Vec<MasonryItem>,
 }
 
@@ -742,6 +753,7 @@ impl MasonryGrid {
             base: div().flex().flex_row(),
             columns: 3,
             gap: None,
+            default_estimated_height: 100.0,
             items: vec![],
         }
     }
@@ -753,6 +765,13 @@ impl MasonryGrid {
 
     pub fn gap(mut self, gap: impl Into<Pixels>) -> Self {
         self.gap = Some(gap.into());
+        self
+    }
+
+    /// Estimated height used to place items added without an explicit height
+    /// (via `child()`/`extend()`). Defaults to 100px.
+    pub fn default_estimated_height(mut self, height: f32) -> Self {
+        self.default_estimated_height = height;
         self
     }
 
@@ -784,11 +803,14 @@ impl MasonryGrid {
 }
 
 impl ParentElement for MasonryGrid {
+    /// Items added through `child()`/`extend()` carry no explicit height and are
+    /// placed using `default_estimated_height` (100px unless configured).
     fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
+        let estimated_height = self.default_estimated_height;
         for element in elements {
             self.items.push(MasonryItem {
                 element,
-                estimated_height: 100.0,
+                estimated_height,
             });
         }
     }
@@ -830,7 +852,10 @@ impl IntoElement for MasonryGrid {
                 .map(|(idx, _)| idx)
                 .unwrap_or(0);
 
-            column_heights[min_column] += item.estimated_height + gap_value;
+            if !column_items[min_column].is_empty() {
+                column_heights[min_column] += gap_value;
+            }
+            column_heights[min_column] += item.estimated_height;
             column_items[min_column].push(item.element);
         }
 

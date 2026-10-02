@@ -214,11 +214,16 @@ struct ThemeState(Theme);
 impl Global for ThemeState {}
 
 /// Install a theme for this application. Call early during app startup.
+///
+/// Schedules a redraw of all windows so the new theme takes effect
+/// immediately instead of waiting for the next frame.
 pub fn install_theme(cx: &mut App, theme: Theme) {
     cx.set_global(ThemeState(theme));
+    cx.refresh_windows();
 }
 
-/// Access this application's current theme tokens.
+/// Access this application's current [`Theme`], falling back to `Theme::dark()`
+/// when none has been installed.
 pub fn use_theme(cx: &App) -> Theme {
     cx.try_global::<ThemeState>()
         .map(|state| state.0.clone())

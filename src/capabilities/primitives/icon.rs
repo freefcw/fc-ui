@@ -114,6 +114,12 @@ impl Icon {
         self
     }
 
+    /// Track keyboard focus with the given handle (only meaningful for clickable icons).
+    pub fn focus_handle(mut self, focus_handle: FocusHandle) -> Self {
+        self.focus_handle = Some(focus_handle);
+        self
+    }
+
     pub fn on_click<F>(mut self, f: F) -> Self
     where
         F: Fn(&mut Window, &mut App) + Send + Sync + 'static,
@@ -172,8 +178,13 @@ impl RenderOnce for Icon {
         // For clickable icons, wrap in interactive Div
         let on_click = self.on_click;
         let disabled = self.disabled;
+        let element_id = match &self.source {
+            IconSource::Named(name) => format!("icon-{name}"),
+            IconSource::FilePath(path) => format!("icon-{path}"),
+        };
 
         div()
+            .id(ElementId::Name(SharedString::from(element_id)))
             .flex()
             .flex_shrink_0()
             .items_center()
@@ -185,7 +196,7 @@ impl RenderOnce for Icon {
             })
             .when_some(self.focus_handle, |div, handle| div.track_focus(&handle))
             .when(!disabled && on_click.is_some(), |div| {
-                div.on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                div.on_click(move |_, window, cx| {
                     if let Some(ref cb) = on_click {
                         cb(window, cx);
                     }
@@ -223,6 +234,9 @@ pub fn icon(source: impl Into<IconSource>) -> Icon {
     Icon::new(source)
 }
 
+#[deprecated(
+    note = "conflicts with the IconButton component; use IconButton::new(source).on_click(...) instead"
+)]
 pub fn icon_button<F>(source: impl Into<IconSource>, on_click: F) -> Icon
 where
     F: Fn(&mut Window, &mut App) + Send + Sync + 'static,

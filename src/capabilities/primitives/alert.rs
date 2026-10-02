@@ -3,6 +3,9 @@ use crate::capabilities::primitives::icon::Icon;
 use crate::capabilities::primitives::icon_source::IconSource;
 use gpui::{prelude::FluentBuilder as _, *};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+static NEXT_ALERT_ID: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub enum AlertVariant {
@@ -17,9 +20,9 @@ impl AlertVariant {
     fn default_icon(&self) -> &'static str {
         match self {
             AlertVariant::Info => "info",
-            AlertVariant::Success => "check-circle",
-            AlertVariant::Warning => "alert-triangle",
-            AlertVariant::Error => "alert-circle",
+            AlertVariant::Success => "circle-check",
+            AlertVariant::Warning => "triangle-alert",
+            AlertVariant::Error => "circle-alert",
         }
     }
 }
@@ -34,6 +37,7 @@ pub struct Alert {
     dismissible: bool,
     on_dismiss: Option<Rc<dyn Fn(&mut Window, &mut App)>>,
     action: Option<(SharedString, Rc<dyn Fn(&mut Window, &mut App)>)>,
+    instance_id: usize,
     style: StyleRefinement,
 }
 
@@ -48,6 +52,7 @@ impl Alert {
             dismissible: false,
             on_dismiss: None,
             action: None,
+            instance_id: NEXT_ALERT_ID.fetch_add(1, Ordering::Relaxed),
             style: StyleRefinement::default(),
         }
     }
@@ -209,7 +214,9 @@ impl RenderOnce for Alert {
                             this.child(
                                 div().mt(px(8.0)).child(
                                     div()
-                                        .id("alert-action")
+                                        .id(("alert-action", self.instance_id))
+                                        .role(Role::Button)
+                                        .aria_label(label.clone())
                                         .text_sm()
                                         .font_weight(FontWeight::MEDIUM)
                                         .text_color(accent_color)
@@ -229,7 +236,9 @@ impl RenderOnce for Alert {
                 this.child(
                     div()
                         .flex_shrink_0()
-                        .id("alert-dismiss")
+                        .id(("alert-dismiss", self.instance_id))
+                        .role(Role::Button)
+                        .aria_label("Dismiss")
                         .cursor(CursorStyle::PointingHand)
                         .rounded(theme.tokens.radius_sm)
                         .p(px(4.0))

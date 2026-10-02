@@ -546,7 +546,7 @@ impl TimelineDemo {
                                 .success(),
                             TimelineItem::new("Step 4")
                                 .description("Testing")
-                                .icon("check-circle")
+                                .icon("circle-check")
                                 .info(),
                             TimelineItem::new("Step 5")
                                 .description("Deploy")
@@ -617,7 +617,7 @@ impl TimelineDemo {
                                     "Your article \"Getting Started with Rust\" is now live",
                                 )
                                 .timestamp("3 hours ago")
-                                .icon("check-circle")
+                                .icon("circle-check")
                                 .success(),
                             TimelineItem::new("Draft saved")
                                 .description("Auto-saved draft of \"Advanced Patterns\"")
