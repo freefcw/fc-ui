@@ -11,6 +11,7 @@ pub enum NumberInputSize {
 
 pub struct NumberInputState {
     value: f64,
+    has_value: bool,
     min: Option<f64>,
     max: Option<f64>,
     step: f64,
@@ -22,6 +23,7 @@ impl NumberInputState {
     pub fn new(cx: &mut Context<Self>) -> Self {
         Self {
             value: 0.0,
+            has_value: false,
             min: None,
             max: None,
             step: 1.0,
@@ -33,6 +35,7 @@ impl NumberInputState {
     pub fn with_value(cx: &mut Context<Self>, value: f64) -> Self {
         Self {
             value,
+            has_value: true,
             min: None,
             max: None,
             step: 1.0,
@@ -45,8 +48,13 @@ impl NumberInputState {
         self.value
     }
 
+    pub fn has_value(&self) -> bool {
+        self.has_value
+    }
+
     pub fn set_value(&mut self, value: f64, cx: &mut Context<Self>) {
         self.value = self.clamp_value(value);
+        self.has_value = true;
         cx.notify();
     }
 
@@ -99,7 +107,7 @@ impl NumberInputState {
 
     fn format_value(&self) -> String {
         if self.precision == 0 {
-            format!("{}", self.value as i64)
+            format!("{}", self.value.round() as i64)
         } else {
             format!("{:.prec$}", self.value, prec = self.precision)
         }
@@ -179,12 +187,20 @@ impl RenderOnce for NumberInput {
         let theme = use_theme(cx);
         let user_style = self.style;
         let state_data = self.state.read(cx);
+        let has_value = state_data.has_value();
         let value_text = state_data.format_value();
         let can_increment = state_data.can_increment();
         let can_decrement = state_data.can_decrement();
         let focus_handle = state_data.focus_handle(cx);
         let is_focused = focus_handle.is_focused(window);
         let state = self.state.clone();
+
+        let show_placeholder = !has_value && self.placeholder.is_some();
+        let display_text: SharedString = if show_placeholder {
+            self.placeholder.clone().unwrap()
+        } else {
+            value_text.into()
+        };
 
         let (height, padding_x, text_size, button_size) = match self.size {
             NumberInputSize::Sm => (px(32.0), px(8.0), px(13.0), px(24.0)),
@@ -212,6 +228,29 @@ impl RenderOnce for NumberInput {
                         theme.tokens.input
                     })
                     .rounded(theme.tokens.radius_md)
+                    .when(!self.disabled, |d| {
+                        d.track_focus(&focus_handle.tab_index(0).tab_stop(true))
+                    })
+                    .when(!self.disabled, {
+                        let state_for_key = state.clone();
+                        let on_change_for_key = self.on_change.clone();
+                        move |d| {
+                            d.on_key_down(window.listener_for(
+                                &state_for_key,
+                                move |s, e: &KeyDownEvent, window, cx| {
+                                    match e.keystroke.key.as_str() {
+                                        "up" => s.increment(cx),
+                                        "down" => s.decrement(cx),
+                                        _ => return,
+                                    }
+                                    cx.stop_propagation();
+                                    if let Some(ref handler) = on_change_for_key {
+                                        handler(s.value, window, cx);
+                                    }
+                                },
+                            ))
+                        }
+                    })
                     .when(self.disabled, |d| d.opacity(0.5))
                     .when(self.show_buttons, {
                         let state = state.clone();
@@ -270,9 +309,13 @@ impl RenderOnce for NumberInput {
                             .h_full()
                             .min_w(px(60.0))
                             .text_size(text_size)
-                            .text_color(theme.tokens.foreground)
+                            .text_color(if show_placeholder {
+                                theme.tokens.muted_foreground
+                            } else {
+                                theme.tokens.foreground
+                            })
                             .font_family(theme.tokens.font_family.clone())
-                            .child(value_text),
+                            .child(display_text),
                     )
                     .when(self.show_buttons, {
                         let state = state.clone();

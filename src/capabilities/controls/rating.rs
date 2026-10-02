@@ -272,19 +272,16 @@ impl RenderOnce for Rating {
             })
             .when(!self.read_only, |this| {
                 let state_for_leave = self.state.clone();
-                this.on_mouse_move(window.listener_for(
+                let mut this = this;
+                this.interactivity().on_hover(window.listener_for(
                     &state_for_leave,
-                    move |state, _: &MouseMoveEvent, _, cx| {
-                        if state.hover_value.is_some() {}
-                        let _ = cx;
+                    move |state, hovered: &bool, _, cx| {
+                        if !*hovered {
+                            state.set_hover_value(None, cx);
+                        }
                     },
-                ))
-                .on_mouse_up_out(
-                    MouseButton::Left,
-                    window.listener_for(&state_for_leave, move |state, _, _, cx| {
-                        state.set_hover_value(None, cx);
-                    }),
-                )
+                ));
+                this
             })
             .children((0..max_rating).map(|index| {
                 let position = index as f32 + 1.0;
@@ -302,31 +299,32 @@ impl RenderOnce for Rating {
                 };
 
                 let state_for_star = self.state.clone();
-                let on_change_for_star = self.on_change.clone();
+                let state_for_star_right = self.state.clone();
                 let state_for_hover = self.state.clone();
+                let state_for_hover_right = self.state.clone();
+                let on_change_for_star = self.on_change.clone();
+                let on_change_for_star_right = self.on_change.clone();
+                let on_change_no_half = self.on_change.clone();
                 let read_only = self.read_only;
 
                 div()
+                    .relative()
+                    .w(icon_size)
+                    .h(icon_size)
                     .cursor(if read_only {
                         CursorStyle::Arrow
                     } else {
                         CursorStyle::PointingHand
                     })
-                    .when(!read_only, |this| {
+                    .when(!read_only && !allows_half, |this| {
                         this.on_mouse_down(
                             MouseButton::Left,
                             window.listener_for(
                                 &state_for_star,
-                                move |state, e: &MouseDownEvent, window, cx| {
-                                    let new_value = calculate_click_value(
-                                        e.position,
-                                        position,
-                                        icon_size,
-                                        allows_half,
-                                    );
-                                    state.set_value(new_value, cx);
+                                move |state, _: &MouseDownEvent, window, cx| {
+                                    state.set_value(position, cx);
                                     state.set_hover_value(None, cx);
-                                    if let Some(ref handler) = on_change_for_star {
+                                    if let Some(ref handler) = on_change_no_half {
                                         handler(state.value, window, cx);
                                     }
                                 },
@@ -334,14 +332,8 @@ impl RenderOnce for Rating {
                         )
                         .on_mouse_move(window.listener_for(
                             &state_for_hover,
-                            move |state, e: &MouseMoveEvent, _, cx| {
-                                let hover_val = calculate_click_value(
-                                    e.position,
-                                    position,
-                                    icon_size,
-                                    allows_half,
-                                );
-                                state.set_hover_value(Some(hover_val), cx);
+                            move |state, _: &MouseMoveEvent, _, cx| {
+                                state.set_hover_value(Some(position), cx);
                             },
                         ))
                     })
@@ -350,6 +342,64 @@ impl RenderOnce for Rating {
                             .size(IconSizeEnum::Custom(icon_size))
                             .color(color),
                     )
+                    .when(!read_only && allows_half, |this| {
+                        this.child(
+                            div()
+                                .absolute()
+                                .left_0()
+                                .top_0()
+                                .h_full()
+                                .w(icon_size / 2.0)
+                                .cursor(CursorStyle::PointingHand)
+                                .on_mouse_move(window.listener_for(
+                                    &state_for_hover,
+                                    move |state, _: &MouseMoveEvent, _, cx| {
+                                        state.set_hover_value(Some(position - 0.5), cx);
+                                    },
+                                ))
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    window.listener_for(
+                                        &state_for_star,
+                                        move |state, _: &MouseDownEvent, window, cx| {
+                                            state.set_value(position - 0.5, cx);
+                                            state.set_hover_value(None, cx);
+                                            if let Some(ref handler) = on_change_for_star {
+                                                handler(state.value, window, cx);
+                                            }
+                                        },
+                                    ),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .absolute()
+                                .right_0()
+                                .top_0()
+                                .h_full()
+                                .w(icon_size / 2.0)
+                                .cursor(CursorStyle::PointingHand)
+                                .on_mouse_move(window.listener_for(
+                                    &state_for_hover_right,
+                                    move |state, _: &MouseMoveEvent, _, cx| {
+                                        state.set_hover_value(Some(position), cx);
+                                    },
+                                ))
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    window.listener_for(
+                                        &state_for_star_right,
+                                        move |state, _: &MouseDownEvent, window, cx| {
+                                            state.set_value(position, cx);
+                                            state.set_hover_value(None, cx);
+                                            if let Some(ref handler) = on_change_for_star_right {
+                                                handler(state.value, window, cx);
+                                            }
+                                        },
+                                    ),
+                                ),
+                        )
+                    })
             }))
             .map(|this| {
                 let mut div = this;
@@ -373,18 +423,5 @@ fn get_star_fill_state(value: f32, position: f32, allows_half: bool) -> StarFill
         StarFillState::Half
     } else {
         StarFillState::Empty
-    }
-}
-
-fn calculate_click_value(
-    _position: Point<Pixels>,
-    star_position: f32,
-    _icon_size: Pixels,
-    allows_half: bool,
-) -> f32 {
-    if allows_half {
-        star_position - 0.5
-    } else {
-        star_position
     }
 }

@@ -584,8 +584,10 @@ impl RenderOnce for OTPInput {
                     .child(display_char)
                     .into_any_element();
 
-                let should_show_separator =
-                    separator.is_some() && i == separator_position - 1 && i + 1 < digit_count;
+                let should_show_separator = separator.is_some()
+                    && separator_position > 0
+                    && i == separator_position - 1
+                    && i + 1 < digit_count;
 
                 if should_show_separator {
                     vec![
@@ -695,5 +697,28 @@ mod tests {
             assert_eq!(state.digits.len(), 8);
             assert_eq!(state.focus_handles.len(), 8);
         });
+    }
+
+    struct OtpSeparatorTestView {
+        state: Entity<OTPState>,
+    }
+
+    impl Render for OtpSeparatorTestView {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            OTPInput::new(&self.state)
+                .separator("-")
+                .separator_position(0)
+        }
+    }
+
+    #[gpui::test]
+    fn separator_position_zero_renders_without_panic() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let mut window = app.open_window(|_, cx| OtpSeparatorTestView {
+            state: cx.new(|cx| OTPState::new(cx, 6)),
+        });
+        // 修复前：渲染时 separator_position - 1 在 0 处 usize 下溢 panic
+        window.draw();
     }
 }

@@ -68,8 +68,11 @@ impl SliderState {
         self.min
     }
 
+    /// Set the minimum. If `min` exceeds the current maximum, the maximum is
+    /// raised to `min`, so the ordering `min <= max` is always preserved.
     pub fn set_min(&mut self, min: f32, cx: &mut Context<Self>) {
         self.min = min;
+        self.max = self.max.max(self.min);
         self.value = self.value.clamp(self.min, self.max);
         cx.notify();
     }
@@ -78,8 +81,11 @@ impl SliderState {
         self.max
     }
 
+    /// Set the maximum. If `max` is below the current minimum, the minimum is
+    /// lowered to `max`, so the ordering `min <= max` is always preserved.
     pub fn set_max(&mut self, max: f32, cx: &mut Context<Self>) {
         self.max = max;
+        self.min = self.min.min(self.max);
         self.value = self.value.clamp(self.min, self.max);
         cx.notify();
     }
@@ -256,6 +262,33 @@ impl Slider {
                         this.shadow(smallvec::smallvec![focus_ring])
                     })
                     .rounded(theme.tokens.radius_md)
+                    .when(!self.disabled, |this| {
+                        let on_change_for_key = self.on_change.clone();
+                        this.on_key_down(window.listener_for(
+                            &self.state,
+                            move |state, e: &KeyDownEvent, window, cx| {
+                                match e.keystroke.key.as_str() {
+                                    "left" | "down" => {
+                                        state.set_value(state.value - state.step, cx);
+                                    }
+                                    "right" | "up" => {
+                                        state.set_value(state.value + state.step, cx);
+                                    }
+                                    "home" => {
+                                        state.set_value(state.min, cx);
+                                    }
+                                    "end" => {
+                                        state.set_value(state.max, cx);
+                                    }
+                                    _ => return,
+                                }
+                                cx.stop_propagation();
+                                if let Some(ref handler) = on_change_for_key {
+                                    handler(state.value, window, cx);
+                                }
+                            },
+                        ))
+                    })
                     .child(
                         canvas(
                             {
@@ -371,6 +404,15 @@ impl Slider {
                                 },
                             ),
                         )
+                        .on_mouse_up_out(
+                            MouseButton::Left,
+                            window.listener_for(
+                                &self.state,
+                                move |state, _: &MouseUpEvent, _, _cx| {
+                                    state.is_dragging = false;
+                                },
+                            ),
+                        )
                     }),
             )
             .when(self.show_value, |this| {
@@ -428,6 +470,33 @@ impl Slider {
                         this.shadow(smallvec::smallvec![focus_ring])
                     })
                     .rounded(theme.tokens.radius_md)
+                    .when(!self.disabled, |this| {
+                        let on_change_for_key = self.on_change.clone();
+                        this.on_key_down(window.listener_for(
+                            &self.state,
+                            move |state, e: &KeyDownEvent, window, cx| {
+                                match e.keystroke.key.as_str() {
+                                    "left" | "down" => {
+                                        state.set_value(state.value - state.step, cx);
+                                    }
+                                    "right" | "up" => {
+                                        state.set_value(state.value + state.step, cx);
+                                    }
+                                    "home" => {
+                                        state.set_value(state.min, cx);
+                                    }
+                                    "end" => {
+                                        state.set_value(state.max, cx);
+                                    }
+                                    _ => return,
+                                }
+                                cx.stop_propagation();
+                                if let Some(ref handler) = on_change_for_key {
+                                    handler(state.value, window, cx);
+                                }
+                            },
+                        ))
+                    })
                     .child(
                         canvas(
                             {
@@ -543,6 +612,15 @@ impl Slider {
                                 },
                             ),
                         )
+                        .on_mouse_up_out(
+                            MouseButton::Left,
+                            window.listener_for(
+                                &self.state,
+                                move |state, _: &MouseUpEvent, _, _cx| {
+                                    state.is_dragging = false;
+                                },
+                            ),
+                        )
                     }),
             )
             .when(self.show_value, |this| {
@@ -622,5 +700,44 @@ impl RenderOnce for Slider {
                 user_style,
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[gpui::test]
+    fn set_min_above_current_max_preserves_ordering() {
+        let mut app = TestApp::new();
+        let slider = app.update(|cx| cx.new(SliderState::new));
+
+        app.update(|cx| {
+            slider.update(cx, |state, cx| {
+                state.set_value(50.0, cx);
+                // 修复前：max 仍是 100，value.clamp(min, max) 因 min > max 在 f32::clamp 内 panic
+                state.set_min(120.0, cx);
+                assert!(state.min() <= state.max(), "min must never exceed max");
+                assert_eq!(state.max(), 120.0);
+                assert_eq!(state.value(), 120.0, "value must clamp into the new range");
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn set_max_below_current_min_preserves_ordering() {
+        let mut app = TestApp::new();
+        let slider = app.update(|cx| cx.new(SliderState::new));
+
+        app.update(|cx| {
+            slider.update(cx, |state, cx| {
+                state.set_value(50.0, cx);
+                // 修复前：min 仍是 0，value.clamp(0, -10) 同样 panic
+                state.set_max(-10.0, cx);
+                assert!(state.min() <= state.max(), "min must never exceed max");
+                assert_eq!(state.min(), -10.0);
+                assert_eq!(state.value(), -10.0, "value must clamp into the new range");
+            });
+        });
     }
 }

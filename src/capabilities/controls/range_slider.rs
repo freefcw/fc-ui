@@ -39,9 +39,13 @@ impl RangeSliderState {
         self.min
     }
 
+    /// Set the minimum. If `min` exceeds the current maximum, the maximum is
+    /// raised to `min`, so the ordering `min <= max` is always preserved. Both
+    /// thumbs are then re-clamped into range with `start <= end` preserved.
     pub fn set_min(&mut self, min: f32, cx: &mut Context<Self>) {
         self.min = min;
-        self.start_value = self.start_value.clamp(self.min, self.end_value);
+        self.max = self.max.max(self.min);
+        self.start_value = self.start_value.clamp(self.min, self.max);
         self.end_value = self.end_value.clamp(self.start_value, self.max);
         cx.notify();
     }
@@ -50,9 +54,13 @@ impl RangeSliderState {
         self.max
     }
 
+    /// Set the maximum. If `max` is below the current minimum, the minimum is
+    /// lowered to `max`, so the ordering `min <= max` is always preserved. Both
+    /// thumbs are then re-clamped into range with `start <= end` preserved.
     pub fn set_max(&mut self, max: f32, cx: &mut Context<Self>) {
         self.max = max;
-        self.end_value = self.end_value.clamp(self.start_value, self.max);
+        self.min = self.min.min(self.max);
+        self.end_value = self.end_value.clamp(self.min, self.max);
         self.start_value = self.start_value.clamp(self.min, self.end_value);
         cx.notify();
     }
@@ -326,6 +334,39 @@ impl RangeSlider {
                         this.shadow(smallvec::smallvec![focus_ring])
                     })
                     .rounded(theme.tokens.radius_md)
+                    .when(!self.disabled, |this| {
+                        let on_change_for_key = self.on_change.clone();
+                        this.on_key_down(window.listener_for(
+                            &self.state,
+                            move |state, e: &KeyDownEvent, window, cx| {
+                                // Keys move the most recently used thumb, defaulting to start.
+                                let use_start = !matches!(state.active_thumb, ActiveThumb::End);
+                                match (e.keystroke.key.as_str(), use_start) {
+                                    ("left" | "down", true) => {
+                                        state.set_start_value(state.start_value - state.step, cx)
+                                    }
+                                    ("left" | "down", false) => {
+                                        state.set_end_value(state.end_value - state.step, cx)
+                                    }
+                                    ("right" | "up", true) => {
+                                        state.set_start_value(state.start_value + state.step, cx)
+                                    }
+                                    ("right" | "up", false) => {
+                                        state.set_end_value(state.end_value + state.step, cx)
+                                    }
+                                    ("home", true) => state.set_start_value(state.min, cx),
+                                    ("home", false) => state.set_end_value(state.min, cx),
+                                    ("end", true) => state.set_start_value(state.max, cx),
+                                    ("end", false) => state.set_end_value(state.max, cx),
+                                    _ => return,
+                                }
+                                cx.stop_propagation();
+                                if let Some(ref handler) = on_change_for_key {
+                                    handler(state.start_value, state.end_value, window, cx);
+                                }
+                            },
+                        ))
+                    })
                     .child(
                         canvas(
                             {
@@ -494,6 +535,15 @@ impl RangeSlider {
                                 },
                             ),
                         )
+                        .on_mouse_up_out(
+                            MouseButton::Left,
+                            window.listener_for(
+                                &self.state,
+                                move |state, _: &MouseUpEvent, _, _cx| {
+                                    state.active_thumb = ActiveThumb::None;
+                                },
+                            ),
+                        )
                     }),
             )
             .when(self.show_values, |this| {
@@ -563,6 +613,39 @@ impl RangeSlider {
                         this.shadow(smallvec::smallvec![focus_ring])
                     })
                     .rounded(theme.tokens.radius_md)
+                    .when(!self.disabled, |this| {
+                        let on_change_for_key = self.on_change.clone();
+                        this.on_key_down(window.listener_for(
+                            &self.state,
+                            move |state, e: &KeyDownEvent, window, cx| {
+                                // Keys move the most recently used thumb, defaulting to start.
+                                let use_start = !matches!(state.active_thumb, ActiveThumb::End);
+                                match (e.keystroke.key.as_str(), use_start) {
+                                    ("left" | "down", true) => {
+                                        state.set_start_value(state.start_value - state.step, cx)
+                                    }
+                                    ("left" | "down", false) => {
+                                        state.set_end_value(state.end_value - state.step, cx)
+                                    }
+                                    ("right" | "up", true) => {
+                                        state.set_start_value(state.start_value + state.step, cx)
+                                    }
+                                    ("right" | "up", false) => {
+                                        state.set_end_value(state.end_value + state.step, cx)
+                                    }
+                                    ("home", true) => state.set_start_value(state.min, cx),
+                                    ("home", false) => state.set_end_value(state.min, cx),
+                                    ("end", true) => state.set_start_value(state.max, cx),
+                                    ("end", false) => state.set_end_value(state.max, cx),
+                                    _ => return,
+                                }
+                                cx.stop_propagation();
+                                if let Some(ref handler) = on_change_for_key {
+                                    handler(state.start_value, state.end_value, window, cx);
+                                }
+                            },
+                        ))
+                    })
                     .child(
                         canvas(
                             {
@@ -731,6 +814,15 @@ impl RangeSlider {
                                 },
                             ),
                         )
+                        .on_mouse_up_out(
+                            MouseButton::Left,
+                            window.listener_for(
+                                &self.state,
+                                move |state, _: &MouseUpEvent, _, _cx| {
+                                    state.active_thumb = ActiveThumb::None;
+                                },
+                            ),
+                        )
                     }),
             )
             .when(self.show_values, |this| {
@@ -816,5 +908,48 @@ impl RenderOnce for RangeSlider {
                 user_style,
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[gpui::test]
+    fn set_min_above_current_max_preserves_range_ordering() {
+        let mut app = TestApp::new();
+        let slider = app.update(|cx| cx.new(RangeSliderState::new));
+
+        app.update(|cx| {
+            slider.update(cx, |state, cx| {
+                state.set_range(40.0, 60.0, cx);
+                // 修复前：clamp(min, max) 因 min(110) > max(100) panic
+                state.set_min(110.0, cx);
+                assert!(state.min() <= state.max(), "min must never exceed max");
+                let (start, end) = state.range();
+                assert!(start <= end, "start {start} must not exceed end {end}");
+                assert!(state.min() <= start && end <= state.max());
+                assert_eq!((start, end), (110.0, 110.0));
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn set_max_below_current_min_preserves_range_ordering() {
+        let mut app = TestApp::new();
+        let slider = app.update(|cx| cx.new(RangeSliderState::new));
+
+        app.update(|cx| {
+            slider.update(cx, |state, cx| {
+                state.set_range(40.0, 60.0, cx);
+                // 修复前：end_value.clamp(min, max) 因 max(-20) < min(0) panic
+                state.set_max(-20.0, cx);
+                assert!(state.min() <= state.max(), "min must never exceed max");
+                let (start, end) = state.range();
+                assert!(start <= end, "start {start} must not exceed end {end}");
+                assert_eq!(state.min(), -20.0);
+                assert_eq!((start, end), (-20.0, -20.0));
+            });
+        });
     }
 }
