@@ -181,6 +181,17 @@ const AUTO_CLOSE_PAIRS: &[(char, char)] = &[
     ('`', '`'),
 ];
 
+fn floor_char_boundary(text: &str, index: usize) -> usize {
+    if index >= text.len() {
+        return text.len();
+    }
+    let mut index = index;
+    while !text.is_char_boundary(index) {
+        index -= 1;
+    }
+    index
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Language {
     Rust,
@@ -1252,7 +1263,7 @@ impl EditorState {
             if ch == opener {
                 if opener == closer {
                     let line_text = self.line_text(self.cursor.line);
-                    let col = self.cursor.col.min(line_text.len());
+                    let col = floor_char_boundary(&line_text, self.cursor.col);
                     let before = &line_text[..col];
                     let count = before.chars().filter(|&c| c == ch).count();
                     if count % 2 != 0 {
@@ -1271,7 +1282,7 @@ impl EditorState {
             return false;
         }
         let line_text = self.line_text(self.cursor.line);
-        let col = self.cursor.col;
+        let col = floor_char_boundary(&line_text, self.cursor.col);
         if col < line_text.len() {
             let next_ch = line_text[col..].chars().next();
             return next_ch == Some(ch);
@@ -1603,8 +1614,9 @@ impl EditorState {
                     }
                     state.update_syntax_tree_incremental_now();
                     state.compute_fold_ranges();
-                    // Only invalidate highlights — line layouts are still valid
-                    // since text content hasn't changed (only syntax tree updated).
+                    // Clear all index-keyed caches (line layouts, content
+                    // hashes, highlights) so the next render rebuilds them
+                    // from the updated text and syntax tree.
                     state.invalidate_after_edit();
                     cx.notify();
                 });
@@ -1916,7 +1928,12 @@ impl EditorState {
 
     pub fn move_left(&mut self, _: &MoveLeft, _: &mut Window, cx: &mut Context<Self>) {
         if self.cursor.col > 0 {
-            self.cursor.col -= 1;
+            let line_text = self.line_text(self.cursor.line);
+            let col = floor_char_boundary(&line_text, self.cursor.col);
+            self.cursor.col = match line_text[..col].chars().last() {
+                Some(c) => col - c.len_utf8(),
+                None => 0,
+            };
         } else if self.cursor.line > 0 {
             self.cursor.line -= 1;
             self.cursor.col = self.line_len(self.cursor.line);
@@ -1926,9 +1943,10 @@ impl EditorState {
     }
 
     pub fn move_right(&mut self, _: &MoveRight, _: &mut Window, cx: &mut Context<Self>) {
-        let line_len = self.line_len(self.cursor.line);
-        if self.cursor.col < line_len {
-            self.cursor.col += 1;
+        let line_text = self.line_text(self.cursor.line);
+        let col = floor_char_boundary(&line_text, self.cursor.col);
+        if let Some(c) = line_text[col..].chars().next() {
+            self.cursor.col = col + c.len_utf8();
         } else if self.cursor.line < self.total_lines() - 1 {
             self.cursor.line += 1;
             self.cursor.col = 0;
@@ -2215,8 +2233,9 @@ impl EditorState {
         }
 
         let line_text = self.line_text(self.cursor.line);
-        let before_cursor = &line_text[..self.cursor.col.min(line_text.len())];
-        let after_cursor = &line_text[self.cursor.col.min(line_text.len())..];
+        let col = floor_char_boundary(&line_text, self.cursor.col);
+        let before_cursor = &line_text[..col];
+        let after_cursor = &line_text[col..];
 
         let base_indent = before_cursor.len() - before_cursor.trim_start().len();
         let trimmed = before_cursor.trim_end();
@@ -2287,6 +2306,7 @@ impl EditorState {
         if let Some(item) = cx.read_from_clipboard() {
             if let Some(text) = item.text() {
                 self.insert_text_at_cursor(&text, cx);
+                self.marked_range = None;
             }
         }
     }
@@ -2442,6 +2462,14 @@ impl EditorState {
         cx.notify();
     }
 
+    fn is_valid_match_range(&self, start: usize, end: usize) -> bool {
+        if start > end || end > self.rope.len_bytes() {
+            return false;
+        }
+        self.rope.char_to_byte(self.rope.byte_to_char(start)) == start
+            && self.rope.char_to_byte(self.rope.byte_to_char(end)) == end
+    }
+
     pub fn replace_current(&mut self, replacement: &str, cx: &mut Context<Self>) {
         if self.read_only {
             return;
@@ -2451,6 +2479,11 @@ impl EditorState {
             _ => return,
         };
         let (start, end) = self.search_matches[idx];
+        if !self.is_valid_match_range(start, end) {
+            let query = self.search_query.clone();
+            self.find_all(&query, cx);
+            return;
+        }
         let old_end_position = self.byte_to_ts_point(end.min(self.rope.len_bytes()));
         let deleted: String = self.rope.byte_slice(start..end).into();
         self.undo_stack.push(EditOp::Delete {
@@ -2477,6 +2510,14 @@ impl EditorState {
             return;
         }
         let matches: Vec<_> = self.search_matches.iter().rev().copied().collect();
+        if matches
+            .iter()
+            .any(|&(start, end)| !self.is_valid_match_range(start, end))
+        {
+            let query = self.search_query.clone();
+            self.find_all(&query, cx);
+            return;
+        }
         for (start, end) in matches {
             let deleted: String = self.rope.byte_slice(start..end).into();
             self.undo_stack.push(EditOp::Delete {
@@ -2507,11 +2548,14 @@ impl EditorState {
     }
 
     /// Invalidation for text edits. Clears all caches since line indices
-    /// shift on insert/delete, making index-keyed caches stale.
+    /// shift on insert/delete, making index-keyed caches stale. Search
+    /// matches hold byte ranges into the old content and are dropped too.
     fn invalidate_after_edit(&mut self) {
         self.line_layouts.clear();
         self.line_content_hashes.clear();
         self.highlight_cache_version = u64::MAX;
+        self.search_matches.clear();
+        self.current_match_idx = None;
     }
 
     pub fn invalidate_line_layouts(&mut self, cx: &mut Context<Self>) {
@@ -2680,7 +2724,7 @@ impl EditorState {
             let approx_char_width = px(8.4);
             if relative_x > px(0.0) {
                 let col = (relative_x / approx_char_width).round() as usize;
-                col.min(self.line_len(line))
+                floor_char_boundary(&self.line_text(line), col)
             } else {
                 0
             }
@@ -4659,6 +4703,148 @@ mod tests {
                         .to_sexp(),
                     current_tree
                 );
+            });
+        });
+    }
+
+    struct EditorTestView {
+        state: Entity<EditorState>,
+    }
+
+    impl Render for EditorTestView {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            div()
+        }
+    }
+
+    #[gpui::test]
+    fn cjk_cursor_movement_stays_on_char_boundaries() {
+        let mut app = TestApp::new();
+        let editor = app.update(|cx| cx.new(EditorState::new));
+        let mut window = app.open_window(|_, _| EditorTestView {
+            state: editor.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.set_content("读读写写", cx);
+                let line = "读读写写";
+
+                // 修复前 col += 1，会停在汉字字节中间
+                for _ in 0..4 {
+                    state.move_right(&MoveRight, window, cx);
+                    assert!(
+                        line.is_char_boundary(state.cursor().col),
+                        "move_right landed mid-char at col {}",
+                        state.cursor().col
+                    );
+                }
+                assert_eq!(state.cursor(), Position::new(0, line.len()));
+
+                // 行尾且无下一行：继续右移不应越界仍停在行尾
+                state.move_right(&MoveRight, window, cx);
+                assert_eq!(state.cursor(), Position::new(0, line.len()));
+
+                for _ in 0..4 {
+                    state.move_left(&MoveLeft, window, cx);
+                    assert!(
+                        line.is_char_boundary(state.cursor().col),
+                        "move_left landed mid-char at col {}",
+                        state.cursor().col
+                    );
+                }
+                assert_eq!(state.cursor(), Position::zero());
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn mixed_cjk_cursor_crosses_lines_and_enter_splits_on_boundaries() {
+        let mut app = TestApp::new();
+        let editor = app.update(|cx| cx.new(EditorState::new));
+        let mut window = app.open_window(|_, _| EditorTestView {
+            state: editor.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.set_content("ab读cd\n第二行", cx);
+                let first = "ab读cd";
+                // 3 个 ASCII + 1 个 CJK 共 5 个 char，再右移一次跨到下一行
+                for _ in 0..first.chars().count() + 1 {
+                    state.move_right(&MoveRight, window, cx);
+                    assert!(
+                        first.is_char_boundary(state.cursor().col) || state.cursor().line > 0,
+                        "move_right landed mid-char at col {}",
+                        state.cursor().col
+                    );
+                }
+                assert_eq!(state.cursor(), Position::new(1, 0));
+
+                state.move_left(&MoveLeft, window, cx);
+                assert_eq!(state.cursor(), Position::new(0, first.len()));
+
+                // CJK 字符中间回车：修复前按非法边界切片会 panic
+                state.set_content("读读写写", cx);
+                state.move_right(&MoveRight, window, cx);
+                assert_eq!(state.cursor(), Position::new(0, 3));
+                state.enter(&Enter, window, cx);
+                assert_eq!(state.content(), "读\n读写写\n");
+                assert_eq!(state.cursor(), Position::new(1, 0));
+
+                // 连续移动 + enter 不 panic
+                state.move_right(&MoveRight, window, cx);
+                state.move_left(&MoveLeft, window, cx);
+                state.enter(&Enter, window, cx);
+                state.move_up(&MoveUp, window, cx);
+                state.move_down(&MoveDown, window, cx);
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn stale_search_matches_after_shrinking_document_do_not_panic() {
+        let mut app = TestApp::new();
+        let editor = app.update(|cx| cx.new(EditorState::new));
+
+        app.update(|cx| {
+            editor.update(cx, |state, cx| {
+                state.set_content("hello world hello", cx);
+                // 模拟在旧文档上完成、但迟于编辑到达的异步搜索结果
+                state.search_query = "hello".to_string();
+                state.search_matches = vec![(0, 5), (12, 17)];
+                state.current_match_idx = Some(1);
+
+                // 通过公开编辑路径把文档剪短，使上述字节区间全部失效
+                state.set_content("hi", cx);
+                assert!(state.rope.len_bytes() < 12);
+
+                // 修复前：直接对失效区间做 rope 切片/删除会 panic
+                state.replace_current("bye", cx);
+                assert_eq!(state.content(), "hi\n");
+
+                state.search_matches = vec![(0, 5), (12, 17)];
+                state.current_match_idx = Some(1);
+                state.replace_all("bye", cx);
+                assert_eq!(state.content(), "hi\n");
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn replace_current_with_fresh_matches_updates_content() {
+        let mut app = TestApp::new();
+        let editor = app.update(|cx| cx.new(EditorState::new));
+
+        app.update(|cx| {
+            editor.update(cx, |state, cx| {
+                state.set_content("hello world hello", cx);
+                state.search_query = "hello".to_string();
+                state.search_matches = vec![(0, 5), (12, 17)];
+                state.current_match_idx = Some(0);
+
+                state.replace_current("bye", cx);
+                assert_eq!(state.content(), "bye world hello\n");
             });
         });
     }
