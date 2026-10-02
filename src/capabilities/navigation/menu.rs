@@ -284,16 +284,23 @@ impl MenuBarItem {
     }
 }
 
+actions!(menu, [DismissMenu]);
+
 pub struct MenuBar {
     items: Vec<MenuBarItem>,
     active_menu: Option<usize>,
+    item_bounds: Vec<Option<Bounds<Pixels>>>,
+    focus_handle: Option<FocusHandle>,
 }
 
 impl MenuBar {
     pub fn new(items: Vec<MenuBarItem>) -> Self {
+        let item_bounds = items.iter().map(|_| None).collect();
         Self {
             items,
             active_menu: None,
+            item_bounds,
+            focus_handle: None,
         }
     }
 }
@@ -301,8 +308,26 @@ impl MenuBar {
 impl Render for MenuBar {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = use_theme(cx);
+        let focus_handle = self
+            .focus_handle
+            .get_or_insert_with(|| cx.focus_handle())
+            .clone();
 
         div()
+            .key_context("MenuBar")
+            .track_focus(&focus_handle)
+            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                if this.active_menu.is_some() {
+                    this.active_menu = None;
+                    cx.notify();
+                }
+            }))
+            .when(self.active_menu.is_some(), |this| {
+                this.on_action(cx.listener(|this, _: &DismissMenu, _window, cx| {
+                    this.active_menu = None;
+                    cx.notify();
+                }))
+            })
             .flex()
             .items_center()
             .h(px(40.0))
@@ -314,8 +339,26 @@ impl Render for MenuBar {
             .children(self.items.iter().enumerate().map(|(idx, item)| {
                 let is_active = self.active_menu == Some(idx);
                 let label = item.label.clone();
+                let focus_handle = focus_handle.clone();
+                let entity = cx.entity().clone();
+
+                let dropdown = if is_active {
+                    self.item_bounds.get(idx).copied().flatten().map(|bounds| {
+                        deferred(
+                            anchored()
+                                .snap_to_window_with_margin(px(8.0))
+                                .position(point(bounds.left(), bounds.bottom()))
+                                .child(div().occlude().child(Menu::new(item.menu_items.clone()))),
+                        )
+                        .with_priority(1)
+                        .into_any_element()
+                    })
+                } else {
+                    None
+                };
 
                 div()
+                    .relative()
                     .px(px(12.0))
                     .py(px(6.0))
                     .rounded(theme.tokens.radius_sm)
@@ -326,18 +369,40 @@ impl Render for MenuBar {
                     })
                     .on_mouse_down(
                         MouseButton::Left,
-                        cx.listener(move |this, _event, _window, cx| {
-                            this.active_menu = if this.active_menu == Some(idx) {
-                                None
-                            } else {
-                                Some(idx)
-                            };
+                        cx.listener(move |this, _event, window, cx| {
+                            let opening = this.active_menu != Some(idx);
+                            this.active_menu = if opening { Some(idx) } else { None };
+                            if opening {
+                                window.focus(&focus_handle);
+                            }
                             cx.notify();
                         }),
                     )
                     .child(body(label).color(theme.tokens.foreground))
+                    .child(
+                        canvas(
+                            move |bounds, _window, cx| {
+                                entity.update(cx, |this, _| {
+                                    if let Some(slot) = this.item_bounds.get_mut(idx) {
+                                        *slot = Some(bounds);
+                                    }
+                                });
+                            },
+                            |_bounds, _, _window, _cx| {},
+                        )
+                        .absolute()
+                        .inset_0(),
+                    )
+                    .children(dropdown)
             }))
     }
+}
+
+pub fn init_menu_bar(cx: &mut App) {
+    if !crate::capabilities::foundation::initialization::begin(cx, "menu-bar") {
+        return;
+    }
+    cx.bind_keys([KeyBinding::new("escape", DismissMenu, Some("MenuBar"))]);
 }
 
 #[derive(IntoElement)]

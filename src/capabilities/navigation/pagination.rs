@@ -58,8 +58,8 @@ impl Pagination {
 
     fn get_page_range(&self) -> Vec<PageItem> {
         let mut items = Vec::new();
-        let current = self.current_page;
         let total = self.total_pages;
+        let current = self.current_page.clamp(1, total.max(1));
         let siblings = self.siblings;
 
         if total <= 7 {
@@ -126,8 +126,8 @@ enum PageItem {
 impl RenderOnce for Pagination {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = use_theme(cx);
-        let current_page = self.current_page;
-        let total_pages = self.total_pages;
+        let total_pages = self.total_pages.max(1);
+        let current_page = self.current_page.clamp(1, total_pages);
         let page_range = self.get_page_range();
         let on_change = self.on_page_change;
         let user_style = self.style;

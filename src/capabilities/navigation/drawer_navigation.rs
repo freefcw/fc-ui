@@ -19,6 +19,7 @@ pub struct DrawerState {
     is_animating: bool,
     is_dismissing: bool,
     animation_version: usize,
+    duration: Duration,
 }
 
 impl DrawerState {
@@ -28,11 +29,16 @@ impl DrawerState {
             is_animating: false,
             is_dismissing: false,
             animation_version: 0,
+            duration: durations::NORMAL,
         }
     }
 
     pub fn is_open(&self) -> bool {
         self.is_open
+    }
+
+    pub fn set_duration(&mut self, duration: Duration) {
+        self.duration = duration;
     }
 
     pub fn open(&mut self, cx: &mut Context<Self>) {
@@ -51,10 +57,9 @@ impl DrawerState {
             self.animation_version = self.animation_version.wrapping_add(1);
             cx.notify();
 
+            let duration = self.duration;
             cx.spawn(async move |this, cx| {
-                cx.background_executor()
-                    .timer(Duration::from_millis(250))
-                    .await;
+                cx.background_executor().timer(duration).await;
                 _ = this.update(cx, |state, cx| {
                     state.is_open = false;
                     state.is_dismissing = false;
@@ -148,11 +153,16 @@ impl RenderOnce for DrawerNavigation {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = use_theme(cx);
         let user_style = self.style;
+        let duration = self.duration;
+        self.state.update(cx, |state, _| {
+            if state.duration != duration {
+                state.duration = duration;
+            }
+        });
         let state = self.state.read(cx);
         let is_open = state.is_open;
         let is_dismissing = state.is_dismissing;
         let animation_version = state.animation_version;
-        let duration = self.duration;
         let drawer_width = self.drawer_width;
         let side = self.side;
 

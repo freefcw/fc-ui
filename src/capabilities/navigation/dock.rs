@@ -6,11 +6,15 @@ use crate::capabilities::foundation::theme::use_theme;
 
 pub struct DockState {
     cursor_x: Option<Pixels>,
+    bounds: Option<Bounds<Pixels>>,
 }
 
 impl DockState {
     pub fn new(_cx: &mut Context<Self>) -> Self {
-        Self { cursor_x: None }
+        Self {
+            cursor_x: None,
+            bounds: None,
+        }
     }
 }
 
@@ -127,11 +131,13 @@ impl RenderOnce for Dock {
             sigma,
         );
 
+        let state_bounds = self.state.clone();
         let state_move = self.state.clone();
         let state_hover = self.state.clone();
 
         let mut row = div()
             .id(self.id)
+            .relative()
             .flex()
             .flex_row()
             .items_end()
@@ -142,10 +148,25 @@ impl RenderOnce for Dock {
             .bg(theme.tokens.card)
             .border_1()
             .border_color(theme.tokens.border)
+            .child(
+                canvas(
+                    move |bounds, _window, cx| {
+                        state_bounds.update(cx, |s, _| s.bounds = Some(bounds));
+                    },
+                    |_bounds, _, _window, _cx| {},
+                )
+                .absolute()
+                .inset_0()
+                .size_full(),
+            )
             .on_mouse_move(move |event: &MouseMoveEvent, _window, cx| {
                 state_move.update(cx, |s, cx| {
-                    s.cursor_x = Some(event.position.x);
-                    cx.notify();
+                    if let Some(bounds) = s.bounds {
+                        let center_x: f32 = bounds.center().x.into();
+                        let event_x: f32 = event.position.x.into();
+                        s.cursor_x = Some(px(event_x - center_x));
+                        cx.notify();
+                    }
                 });
             })
             .on_hover(move |hovered: &bool, _window, cx| {

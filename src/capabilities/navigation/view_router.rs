@@ -116,9 +116,13 @@ impl ViewRouterState {
         cx.notify();
 
         let duration = self.duration;
+        let version = self.version;
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(duration).await;
             _ = this.update(cx, |this, cx| {
+                if this.version != version {
+                    return;
+                }
                 this.is_transitioning = false;
                 this.previous_render = None;
                 this.active_transition = None;

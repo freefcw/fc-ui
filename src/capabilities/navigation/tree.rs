@@ -85,13 +85,10 @@ fn filter_tree<T: Clone>(nodes: &[TreeNode<T>], filter: &str) -> Vec<FilteredNod
             .collect();
     }
 
-    let filter_lower = filter.to_lowercase();
     let mut filtered = Vec::new();
 
     for node in nodes {
-        let label_lower = node.label.to_lowercase();
-
-        let (matches, match_ranges) = find_matches(&label_lower, &filter_lower);
+        let (matches, match_ranges) = find_matches(&node.label, filter);
 
         let filtered_children = filter_tree(&node.children, filter);
         if matches || !filtered_children.is_empty() {
@@ -106,32 +103,39 @@ fn filter_tree<T: Clone>(nodes: &[TreeNode<T>], filter: &str) -> Vec<FilteredNod
     filtered
 }
 
+/// Match ranges are char indices into `text`, so they can be applied directly
+/// to the original label when rendering highlights.
 fn find_matches(text: &str, filter: &str) -> (bool, Vec<(usize, usize)>) {
     if filter.is_empty() {
         return (false, Vec::new());
     }
 
-    let mut match_ranges = Vec::new();
-    let mut start = 0;
+    let text_chars: Vec<char> = text.chars().collect();
+    let filter_chars: Vec<char> = filter.chars().collect();
 
-    while let Some(pos) = text[start..].find(filter) {
-        let absolute_pos = start + pos;
-        match_ranges.push((absolute_pos, absolute_pos + filter.len()));
-        start = absolute_pos + 1;
+    let mut match_ranges = Vec::new();
+    if filter_chars.len() <= text_chars.len() {
+        for start in 0..=(text_chars.len() - filter_chars.len()) {
+            if filter_chars
+                .iter()
+                .enumerate()
+                .all(|(i, &f)| chars_match_ci(text_chars[start + i], f))
+            {
+                match_ranges.push((start, start + filter_chars.len()));
+            }
+        }
     }
 
     if !match_ranges.is_empty() {
         return (true, match_ranges);
     }
 
-    let filter_chars: Vec<char> = filter.chars().collect();
-    let text_chars: Vec<char> = text.chars().collect();
     let mut filter_idx = 0;
     let mut current_match_start = None;
     let mut fuzzy_ranges = Vec::new();
 
     for (text_idx, &text_char) in text_chars.iter().enumerate() {
-        if filter_idx < filter_chars.len() && text_char == filter_chars[filter_idx] {
+        if filter_idx < filter_chars.len() && chars_match_ci(text_char, filter_chars[filter_idx]) {
             if current_match_start.is_none() {
                 current_match_start = Some(text_idx);
             }
@@ -147,6 +151,10 @@ fn find_matches(text: &str, filter: &str) -> (bool, Vec<(usize, usize)>) {
     }
 
     (false, Vec::new())
+}
+
+fn chars_match_ci(a: char, b: char) -> bool {
+    a == b || a.to_lowercase().eq(b.to_lowercase())
 }
 
 fn flatten_filtered_tree<T: Clone + PartialEq + Eq + Hash>(
@@ -506,20 +514,10 @@ impl<T: Clone + PartialEq + Eq + Hash + 'static> RenderOnce for TreeList<T> {
                                             this.on_mouse_down(
                                                 MouseButton::Right,
                                                 move |event, window, cx| {
-                                                    eprintln!(
-                                                        "TreeList: Right mouse button down on node"
-                                                    );
                                                     if let Some(on_right_click) =
                                                         on_right_click.clone()
                                                     {
-                                                        eprintln!(
-                                                    "TreeList: Calling on_right_click handler"
-                                                );
                                                         on_right_click(&node_id, event, window, cx);
-                                                    } else {
-                                                        eprintln!(
-                                                            "TreeList: No on_right_click handler!"
-                                                        );
                                                     }
                                                 },
                                             )
@@ -802,5 +800,64 @@ impl<T: Clone + PartialEq + 'static> RenderOnce for List<T> {
                     .iter()
                     .map(|item| self.render_item(item, &theme).into_any_element()),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{filter_tree, find_matches, TreeList, TreeNode};
+    use crate::capabilities::foundation::theme::Theme;
+
+    /// The library documents match ranges as char indices into the label; this
+    /// helper applies them the same way `render_highlighted_text` does.
+    fn char_slice(text: &str, (start, end): (usize, usize)) -> String {
+        text.chars().skip(start).take(end - start).collect()
+    }
+
+    #[test]
+    fn find_matches_on_cjk_label_returns_char_index_ranges() {
+        let (matched, ranges) = find_matches("日本語テスト", "本語");
+        assert!(matched);
+        assert_eq!(ranges, vec![(1, 3)]);
+        assert_eq!(char_slice("日本語テスト", ranges[0]), "本語");
+    }
+
+    #[test]
+    fn find_matches_on_mixed_label_is_case_insensitive_with_char_indices() {
+        let (matched, ranges) = find_matches("中文目录abc", "ABC");
+        assert!(matched);
+        assert_eq!(ranges, vec![(4, 7)]);
+        assert_eq!(char_slice("中文目录abc", ranges[0]), "abc");
+    }
+
+    #[test]
+    fn find_matches_fuzzy_fallback_returns_char_index_ranges() {
+        let (matched, ranges) = find_matches("中文目录", "中录");
+        assert!(matched);
+        assert_eq!(ranges, vec![(0, 4)]);
+        assert_eq!(char_slice("中文目录", ranges[0]), "中文目录");
+    }
+
+    #[test]
+    fn filtering_mid_char_hits_and_highlight_rendering_do_not_panic() {
+        let nodes = vec![
+            TreeNode::new(1, "日本語テスト"),
+            TreeNode::new(2, "中文目录abc"),
+        ];
+
+        // 过滤词命中非 ASCII label 的中部字符（2/3 号 char）
+        let filtered = filter_tree(&nodes, "語テ");
+        assert_eq!(filtered.len(), 1);
+        let entry = &filtered[0];
+        assert_eq!(entry.node.id, 1);
+        assert_eq!(entry.match_ranges, vec![(2, 4)]);
+
+        // 区间应能按 char 索引合法切回原 label，且与预期高亮一致
+        assert_eq!(char_slice(&entry.node.label, entry.match_ranges[0]), "語テ");
+
+        // 修复前按字节区间切 chars 会越界/切乱；现沿渲染路径构造元素必须不 panic
+        let theme = Theme::light();
+        let list = <TreeList<i32>>::new().highlight_matches(true);
+        list.render_highlighted_text(&entry.node.label, &entry.match_ranges, &theme, false);
     }
 }

@@ -50,7 +50,6 @@ impl SegmentedNavSize {
 pub struct SegmentedNavState {
     active: SharedString,
     previous_active: Option<SharedString>,
-    items: Vec<SegmentedNavItem>,
     animation_version: usize,
 }
 
@@ -59,7 +58,6 @@ impl SegmentedNavState {
         Self {
             active: active.into(),
             previous_active: None,
-            items: Vec::new(),
             animation_version: 0,
         }
     }
@@ -76,10 +74,6 @@ impl SegmentedNavState {
 
     pub fn active(&self) -> &SharedString {
         &self.active
-    }
-
-    fn _active_index(&self) -> Option<usize> {
-        self.items.iter().position(|item| item.id == self.active)
     }
 }
 
@@ -146,14 +140,14 @@ impl RenderOnce for SegmentedNav {
         let user_style = self.style;
         let state = self.state.read(cx);
         let active_id = state.active.clone();
+        let previous_id = state.previous_active.clone();
         let item_count = self.items.len();
         let active_index = self.items.iter().position(|i| i.id == active_id);
+        let previous_index = previous_id
+            .as_ref()
+            .and_then(|id| self.items.iter().position(|i| &i.id == id));
         let animation_version = state.animation_version;
         let duration = self.duration;
-
-        self.state.update(cx, |state, _| {
-            state.items = self.items.clone();
-        });
 
         let item_fraction = if item_count > 0 {
             1.0 / item_count as f32
@@ -192,12 +186,14 @@ impl RenderOnce for SegmentedNav {
                             Animation::new(duration).with_easing(easings::ease_out_cubic),
                             move |el, delta| {
                                 let frac = item_fraction;
-                                let left_pct = idx as f32 * frac * 100.0;
+                                let cur_pct = idx as f32 * frac * 100.0;
+                                let start_pct = previous_index
+                                    .map(|prev| prev as f32 * frac * 100.0)
+                                    .unwrap_or(cur_pct);
                                 let width_pct = frac * 100.0;
-                                el.left(relative(
-                                    left_pct / 100.0 * delta + left_pct / 100.0 * (1.0 - delta),
-                                ))
-                                .w(relative(width_pct / 100.0))
+                                let left_pct = start_pct + (cur_pct - start_pct) * delta;
+                                el.left(relative(left_pct / 100.0))
+                                    .w(relative(width_pct / 100.0))
                             },
                         ),
                 )

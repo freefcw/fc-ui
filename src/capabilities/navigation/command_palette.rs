@@ -313,7 +313,9 @@ impl Render for CommandPalette {
                     .rounded(theme.tokens.radius_lg)
                     .shadow_lg()
                     .overflow_hidden()
-                    .on_mouse_down(MouseButton::Left, |_event, _window, _cx| {})
+                    .on_mouse_down(MouseButton::Left, |_event, _window, cx| {
+                        cx.stop_propagation();
+                    })
                     .map(|this| {
                         let mut div = this;
                         div.style().refine(&user_style);

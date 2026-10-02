@@ -386,6 +386,14 @@ impl<T: Clone + PartialEq + 'static> RenderOnce for Tabs<T> {
             .and_then(|index| self.panels.get(index))
             .map(|panel| panel.render());
 
+        let selected = self.selected_index.unwrap_or(0);
+        let disabled_flags: Vec<bool> = self.tabs.iter().map(|tab| tab.disabled).collect();
+        let close_tab_id: Option<T> = self
+            .selected_index
+            .and_then(|index| self.tabs.get(index))
+            .filter(|tab| tab.closeable)
+            .map(|tab| tab.id.clone());
+
         let mut root = div()
             .flex()
             .flex_col()
@@ -403,11 +411,105 @@ impl<T: Clone + PartialEq + 'static> RenderOnce for Tabs<T> {
             );
         }
 
-        root.map(|this| {
-            let mut div = this;
-            div.style().refine(&user_style);
-            div
-        })
+        let on_change = self.on_change;
+        let on_close = self.on_close;
+
+        root.key_context("Tabs")
+            .on_action({
+                let on_change = on_change.clone();
+                let disabled = disabled_flags.clone();
+                move |_: &TabNext, window, cx| {
+                    if let Some(next) = step_tab(&disabled, selected, true) {
+                        if next != selected {
+                            if let Some(on_change) = on_change.clone() {
+                                on_change(&next, window, cx);
+                            }
+                        }
+                    }
+                }
+            })
+            .on_action({
+                let on_change = on_change.clone();
+                let disabled = disabled_flags.clone();
+                move |_: &TabPrevious, window, cx| {
+                    if let Some(prev) = step_tab(&disabled, selected, false) {
+                        if prev != selected {
+                            if let Some(on_change) = on_change.clone() {
+                                on_change(&prev, window, cx);
+                            }
+                        }
+                    }
+                }
+            })
+            .on_action({
+                let on_change = on_change.clone();
+                let disabled = disabled_flags.clone();
+                move |_: &TabFirst, window, cx| {
+                    if let Some(first) = edge_tab(&disabled, false) {
+                        if first != selected {
+                            if let Some(on_change) = on_change.clone() {
+                                on_change(&first, window, cx);
+                            }
+                        }
+                    }
+                }
+            })
+            .on_action({
+                let on_change = on_change.clone();
+                let disabled = disabled_flags.clone();
+                move |_: &TabLast, window, cx| {
+                    if let Some(last) = edge_tab(&disabled, true) {
+                        if last != selected {
+                            if let Some(on_change) = on_change.clone() {
+                                on_change(&last, window, cx);
+                            }
+                        }
+                    }
+                }
+            })
+            .on_action({
+                let on_close = on_close.clone();
+                move |_: &TabClose, window, cx| {
+                    if let (Some(on_close), Some(tab_id)) = (on_close.clone(), close_tab_id.clone())
+                    {
+                        on_close(&tab_id, window, cx);
+                    }
+                }
+            })
+            .map(|this| {
+                let mut div = this;
+                div.style().refine(&user_style);
+                div
+            })
+    }
+}
+
+fn step_tab(disabled: &[bool], current: usize, forward: bool) -> Option<usize> {
+    let len = disabled.len();
+    if len == 0 {
+        return None;
+    }
+
+    let mut index = current % len;
+    for _ in 0..len {
+        index = if forward {
+            (index + 1) % len
+        } else {
+            (index + len - 1) % len
+        };
+        if !disabled[index] {
+            return Some(index);
+        }
+    }
+
+    None
+}
+
+fn edge_tab(disabled: &[bool], from_end: bool) -> Option<usize> {
+    if from_end {
+        disabled.iter().rposition(|d| !*d)
+    } else {
+        disabled.iter().position(|d| !*d)
     }
 }
 

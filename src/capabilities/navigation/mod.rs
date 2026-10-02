@@ -18,6 +18,7 @@ pub mod tree;
 pub mod view_router;
 
 pub(crate) fn init(cx: &mut gpui::App) {
+    menu::init_menu_bar(cx);
     sidebar::init_sidebar(cx);
     tabs::init_tabs(cx);
 }
