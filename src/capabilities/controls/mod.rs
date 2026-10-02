@@ -42,6 +42,7 @@ pub(crate) fn init_before_image_viewer(cx: &mut gpui::App) {
     select::init_select(cx);
     combobox::init_combobox(cx);
     date_picker::init(cx);
+    dropdown::init_dropdown(cx);
 }
 
 /// Register controls that historically follow image viewer keybindings.

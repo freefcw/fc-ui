@@ -4,6 +4,8 @@ use crate::capabilities::primitives::icon_source::IconSource;
 use gpui::{prelude::FluentBuilder as _, *};
 use std::rc::Rc;
 
+actions!(dropdown, [CloseDropdown]);
+
 #[derive(Clone)]
 pub struct DropdownItem {
     id: SharedString,
@@ -158,22 +160,49 @@ impl Styled for Dropdown {
 }
 
 impl RenderOnce for Dropdown {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = use_theme(cx);
         let user_style = self.style;
         let is_open = self.state.read(cx).open;
+        let focus_handle = self.state.read(cx).focus_handle(cx);
         let state = self.state.clone();
 
         div()
             .relative()
+            .key_context("Dropdown")
+            .track_focus(&focus_handle.clone().tab_index(0).tab_stop(true))
+            .on_action(
+                window.listener_for(&state, |state, _: &CloseDropdown, _, cx| {
+                    if state.open {
+                        state.close(cx);
+                    }
+                }),
+            )
+            .on_key_down(
+                window.listener_for(&state, move |state, event: &KeyDownEvent, _, cx| {
+                    if event.keystroke.key == "escape" && state.open {
+                        cx.stop_propagation();
+                        state.close(cx);
+                    }
+                }),
+            )
+            .on_mouse_down_out(window.listener_for(&state, |state, _, _, cx| {
+                if state.open {
+                    state.close(cx);
+                }
+            }))
             .child(
                 div()
                     .id("dropdown-trigger")
                     .cursor_pointer()
                     .on_click({
                         let state = state.clone();
-                        move |_, _, cx| {
+                        let focus_handle = focus_handle.clone();
+                        move |_, window, cx| {
                             state.update(cx, |s, cx| s.toggle(cx));
+                            if state.read(cx).is_open() {
+                                window.focus(&focus_handle);
+                            }
                         }
                     })
                     .child(self.trigger),
@@ -266,4 +295,12 @@ impl RenderOnce for Dropdown {
                 div
             })
     }
+}
+
+/// Initialize dropdown key bindings
+pub fn init_dropdown(cx: &mut App) {
+    if !crate::capabilities::foundation::initialization::begin(cx, "dropdown") {
+        return;
+    }
+    cx.bind_keys([KeyBinding::new("escape", CloseDropdown, Some("Dropdown"))]);
 }

@@ -4,6 +4,7 @@ use gpui::{prelude::FluentBuilder as _, *};
 use std::rc::Rc;
 
 use crate::capabilities::foundation::theme::use_theme;
+use crate::capabilities::primitives::icon::{Icon, IconSize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum ToggleGroupVariant {
@@ -187,6 +188,7 @@ impl RenderOnce for ToggleGroup {
         let disabled = self.disabled;
         let size = self.size;
         let on_change = self.on_change;
+        let on_multiple_change = self.on_multiple_change;
         let user_style = self.style;
 
         div()
@@ -206,6 +208,8 @@ impl RenderOnce for ToggleGroup {
                 let is_disabled = disabled || item.disabled;
                 let value = item.value.clone();
                 let handler = on_change.clone();
+                let multiple_handler = on_multiple_change.clone();
+                let values = current_values.clone();
 
                 div()
                     .flex()
@@ -245,15 +249,27 @@ impl RenderOnce for ToggleGroup {
                         })
                     })
                     .when(!is_disabled, |this: Div| {
-                        this.on_mouse_down(MouseButton::Left, move |_, window, cx| {
-                            if let Some(h) = &handler {
-                                h(&value, window, cx);
+                        this.on_mouse_down(MouseButton::Left, move |_, window, cx| match variant {
+                            ToggleGroupVariant::Single => {
+                                if let Some(h) = &handler {
+                                    h(&value, window, cx);
+                                }
+                            }
+                            ToggleGroupVariant::Multiple => {
+                                let mut new_values = values.clone();
+                                if let Some(index) = new_values.iter().position(|v| v == &value) {
+                                    new_values.remove(index);
+                                } else {
+                                    new_values.push(value.clone());
+                                }
+                                if let Some(h) = &multiple_handler {
+                                    h(&new_values, window, cx);
+                                }
                             }
                         })
                     })
-                    .when_some(item.icon, |this: Div, _icon| {
-                        // TODO: Render icon when icon component is integrated
-                        this
+                    .when_some(item.icon.clone(), |this: Div, icon| {
+                        this.child(Icon::new(icon).size(IconSize::Small))
                     })
                     .child(item.label)
             }))

@@ -5,6 +5,7 @@ use std::time::Duration;
 pub struct CopyButtonState {
     copied: bool,
     text: SharedString,
+    copy_generation: usize,
 }
 
 impl CopyButtonState {
@@ -12,6 +13,7 @@ impl CopyButtonState {
         Self {
             copied: false,
             text,
+            copy_generation: 0,
         }
     }
 
@@ -22,13 +24,17 @@ impl CopyButtonState {
     pub fn copy(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         cx.write_to_clipboard(ClipboardItem::new_string(self.text.to_string()));
         self.copied = true;
+        self.copy_generation = self.copy_generation.wrapping_add(1);
+        let generation = self.copy_generation;
         cx.notify();
 
         cx.spawn_in(window, async move |this, cx| {
             smol::Timer::after(Duration::from_secs(2)).await;
             let _ = this.update(cx, |state, cx| {
-                state.copied = false;
-                cx.notify();
+                if state.copy_generation == generation {
+                    state.copied = false;
+                    cx.notify();
+                }
             });
         })
         .detach();

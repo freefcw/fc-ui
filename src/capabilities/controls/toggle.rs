@@ -213,7 +213,7 @@ impl RenderOnce for Toggle {
                         (on_click)(&new_checked, window, cx);
                     })
                     .on_key_down(move |event, window, cx| {
-                        if event.keystroke.key == "space" || event.keystroke.key == "enter" {
+                        if event.keystroke.key == "space" {
                             let new_checked = !checked;
                             (on_click_for_key)(&new_checked, window, cx);
                             cx.stop_propagation();

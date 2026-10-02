@@ -67,6 +67,7 @@ pub struct Select<T: Clone + 'static> {
     loading: bool,
     search_query: String,
     on_change: Option<Box<dyn Fn(&T, &mut Window, &mut App) + Send + Sync + 'static>>,
+    on_clear: Option<Box<dyn Fn(&mut Window, &mut App) + Send + Sync + 'static>>,
     bounds: Bounds<Pixels>,
     leading_icon: Option<IconSource>,
     aria_label: Option<SharedString>,
@@ -88,6 +89,7 @@ impl<T: Clone + 'static> Select<T> {
             loading: false,
             search_query: String::new(),
             on_change: None,
+            on_clear: None,
             bounds: Bounds::default(),
             leading_icon: None,
             aria_label: None,
@@ -136,6 +138,12 @@ impl<T: Clone + 'static> Select<T> {
         f: F,
     ) -> Self {
         self.on_change = Some(Box::new(f));
+        self
+    }
+
+    /// Set a callback invoked when the current selection is cleared.
+    pub fn on_clear<F: Fn(&mut Window, &mut App) + Send + Sync + 'static>(mut self, f: F) -> Self {
+        self.on_clear = Some(Box::new(f));
         self
     }
 
@@ -193,12 +201,16 @@ impl<T: Clone + 'static> Select<T> {
         cx.notify();
     }
 
-    fn clear_selection(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    fn clear_selection(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.selected_index = None;
         self.highlighted_index = None;
 
         cx.emit(SelectEvent::Change);
         cx.notify();
+
+        if let Some(ref cb) = self.on_clear {
+            (cb)(window, cx);
+        }
     }
 
     fn select_option(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
@@ -415,6 +427,7 @@ impl<T: Clone + 'static> Render for Select<T> {
                                 .on_mouse_down(
                                     MouseButton::Left,
                                     cx.listener(|this, _event: &MouseDownEvent, window, cx| {
+                                        cx.stop_propagation();
                                         this.clear_selection(window, cx);
                                     }),
                                 )
@@ -472,8 +485,8 @@ impl<T: Clone + 'static> Render for Select<T> {
                         this.search_query.pop();
                         cx.notify();
                     }
-                    else if event.keystroke.key.len() == 1 && !event.keystroke.modifiers.control && !event.keystroke.modifiers.platform {
-                        this.search_query.push_str(&event.keystroke.key);
+                    else if let Some(text) = &event.keystroke.key_char {
+                        this.search_query.push_str(text);
                         let filtered = this.filtered_options();
                         if !filtered.is_empty() {
                             this.highlighted_index = Some(filtered[0].0);

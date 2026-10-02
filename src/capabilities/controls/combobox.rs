@@ -80,9 +80,16 @@ impl<T: Clone + 'static> ComboboxState<T> {
         self.focused_index = None;
     }
 
-    pub fn select_item(&mut self, item: T, multi_select: bool) {
+    pub fn select_item(&mut self, item: T, multi_select: bool)
+    where
+        T: PartialEq,
+    {
         if multi_select {
-            self.selected.push(item);
+            if let Some(index) = self.selected.iter().position(|s| *s == item) {
+                self.selected.remove(index);
+            } else {
+                self.selected.push(item);
+            }
         } else {
             self.selected = vec![item];
             self.is_open = false;
@@ -124,6 +131,7 @@ pub struct Combobox<T: Clone + 'static> {
     render_selected: Option<Box<dyn Fn(&[T]) -> SharedString>>,
 
     on_select: Option<Box<dyn Fn(&T, &mut Window, &mut App)>>,
+    on_clear: Option<Box<dyn Fn(&mut Window, &mut App)>>,
     on_search: Option<Box<dyn Fn(&str, &mut App)>>,
 
     bounds: Bounds<Pixels>,
@@ -134,6 +142,7 @@ pub struct Combobox<T: Clone + 'static> {
 impl<T: Clone + 'static> Combobox<T> {
     /// Create a new combobox with items and state entity
     pub fn new(items: Vec<T>, state: &Entity<ComboboxState<T>>, cx: &mut Context<Self>) -> Self {
+        cx.observe(state, |_, _, cx| cx.notify()).detach();
         Self {
             focus_handle: cx.focus_handle(),
             items,
@@ -147,6 +156,7 @@ impl<T: Clone + 'static> Combobox<T> {
             render_item: Box::new(|_| "Item".into()),
             render_selected: None,
             on_select: None,
+            on_clear: None,
             on_search: None,
             bounds: Bounds::default(),
             style: StyleRefinement::default(),
@@ -231,6 +241,15 @@ impl<T: Clone + 'static> Combobox<T> {
         self
     }
 
+    /// Set a callback invoked when all selections are cleared.
+    pub fn on_clear<F>(mut self, callback: F) -> Self
+    where
+        F: Fn(&mut Window, &mut App) + 'static,
+    {
+        self.on_clear = Some(Box::new(callback));
+        self
+    }
+
     /// Set callback when search text changes
     pub fn on_search<F>(mut self, callback: F) -> Self
     where
@@ -275,16 +294,23 @@ impl<T: Clone + 'static> Combobox<T> {
     }
 
     /// Clear all selections
-    fn clear_selection(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    fn clear_selection(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.state.update(cx, |state, cx| {
             state.clear();
             cx.notify(); // Trigger re-render
         });
         cx.emit(ComboboxEvent::Change);
+
+        if let Some(ref callback) = self.on_clear {
+            (callback)(window, cx);
+        }
     }
 
     /// Select an item
-    fn select_item(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+    fn select_item(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>)
+    where
+        T: PartialEq,
+    {
         let filtered = self.filtered_items(cx);
         if let Some(&(original_idx, _)) = filtered.get(index) {
             if let Some(item) = self.items.get(original_idx).cloned() {
@@ -347,12 +373,10 @@ impl<T: Clone + 'static> Combobox<T> {
     }
 
     /// Handle enter key (confirm selection)
-    fn combobox_confirm(
-        &mut self,
-        _: &ComboboxConfirm,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn combobox_confirm(&mut self, _: &ComboboxConfirm, window: &mut Window, cx: &mut Context<Self>)
+    where
+        T: PartialEq,
+    {
         let state = self.state.read(cx);
         if state.is_open {
             if let Some(idx) = state.focused_index {
@@ -447,15 +471,7 @@ impl<T: Clone + PartialEq + 'static> Render for Combobox<T> {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, window, cx| {
-                    if !this.disabled {
-                        window.focus(&this.focus_handle);
-                        this.state.update(cx, |state, _| {
-                            if !state.is_open {
-                                state.is_open = true;
-                                state.focused_index = Some(0);
-                            }
-                        });
-                    }
+                    this.toggle_dropdown(window, cx);
                 }),
             )
             .child(div().flex_1().child(display_text))
@@ -483,6 +499,7 @@ impl<T: Clone + PartialEq + 'static> Render for Combobox<T> {
                                     .on_mouse_down(
                                         MouseButton::Left,
                                         cx.listener(|this, _event, window, cx| {
+                                            cx.stop_propagation();
                                             this.clear_selection(window, cx);
                                         }),
                                     )
@@ -539,12 +556,9 @@ impl<T: Clone + PartialEq + 'static> Render for Combobox<T> {
                             cx.notify();  // Trigger re-render
                         });
                         cx.emit(ComboboxEvent::Search);
-                    } else if event.keystroke.key.len() == 1
-                        && !event.keystroke.modifiers.control
-                        && !event.keystroke.modifiers.platform
-                        && !event.keystroke.modifiers.alt {
+                    } else if let Some(text) = event.keystroke.key_char.clone() {
                         this.state.update(cx, |state, cx| {
-                            state.search_text.push_str(&event.keystroke.key);
+                            state.search_text.push_str(&text);
                             state.focused_index = Some(0);
                             cx.notify();  // Trigger re-render
                         });
