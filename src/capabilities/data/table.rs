@@ -108,8 +108,11 @@ impl RenderOnce for Table {
 
         let row_elements = self.rows.into_iter().map(|row| {
             let cell_elements = row.cells.iter().enumerate().map(|(col_index, cell)| {
-                let column = &self.columns[col_index];
-                let width = column.width.unwrap_or(px(120.0));
+                let width = self
+                    .columns
+                    .get(col_index)
+                    .and_then(|column| column.width)
+                    .unwrap_or(px(120.0));
 
                 div()
                     .flex()
@@ -150,5 +153,43 @@ impl RenderOnce for Table {
                 div.style().refine(&user_style);
                 div
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::capabilities::foundation::theme::{install_theme, Theme};
+
+    struct TableTestView;
+
+    impl Render for TableTestView {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            Table::new()
+                .columns(vec![
+                    TableColumn::new("a").width(px(100.0)),
+                    TableColumn::new("b"),
+                ])
+                .rows(vec![
+                    // 行内 cells 多于 columns：修复前取宽度按索引直接数组下标 panic，
+                    // 修复后兜底 120px 宽度
+                    TableRow::new(vec![
+                        "1".into(),
+                        "2".into(),
+                        "3".into(),
+                        "4".into(),
+                        "5".into(),
+                    ]),
+                    TableRow::new(vec!["only".into(), "two".into(), "extra".into()]).selected(true),
+                ])
+        }
+    }
+
+    #[gpui::test]
+    fn rows_with_more_cells_than_columns_render_without_panic() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let mut window = app.open_window(|_, _| TableTestView);
+        window.draw();
     }
 }

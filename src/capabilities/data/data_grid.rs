@@ -236,10 +236,16 @@ impl<T: 'static> DataGridState<T> {
             self.data.sort_by(|a, b| {
                 let va = getter(a);
                 let vb = getter(b);
+                let ordering = match (va.parse::<f64>(), vb.parse::<f64>()) {
+                    (Ok(number_a), Ok(number_b)) => number_a
+                        .partial_cmp(&number_b)
+                        .unwrap_or(std::cmp::Ordering::Equal),
+                    _ => va.cmp(&vb),
+                };
                 if ascending {
-                    va.cmp(&vb)
+                    ordering
                 } else {
-                    vb.cmp(&va)
+                    ordering.reverse()
                 }
             });
         }
@@ -461,6 +467,7 @@ impl<T: 'static> RenderOnce for DataGrid<T> {
                             .on_mouse_down(
                                 MouseButton::Left,
                                 move |event: &MouseDownEvent, _, cx| {
+                                    cx.stop_propagation();
                                     st.update(cx, |s, scx| {
                                         s.resizing_column = Some(col_idx);
                                         s.resize_start_x = event.position.x.into();

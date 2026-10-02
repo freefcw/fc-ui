@@ -79,10 +79,6 @@ impl VirtualScroller {
         }
     }
 
-    fn total_height(&self) -> f32 {
-        self.total_items as f32 * self.viewport.row_height
-    }
-
     fn set_total_items(&mut self, count: usize) {
         self.total_items = count;
     }
@@ -185,10 +181,6 @@ impl<T: Clone + 'static> DataTableState<T> {
         }
     }
 
-    fn total_height(&self) -> f32 {
-        self.scroller.total_height()
-    }
-
     fn row_height(&self) -> f32 {
         self.scroller.viewport.row_height
     }
@@ -242,6 +234,7 @@ impl<T: Clone + 'static> DataTableState<T> {
             }
         }
         self.scroller.set_total_items(total_items);
+        self.selected_rows.clear();
     }
 
     fn virtual_set_page(&mut self, page_start: usize, rows: Vec<T>) {
@@ -270,9 +263,17 @@ impl<T: Clone + 'static> DataTableState<T> {
                     .map(|(idx, row)| (idx, (column.accessor)(row).to_string()))
                     .collect();
 
-                indexed_values.sort_by(|(_, a), (_, b)| match direction {
-                    SortDirection::Ascending => a.cmp(b),
-                    SortDirection::Descending => b.cmp(a),
+                indexed_values.sort_by(|(_, a), (_, b)| {
+                    let ordering = match (a.parse::<f64>(), b.parse::<f64>()) {
+                        (Ok(number_a), Ok(number_b)) => number_a
+                            .partial_cmp(&number_b)
+                            .unwrap_or(std::cmp::Ordering::Equal),
+                        _ => a.cmp(b),
+                    };
+                    match direction {
+                        SortDirection::Ascending => ordering,
+                        SortDirection::Descending => ordering.reverse(),
+                    }
                 });
 
                 let sorted_data: Vec<T> = indexed_values
@@ -281,6 +282,7 @@ impl<T: Clone + 'static> DataTableState<T> {
                     .collect();
 
                 *data = sorted_data;
+                self.selected_rows.clear();
             }
         }
     }
@@ -295,6 +297,10 @@ impl<T: Clone + 'static> DataTableState<T> {
 
     pub fn is_row_selected(&self, row_index: usize) -> bool {
         self.selected_rows.contains(&row_index)
+    }
+
+    fn clear_selection(&mut self) {
+        self.selected_rows.clear();
     }
 
     pub fn resize_column(&mut self, column_index: usize, new_width: Pixels) {
@@ -336,9 +342,6 @@ pub struct DataTable<T: Clone + 'static> {
     on_selection_change: Option<Box<dyn Fn(&[usize], &mut Window, &mut Context<Self>) + 'static>>,
     row_actions: Vec<RowAction>,
     context_menu: Option<(usize, Point<Pixels>)>,
-    is_dragging_horizontal: bool,
-    drag_start_x: f32,
-    drag_scroll_start_x: f32,
     style: StyleRefinement,
 }
 
@@ -388,7 +391,7 @@ impl<T: Clone + 'static> DataTable<T> {
             edit_input: None,
             edit_column_id: SharedString::from(""),
             edit_old_value: SharedString::from(""),
-            use_edit_dialog: true,
+            use_edit_dialog: false,
             on_cell_edit: None,
             on_cell_double_click: None,
             on_fetch_page: None,
@@ -402,9 +405,6 @@ impl<T: Clone + 'static> DataTable<T> {
             on_selection_change: None,
             row_actions: Vec::new(),
             context_menu: None,
-            is_dragging_horizontal: false,
-            drag_start_x: 0.0,
-            drag_scroll_start_x: 0.0,
             style: StyleRefinement::default(),
         }
     }
@@ -477,7 +477,7 @@ impl<T: Clone + 'static> DataTable<T> {
             edit_input: None,
             edit_column_id: SharedString::from(""),
             edit_old_value: SharedString::from(""),
-            use_edit_dialog: true,
+            use_edit_dialog: false,
             on_cell_edit: None,
             on_cell_double_click: None,
             on_fetch_page: None,
@@ -491,9 +491,6 @@ impl<T: Clone + 'static> DataTable<T> {
             on_selection_change: None,
             row_actions: Vec::new(),
             context_menu: None,
-            is_dragging_horizontal: false,
-            drag_start_x: 0.0,
-            drag_scroll_start_x: 0.0,
             style: StyleRefinement::default(),
         }
         .with_virtual_backing(total_items, page_size)
@@ -551,9 +548,11 @@ impl<T: Clone + 'static> DataTable<T> {
         self
     }
 
-    /// Set whether to use a confirmation dialog when editing cells
+    /// Set whether losing focus keeps the in-progress cell edit
     ///
-    /// - `true` (default): Shows a dialog with Save/Cancel buttons before applying changes
+    /// No confirmation dialog is rendered; the flag only controls blur behavior.
+    /// - `false` (default): losing focus saves the edit (Enter always saves)
+    /// - `true`: losing focus discards the edit
     pub fn use_edit_dialog(mut self, use_dialog: bool) -> Self {
         self.use_edit_dialog = use_dialog;
         self
@@ -589,33 +588,32 @@ impl<T: Clone + 'static> DataTable<T> {
         cx.notify();
     }
 
-    fn row_matches_search(&self, row: &T) -> bool {
-        if self.search_query.is_empty() {
+    fn row_matches_search(&self, row: &T, query_lower: &str) -> bool {
+        if query_lower.is_empty() {
             return true;
         }
-
-        let query_lower = self.search_query.to_lowercase();
 
         if let Some(col_idx) = self.search_column {
             if let Some(column) = self.state.columns.get(col_idx) {
                 let cell_value = (column.accessor)(row);
-                cell_value.to_string().to_lowercase().contains(&query_lower)
+                cell_value.to_string().to_lowercase().contains(query_lower)
             } else {
                 false
             }
         } else {
             self.state.columns.iter().any(|column| {
                 let cell_value = (column.accessor)(row);
-                cell_value.to_string().to_lowercase().contains(&query_lower)
+                cell_value.to_string().to_lowercase().contains(query_lower)
             })
         }
     }
 
     fn get_filtered_indices(&self) -> Vec<usize> {
         if let DataBacking::InMemory { data } = &self.state.backing {
+            let query_lower = self.search_query.to_lowercase();
             data.iter()
                 .enumerate()
-                .filter(|(_, row)| self.row_matches_search(row))
+                .filter(|(_, row)| self.row_matches_search(row, &query_lower))
                 .map(|(idx, _)| idx)
                 .collect()
         } else {
@@ -624,9 +622,30 @@ impl<T: Clone + 'static> DataTable<T> {
     }
 
     pub fn set_data(&mut self, data: Vec<T>, cx: &mut Context<Self>) {
-        let _new_count = data.len();
         self.state.replace_in_memory_data(data);
+        self.state.clear_selection();
         self.load_more_triggered = false;
+        cx.notify();
+    }
+
+    /// Replace in-memory data and notify selection observers when the old
+    /// index-based selection is cleared. Use this variant from an event
+    /// handler that has a window context.
+    pub fn set_data_with_window(
+        &mut self,
+        data: Vec<T>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let had_selection = !self.state.selected_rows.is_empty();
+        self.state.replace_in_memory_data(data);
+        self.state.clear_selection();
+        self.load_more_triggered = false;
+        if had_selection {
+            if let Some(ref callback) = self.on_selection_change {
+                callback(&self.state.selected_rows, window, cx);
+            }
+        }
         cx.notify();
     }
 
@@ -647,7 +666,28 @@ impl<T: Clone + 'static> DataTable<T> {
         cx: &mut Context<Self>,
     ) {
         self.state.virtual_reset(total_items, page_size);
+        self.state.clear_selection();
         self.load_more_triggered = false;
+        cx.notify();
+    }
+
+    /// Reset virtual data and notify selection observers when stale row
+    /// indices are discarded.
+    pub fn virtual_reset_with_window(
+        &mut self,
+        total_items: usize,
+        page_size: Option<usize>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let had_selection = !self.state.selected_rows.is_empty();
+        self.state.virtual_reset(total_items, page_size);
+        self.load_more_triggered = false;
+        if had_selection {
+            if let Some(ref callback) = self.on_selection_change {
+                callback(&self.state.selected_rows, window, cx);
+            }
+        }
         cx.notify();
     }
 
@@ -711,6 +751,18 @@ impl<T: Clone + 'static> DataTable<T> {
     fn is_all_selected(&self) -> bool {
         let total = self.state.total_items();
         total > 0 && self.state.selected_rows.len() == total
+    }
+
+    fn cancel_edit(&mut self, cx: &mut Context<Self>) {
+        if self.editing_cell.is_none() {
+            return;
+        }
+
+        self.editing_cell = None;
+        self.edit_input = None;
+        self.edit_column_id = SharedString::default();
+        self.edit_old_value = SharedString::default();
+        cx.notify();
     }
 
     fn total_table_width(&self) -> Pixels {
@@ -911,7 +963,7 @@ impl<T: Clone + 'static> DataTable<T> {
                 if sortable {
                     header_cell = header_cell.on_mouse_down(
                         MouseButton::Left,
-                        cx.listener(move |this, _event, _window, cx| {
+                        cx.listener(move |this, _event, window, cx| {
                             let new_direction = if this.state.sort_column == Some(col_idx) {
                                 match this.state.sort_direction {
                                     SortDirection::Ascending => SortDirection::Descending,
@@ -921,7 +973,13 @@ impl<T: Clone + 'static> DataTable<T> {
                                 SortDirection::Ascending
                             };
 
+                            let had_selection = !this.state.selected_rows.is_empty();
                             this.state.sort_by_column(col_idx, new_direction);
+                            if had_selection {
+                                if let Some(ref callback) = this.on_selection_change {
+                                    callback(&this.state.selected_rows, window, cx);
+                                }
+                            }
                             cx.notify();
                         }),
                     );
@@ -941,6 +999,7 @@ impl<T: Clone + 'static> DataTable<T> {
                             .on_mouse_down(
                                 MouseButton::Left,
                                 cx.listener(move |this, event: &MouseDownEvent, _window, cx| {
+                                    cx.stop_propagation();
                                     this.resizing_column = Some(col_idx);
                                     this.resize_start_x = event.position.x.into();
                                     this.resize_start_width = this.state.column_widths[col_idx];
@@ -960,6 +1019,97 @@ impl<T: Clone + 'static> DataTable<T> {
 impl<T: Clone + 'static> Styled for DataTable<T> {
     fn style(&mut self) -> &mut StyleRefinement {
         &mut self.style
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    #[derive(Clone)]
+    struct Row {
+        value: String,
+    }
+
+    fn columns() -> Vec<ColumnDef<Row>> {
+        vec![ColumnDef::new("value", "Value", |row: &Row| {
+            row.value.clone().into()
+        })]
+    }
+
+    #[::core::prelude::v1::test]
+    fn numeric_sort_uses_numeric_order_and_clears_selection() {
+        let mut state = DataTableState::new(
+            vec![
+                Row { value: "10".into() },
+                Row { value: "2".into() },
+                Row { value: "1".into() },
+            ],
+            columns(),
+        );
+        state.toggle_row(1);
+        state.sort_by_column(0, SortDirection::Ascending);
+
+        let DataBacking::InMemory { data } = &state.backing else {
+            panic!("expected in-memory data");
+        };
+        assert_eq!(
+            data.iter()
+                .map(|row| row.value.as_str())
+                .collect::<Vec<_>>(),
+            vec!["1", "2", "10"]
+        );
+        assert!(state.selected_rows.is_empty());
+    }
+
+    #[::core::prelude::v1::test]
+    fn virtual_reset_clears_index_based_selection() {
+        let mut state = DataTableState::new(Vec::<Row>::new(), columns());
+        state.virtual_reset(10, Some(2));
+        state.toggle_row(7);
+        state.virtual_reset(3, Some(2));
+        assert!(state.selected_rows.is_empty());
+    }
+
+    #[gpui::test]
+    fn window_aware_data_reset_notifies_selection_observers() {
+        let mut app = TestApp::new();
+        let calls = Rc::new(Cell::new(0));
+        let calls_for_callback = calls.clone();
+        let table = app.update(|cx| {
+            cx.new(|cx| {
+                DataTable::new(
+                    vec![Row {
+                        value: "one".into(),
+                    }],
+                    columns(),
+                    cx,
+                )
+                .on_selection_change(move |selected, _, _| {
+                    if selected.is_empty() {
+                        calls_for_callback.set(calls_for_callback.get() + 1);
+                    }
+                })
+            })
+        });
+        let mut window = app.open_window(|_, _| gpui::Empty);
+
+        window.update(|_, window, cx| {
+            table.update(cx, |table, _cx| table.state.toggle_row(0));
+            table.update(cx, |table, cx| {
+                table.set_data_with_window(
+                    vec![Row {
+                        value: "two".into(),
+                    }],
+                    window,
+                    cx,
+                );
+            });
+        });
+
+        assert_eq!(calls.get(), 1);
     }
 }
 
@@ -1154,6 +1304,8 @@ impl<T: Clone + 'static> Render for DataTable<T> {
                                                                 InputEvent::Blur => {
                                                                     if !this.use_edit_dialog {
                                                                         this.save_edit(cx);
+                                                                    } else {
+                                                                        this.cancel_edit(cx);
                                                                     }
                                                                 }
                                                                 _ => {}
@@ -1303,9 +1455,11 @@ impl<T: Clone + 'static> Render for DataTable<T> {
         })
         .on_near_end(self.load_more_threshold, move |window, app| {
             view_for_near_end.update(app, |this: &mut DataTable<T>, cx| {
-                if let Some(ref callback) = this.on_load_more {
-                    this.load_more_triggered = true;
-                    callback(window, cx);
+                if !this.load_more_triggered {
+                    if let Some(ref callback) = this.on_load_more {
+                        this.load_more_triggered = true;
+                        callback(window, cx);
+                    }
                 }
             });
         });
@@ -1313,28 +1467,12 @@ impl<T: Clone + 'static> Render for DataTable<T> {
         let body_container = div()
             .id("data-table-body-container")
             .h(px(viewport_height))
-            .on_scroll_wheel(cx.listener(|view, event: &ScrollWheelEvent, _window, cx| {
-                let delta_y: f32 = match &event.delta {
-                    ScrollDelta::Lines(delta) => delta.y,
-                    ScrollDelta::Pixels(delta) => delta.y.into(),
-                };
-
-                let scroll_offset = view.scroll_handle.offset();
-                let scroll_y: f32 = (-scroll_offset.y).into();
-                let max_scroll = view.state.total_height() - view.state.viewport_height();
-
-                let can_scroll_down = scroll_y < max_scroll && delta_y < 0.0;
-                let can_scroll_up = scroll_y > 0.0 && delta_y > 0.0;
-
-                let at_top = scroll_y <= 0.0 && delta_y > 0.0;
-                let at_bottom = scroll_y >= max_scroll && delta_y < 0.0;
-
-                if can_scroll_down || can_scroll_up || at_top || at_bottom {
+            .on_scroll_wheel(
+                cx.listener(|_view, _event: &ScrollWheelEvent, _window, cx| {
                     cx.stop_propagation();
-                }
-
-                cx.notify();
-            }))
+                    cx.notify();
+                }),
+            )
             .child(body_scroll);
 
         let scrollable_content = div()
@@ -1344,34 +1482,6 @@ impl<T: Clone + 'static> Render for DataTable<T> {
             .overflow_x_scroll()
             .w_full()
             .cursor(CursorStyle::PointingHand)
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, event: &MouseDownEvent, _window, cx| {
-                    this.is_dragging_horizontal = true;
-                    this.drag_start_x = event.position.x.into();
-                    this.drag_scroll_start_x = 0.0;
-                    cx.notify();
-                }),
-            )
-            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
-                if this.is_dragging_horizontal {
-                    let current_x: f32 = event.position.x.into();
-                    let delta_x = this.drag_start_x - current_x;
-
-                    let _new_scroll_x = this.drag_scroll_start_x + delta_x;
-
-                    cx.notify();
-                }
-            }))
-            .on_mouse_up(
-                MouseButton::Left,
-                cx.listener(|this, _event, _window, cx| {
-                    if this.is_dragging_horizontal {
-                        this.is_dragging_horizontal = false;
-                        cx.notify();
-                    }
-                }),
-            )
             .child(
                 div()
                     .flex()
