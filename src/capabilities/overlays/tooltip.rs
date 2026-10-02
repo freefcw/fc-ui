@@ -59,11 +59,15 @@ impl Tooltip {
         self
     }
 
+    /// Currently not implemented: visibility is pure hover-driven and the
+    /// tooltip appears immediately. The value is stored for future use.
     pub fn show_delay(mut self, delay: Duration) -> Self {
         self.show_delay = delay;
         self
     }
 
+    /// Currently not implemented: visibility is pure hover-driven and the
+    /// tooltip disappears immediately. The value is stored for future use.
     pub fn hide_delay(mut self, delay: Duration) -> Self {
         self.hide_delay = delay;
         self
@@ -96,6 +100,8 @@ impl RenderOnce for Tooltip {
         let theme = use_theme(cx);
         let placement = self.placement;
         let user_style = self.style;
+        let max_width = self.max_width;
+        let content = self.content;
 
         // For now, we'll render a simplified version
         // In a full implementation, you'd use a stateful component with timers
@@ -104,48 +110,63 @@ impl RenderOnce for Tooltip {
             .group("")
             .when_some(self.child, |this: Div, child| this.child(child))
             .when(!self.disabled, |this: Div| {
-                this.child(
-                    deferred(
-                        anchored()
-                            .snap_to_window_with_margin(px(8.0))
-                            .anchor(match placement {
-                                TooltipPlacement::Top => Corner::BottomLeft,
-                                TooltipPlacement::Bottom => Corner::TopLeft,
-                                TooltipPlacement::Left => Corner::TopRight,
-                                TooltipPlacement::Right => Corner::TopLeft,
+                let tooltip_box = div()
+                    .occlude()
+                    .px(px(8.0))
+                    .py(px(4.0))
+                    .bg(theme.tokens.popover)
+                    .text_color(theme.tokens.popover_foreground)
+                    .border_1()
+                    .border_color(theme.tokens.border)
+                    .rounded(theme.tokens.radius_sm)
+                    .shadow_md()
+                    .text_size(px(12.0))
+                    .font_family(theme.tokens.font_family.clone())
+                    .whitespace_nowrap()
+                    .when_some(max_width, |div, width| div.max_w(width))
+                    .opacity(0.0)
+                    .invisible()
+                    .group_hover("", |mut style| {
+                        style.opacity = Some(1.0);
+                        style.visibility = Some(gpui::Visibility::Visible);
+                        style
+                    })
+                    .map(|this| {
+                        let mut div = this;
+                        div.style().refine(&user_style);
+                        div
+                    })
+                    .child(content);
+
+                // Without explicit bounds the anchored point is the trigger's
+                // bottom-left corner, which cannot express Left/Right; those
+                // placements use absolute positioning relative to the wrapper
+                // instead (and skip window-edge snapping).
+                match placement {
+                    TooltipPlacement::Top | TooltipPlacement::Bottom => this.child(
+                        deferred(
+                            anchored()
+                                .snap_to_window_with_margin(px(8.0))
+                                .anchor(match placement {
+                                    TooltipPlacement::Top => Corner::BottomLeft,
+                                    _ => Corner::TopLeft,
+                                })
+                                .child(tooltip_box),
+                        )
+                        .with_priority(1),
+                    ),
+                    TooltipPlacement::Left | TooltipPlacement::Right => this.child(
+                        tooltip_box
+                            .absolute()
+                            .top_0()
+                            .when(placement == TooltipPlacement::Left, |this: Div| {
+                                this.right_full()
                             })
-                            .child(
-                                div()
-                                    .occlude()
-                                    .px(px(8.0))
-                                    .py(px(4.0))
-                                    .bg(theme.tokens.popover)
-                                    .text_color(theme.tokens.popover_foreground)
-                                    .border_1()
-                                    .border_color(theme.tokens.border)
-                                    .rounded(theme.tokens.radius_sm)
-                                    .shadow_md()
-                                    .text_size(px(12.0))
-                                    .font_family(theme.tokens.font_family.clone())
-                                    .whitespace_nowrap()
-                                    .when_some(self.max_width, |div, width| div.max_w(width))
-                                    .opacity(0.0)
-                                    .invisible()
-                                    .group_hover("", |mut style| {
-                                        style.opacity = Some(1.0);
-                                        style.visibility = Some(gpui::Visibility::Visible);
-                                        style
-                                    })
-                                    .map(|this| {
-                                        let mut div = this;
-                                        div.style().refine(&user_style);
-                                        div
-                                    })
-                                    .child(self.content),
-                            ),
-                    )
-                    .with_priority(1),
-                )
+                            .when(placement == TooltipPlacement::Right, |this: Div| {
+                                this.left_full()
+                            }),
+                    ),
+                }
             })
     }
 }

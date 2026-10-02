@@ -3,6 +3,8 @@
 use gpui::{prelude::FluentBuilder as _, *};
 use std::rc::Rc;
 
+const ALERT_DIALOG_CONTEXT: &str = "AlertDialog";
+
 use crate::capabilities::foundation::theme::use_theme;
 use crate::capabilities::primitives::button::{Button, ButtonSize, ButtonVariant};
 
@@ -17,6 +19,9 @@ pub struct AlertDialog {
     destructive: bool,
     on_cancel: Option<Rc<dyn Fn(&mut Window, &mut App)>>,
     on_action: Option<Rc<dyn Fn(&mut Window, &mut App)>>,
+    focused: bool,
+    previous_focus: Option<FocusHandle>,
+    _focus_lost_subscription: Option<Subscription>,
     style: StyleRefinement,
 }
 
@@ -31,6 +36,9 @@ impl AlertDialog {
             destructive: false,
             on_cancel: None,
             on_action: None,
+            focused: false,
+            previous_focus: None,
+            _focus_lost_subscription: None,
             style: StyleRefinement::default(),
         }
     }
@@ -76,13 +84,23 @@ impl AlertDialog {
         self
     }
 
+    fn restore_previous_focus(&mut self, window: &mut Window, cx: &App) {
+        if let Some(previous_focus) = self.previous_focus.take() {
+            window.focus(&previous_focus);
+        } else if let Some(restore_target) = window.focus_lost_restore_target(cx) {
+            window.focus(&restore_target);
+        }
+    }
+
     fn handle_cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.restore_previous_focus(window, cx);
         if let Some(handler) = &self.on_cancel {
             handler(window, cx);
         }
     }
 
     fn handle_action(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.restore_previous_focus(window, cx);
         if let Some(handler) = &self.on_action {
             handler(window, cx);
         }
@@ -98,7 +116,16 @@ impl AlertDialog {
     }
 }
 
-pub fn init_alert_dialog(_cx: &mut App) {}
+pub fn init_alert_dialog(cx: &mut App) {
+    if !crate::capabilities::foundation::initialization::begin(cx, "alert_dialog") {
+        return;
+    }
+    cx.bind_keys([KeyBinding::new(
+        "escape",
+        AlertDialogCancel,
+        Some(ALERT_DIALOG_CONTEXT),
+    )]);
+}
 
 impl Styled for AlertDialog {
     fn style(&mut self) -> &mut StyleRefinement {
@@ -107,7 +134,7 @@ impl Styled for AlertDialog {
 }
 
 impl Render for AlertDialog {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = use_theme(cx);
         let user_style = self.style.clone();
         let title = self.title.clone();
@@ -116,8 +143,22 @@ impl Render for AlertDialog {
         let action_text = self.action_text.clone();
         let destructive = self.destructive;
 
+        if !self.focused {
+            self.previous_focus = window.focused(cx);
+            window.focus(&self.focus_handle);
+            self.focused = true;
+            self._focus_lost_subscription = Some(cx.on_focus_lost(window, |this, window, cx| {
+                if this.focused {
+                    this.focused = false;
+                    this.restore_previous_focus(window, cx);
+                    cx.notify();
+                }
+            }));
+        }
+
         div()
             .track_focus(&self.focus_handle)
+            .key_context(ALERT_DIALOG_CONTEXT)
             .on_action(cx.listener(Self::handle_escape))
             .absolute()
             .inset_0()

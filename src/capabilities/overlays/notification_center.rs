@@ -20,8 +20,8 @@ impl NotificationVariant {
     fn icon_name(&self) -> &'static str {
         match self {
             NotificationVariant::Info => "info",
-            NotificationVariant::Success => "check-circle",
-            NotificationVariant::Warning => "alert-triangle",
+            NotificationVariant::Success => "circle-check",
+            NotificationVariant::Warning => "triangle-alert",
             NotificationVariant::Error => "x-circle",
         }
     }

@@ -37,6 +37,8 @@ pub struct ToastItem {
 }
 
 impl ToastItem {
+    /// The passed `id` is a placeholder: `ToastManager` assigns its own
+    /// incrementing id when the toast is added.
     pub fn new(id: u64, title: impl Into<SharedString>) -> Self {
         Self {
             id,
@@ -80,6 +82,7 @@ pub struct ToastManager {
     position: ToastPosition,
     max_toasts: usize,
     dismissing: std::collections::HashSet<u64>,
+    next_id: u64,
 }
 
 impl ToastManager {
@@ -89,6 +92,7 @@ impl ToastManager {
             position: ToastPosition::BottomRight,
             max_toasts: 5,
             dismissing: std::collections::HashSet::new(),
+            next_id: 0,
         }
     }
 
@@ -102,15 +106,29 @@ impl ToastManager {
         self
     }
 
-    pub fn add_toast(&mut self, toast: ToastItem, window: &mut Window, cx: &mut Context<Self>) {
+    fn push_toast(&mut self, mut toast: ToastItem, cx: &mut Context<Self>) -> u64 {
         if self.toasts.len() >= self.max_toasts {
             self.toasts.remove(0);
         }
 
-        let id = toast.id;
-        let duration = toast.duration;
+        toast.id = self.next_id;
+        self.next_id = self.next_id.wrapping_add(1);
 
+        let id = toast.id;
         self.toasts.push(toast);
+        cx.notify();
+        id
+    }
+
+    /// Add a toast and return the ID assigned by the manager.
+    pub fn add_toast(
+        &mut self,
+        toast: ToastItem,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> u64 {
+        let duration = toast.duration;
+        let id = self.push_toast(toast, cx);
 
         if let Some(duration) = duration {
             cx.spawn_in(window, async move |this, cx| {
@@ -127,16 +145,12 @@ impl ToastManager {
             .detach();
         }
 
-        cx.notify();
+        id
     }
 
-    pub fn add_toast_no_dismiss(&mut self, toast: ToastItem, cx: &mut Context<Self>) {
-        if self.toasts.len() >= self.max_toasts {
-            self.toasts.remove(0);
-        }
-
-        self.toasts.push(toast);
-        cx.notify();
+    /// Add a persistent toast and return the ID assigned by the manager.
+    pub fn add_toast_no_dismiss(&mut self, toast: ToastItem, cx: &mut Context<Self>) -> u64 {
+        self.push_toast(toast, cx)
     }
 
     pub fn dismiss_toast(&mut self, id: u64, cx: &mut Context<Self>) {
@@ -234,13 +248,13 @@ impl Render for ToastManager {
                             ToastVariant::Success => (
                                 theme.tokens.card,
                                 theme.tokens.border,
-                                "check-circle",
+                                "circle-check",
                                 gpui::hsla(142.0 / 360.0, 0.71, 0.45, 1.0), // green-500
                             ),
                             ToastVariant::Warning => (
                                 theme.tokens.card,
                                 theme.tokens.border,
-                                "alert-circle",
+                                "circle-alert",
                                 gpui::hsla(48.0 / 360.0, 0.96, 0.53, 1.0), // yellow-500
                             ),
                             ToastVariant::Error => (
@@ -357,3 +371,31 @@ impl Render for ToastManager {
 }
 
 impl EventEmitter<()> for ToastManager {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{Empty, TestApp};
+
+    #[gpui::test]
+    fn manager_returns_ids_that_can_be_dismissed() {
+        let mut app = TestApp::new();
+        let mut window = app.open_window(|_, _| Empty);
+        let manager = app.update(|cx| cx.new(ToastManager::new));
+
+        let id = window.update(|_, window, cx| {
+            manager.update(cx, |manager, cx| {
+                manager.add_toast(ToastItem::new(999, "toast").persistent(), window, cx)
+            })
+        });
+
+        app.read(|cx| {
+            assert_eq!(manager.read(cx).toasts[0].id, id);
+        });
+
+        app.update(|cx| {
+            manager.update(cx, |manager, cx| manager.dismiss_toast(id, cx));
+        });
+        app.read(|cx| assert!(manager.read(cx).toasts.is_empty()));
+    }
+}

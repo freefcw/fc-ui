@@ -213,6 +213,7 @@ pub struct PopoverElementState {
     popover_element: Option<AnyElement>,
     trigger_element: Option<AnyElement>,
     content_view: Rc<RefCell<Option<Entity<PopoverContent>>>>,
+    dismiss_subscription: Rc<RefCell<Option<Subscription>>>,
     trigger_bounds: Option<Bounds<Pixels>>,
 }
 
@@ -264,6 +265,7 @@ impl Element for Popover {
 
                     let mut element = {
                         let content_view_mut = element_state.content_view.clone();
+                        let dismiss_subscription = element_state.dismiss_subscription.clone();
                         let anchor = view.anchor;
 
                         deferred(
@@ -281,6 +283,7 @@ impl Element for Popover {
                                     .child(content_view.clone())
                                     .on_mouse_down_out(move |_, window, _| {
                                         *content_view_mut.borrow_mut() = None;
+                                        dismiss_subscription.borrow_mut().take();
                                         window.refresh();
                                     }),
                             ),
@@ -309,6 +312,7 @@ impl Element for Popover {
                         popover_element,
                         trigger_element: Some(trigger_element),
                         content_view: element_state.content_view.clone(),
+                        dismiss_subscription: element_state.dismiss_subscription.clone(),
                         trigger_bounds: element_state.trigger_bounds,
                     },
                 )
@@ -376,6 +380,7 @@ impl Element for Popover {
                 };
 
                 let old_content_view = element_state.content_view.clone();
+                let dismiss_subscription = element_state.dismiss_subscription.clone();
                 let hitbox_id = prepaint.hitbox.id;
                 let mouse_button = this.mouse_button;
 
@@ -389,29 +394,30 @@ impl Element for Popover {
 
                         let new_content_view = (content_build)(window, cx);
                         let old_content_view1 = old_content_view.clone();
+                        let dismiss_subscription1 = dismiss_subscription.clone();
 
                         let previous_focus_handle = window.focused(cx);
 
-                        window
-                            .subscribe(
-                                &new_content_view,
-                                cx,
-                                move |modal, _: &DismissEvent, window, cx| {
-                                    if modal.focus_handle(cx).contains_focused(window, cx) {
-                                        if let Some(previous_focus_handle) =
-                                            previous_focus_handle.as_ref()
-                                        {
-                                            window.focus(previous_focus_handle);
-                                        }
+                        let subscription = window.subscribe(
+                            &new_content_view,
+                            cx,
+                            move |modal, _: &DismissEvent, window, cx| {
+                                if modal.focus_handle(cx).contains_focused(window, cx) {
+                                    if let Some(previous_focus_handle) =
+                                        previous_focus_handle.as_ref()
+                                    {
+                                        window.focus(previous_focus_handle);
                                     }
-                                    *old_content_view1.borrow_mut() = None;
-                                    window.refresh();
-                                },
-                            )
-                            .detach();
+                                }
+                                *old_content_view1.borrow_mut() = None;
+                                dismiss_subscription1.borrow_mut().take();
+                                window.refresh();
+                            },
+                        );
 
                         window.focus(&new_content_view.focus_handle(cx));
                         *old_content_view.borrow_mut() = Some(new_content_view);
+                        *dismiss_subscription.borrow_mut() = Some(subscription);
                         window.refresh();
                     }
                 });

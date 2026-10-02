@@ -1,4 +1,9 @@
 //! Dialog component - Modal dialog with backdrop and customizable content.
+//!
+//! Note: this [`Dialog`] is a simple `RenderOnce` element, distinct from
+//! [`super::dialog::Dialog`], which is a stateful entity with focus
+//! management, escape / backdrop dismissal and an `on_close` callback. Use
+//! `super::dialog::Dialog` for interactive modals.
 
 use crate::capabilities::foundation::theme::use_theme;
 use crate::capabilities::layout::VStack;

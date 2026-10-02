@@ -6,9 +6,11 @@ use std::time::Duration;
 
 use crate::capabilities::foundation::theme::use_theme;
 use crate::capabilities::motion::animations::easings;
+use crate::capabilities::primitives::icon::Icon;
 
 #[derive(Clone)]
 pub struct ContextMenuItem {
+    id: SharedString,
     label: SharedString,
     icon: Option<SharedString>,
     disabled: bool,
@@ -17,8 +19,9 @@ pub struct ContextMenuItem {
 }
 
 impl ContextMenuItem {
-    pub fn new(_id: impl Into<SharedString>, label: impl Into<SharedString>) -> Self {
+    pub fn new(id: impl Into<SharedString>, label: impl Into<SharedString>) -> Self {
         Self {
+            id: id.into(),
             label: label.into(),
             icon: None,
             disabled: false,
@@ -52,6 +55,7 @@ impl ContextMenuItem {
 
     pub fn separator() -> Self {
         Self {
+            id: "separator".into(),
             label: "".into(),
             icon: None,
             disabled: true,
@@ -156,7 +160,7 @@ impl RenderOnce for ContextMenu {
                         div.style().refine(&user_style);
                         div
                     })
-                    .on_mouse_down(MouseButton::Left, |_, _, _| {})
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .children(self.items.into_iter().map(|item| {
                         if item.label.is_empty() && item.divider {
                             return div()
@@ -171,6 +175,7 @@ impl RenderOnce for ContextMenu {
                         let disabled = item.disabled;
 
                         div()
+                            .id(item.id)
                             .flex()
                             .items_center()
                             .gap(px(8.0))
@@ -183,14 +188,14 @@ impl RenderOnce for ContextMenu {
                             } else {
                                 CursorStyle::PointingHand
                             })
-                            .when(disabled, |this: Div| {
+                            .when(disabled, |this: Stateful<Div>| {
                                 this.text_color(theme.tokens.muted_foreground).opacity(0.5)
                             })
-                            .when(!disabled, |this: Div| {
+                            .when(!disabled, |this: Stateful<Div>| {
                                 this.text_color(theme.tokens.popover_foreground)
                                     .hover(|style| style.bg(theme.tokens.accent.opacity(0.1)))
                             })
-                            .when(!disabled && handler.is_some(), |this: Div| {
+                            .when(!disabled && handler.is_some(), |this: Stateful<Div>| {
                                 let handler = handler.unwrap();
                                 let on_close = on_close.clone();
                                 this.on_mouse_down(MouseButton::Left, move |_, window, cx| {
@@ -200,7 +205,9 @@ impl RenderOnce for ContextMenu {
                                     }
                                 })
                             })
-                            .when_some(item.icon, |this: Div, _icon| this)
+                            .when_some(item.icon, |this: Stateful<Div>, icon| {
+                                this.child(Icon::new(icon).size(px(14.0)))
+                            })
                             .child(item.label)
                             .into_any_element()
                     }))

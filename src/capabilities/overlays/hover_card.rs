@@ -22,32 +22,96 @@ pub enum HoverCardAlignment {
     End,
 }
 
+pub struct HoverCardState {
+    visible: bool,
+    pending_open: bool,
+    generation: u64,
+}
+
+impl HoverCardState {
+    fn open_delayed(&mut self, delay: Duration, window: &mut Window, cx: &mut Context<Self>) {
+        self.pending_open = true;
+        self.generation = self.generation.wrapping_add(1);
+        let generation = self.generation;
+        cx.spawn_in(window, async move |this, cx| {
+            smol::Timer::after(delay).await;
+            let _ = this.update(cx, |this, cx| {
+                if this.pending_open && this.generation == generation && !this.visible {
+                    this.visible = true;
+                    this.pending_open = false;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn schedule_close(
+        &mut self,
+        delay: Option<Duration>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.pending_open = false;
+        self.generation = self.generation.wrapping_add(1);
+        match delay {
+            Some(delay) => {
+                let generation = self.generation;
+                cx.spawn_in(window, async move |this, cx| {
+                    smol::Timer::after(delay).await;
+                    let _ = this.update(cx, |this, cx| {
+                        if !this.pending_open && this.generation == generation && this.visible {
+                            this.visible = false;
+                            cx.notify();
+                        }
+                    });
+                })
+                .detach();
+            }
+            None => {
+                if self.visible {
+                    self.visible = false;
+                    cx.notify();
+                }
+            }
+        }
+    }
+}
+
 #[derive(IntoElement)]
 pub struct HoverCard {
+    id: Option<ElementId>,
     trigger: AnyElement,
     content: AnyElement,
     position: HoverCardPosition,
     alignment: HoverCardAlignment,
-    _open_delay: Duration,
-    _close_delay: Duration,
+    open_delay: Duration,
+    close_delay: Duration,
     is_open: bool,
-    _arrow: bool,
     style: StyleRefinement,
 }
 
 impl HoverCard {
     pub fn new() -> Self {
         Self {
+            id: None,
             trigger: div().into_any_element(),
             content: div().into_any_element(),
             position: HoverCardPosition::default(),
             alignment: HoverCardAlignment::default(),
-            _open_delay: Duration::from_millis(200),
-            _close_delay: Duration::from_millis(300),
+            open_delay: Duration::from_millis(200),
+            close_delay: Duration::from_millis(300),
             is_open: false,
-            _arrow: true,
             style: StyleRefinement::default(),
         }
+    }
+
+    /// Sets a unique element id. Required for the internal hover tracking
+    /// that honors [`HoverCard::open_delay`] and [`HoverCard::close_delay`];
+    /// without an id the card only renders while `is_open` is set.
+    pub fn id(mut self, id: impl Into<ElementId>) -> Self {
+        self.id = Some(id.into());
+        self
     }
 
     pub fn trigger(mut self, trigger: impl IntoElement) -> Self {
@@ -71,17 +135,19 @@ impl HoverCard {
     }
 
     pub fn open_delay(mut self, delay: Duration) -> Self {
-        self._open_delay = delay;
+        self.open_delay = delay;
         self
     }
 
     pub fn close_delay(mut self, delay: Duration) -> Self {
-        self._close_delay = delay;
+        self.close_delay = delay;
         self
     }
 
-    pub fn arrow(mut self, show_arrow: bool) -> Self {
-        self._arrow = show_arrow;
+    /// Not implemented: no arrow element is rendered and this setting has no
+    /// effect.
+    #[deprecated(note = "arrow rendering is not implemented; this method has no effect")]
+    pub fn arrow(self, _show_arrow: bool) -> Self {
         self
     }
 
@@ -104,39 +170,64 @@ impl Styled for HoverCard {
 }
 
 impl RenderOnce for HoverCard {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = use_theme(cx);
         let user_style = self.style;
+        let position = self.position;
+        let alignment = self.alignment;
+        let open_delay = self.open_delay;
+        let close_delay = self.close_delay;
+        let is_open = self.is_open;
+
+        let hover_managed = !is_open && self.id.is_some();
+        let wrapper_id = self.id.clone();
+        let card_id = self
+            .id
+            .as_ref()
+            .map(|id| ElementId::Name(format!("{id:?}::content").into()));
+        let state = self.id.clone().map(|id| {
+            window.use_keyed_state(id, cx, |_, _| HoverCardState {
+                visible: false,
+                pending_open: false,
+                generation: 0,
+            })
+        });
+        let visible = is_open
+            || state
+                .as_ref()
+                .map(|state| state.read(cx).visible)
+                .unwrap_or(false);
 
         div()
             .relative()
             .child(self.trigger)
-            .when(self.is_open, |this: Div| {
+            .when(visible, |this: Div| {
+                let state_for_card = state.clone();
                 this.child(
                     div()
                         .absolute()
-                        .when(self.position == HoverCardPosition::Bottom, |this: Div| {
+                        .when(position == HoverCardPosition::Bottom, |this: Div| {
                             this.top_full().mt(px(8.0))
                         })
-                        .when(self.position == HoverCardPosition::Top, |this: Div| {
+                        .when(position == HoverCardPosition::Top, |this: Div| {
                             this.bottom_full().mb(px(8.0))
                         })
-                        .when(self.position == HoverCardPosition::Left, |this: Div| {
+                        .when(position == HoverCardPosition::Left, |this: Div| {
                             this.right_full().mr(px(8.0))
                         })
-                        .when(self.position == HoverCardPosition::Right, |this: Div| {
+                        .when(position == HoverCardPosition::Right, |this: Div| {
                             this.left_full().ml(px(8.0))
                         })
                         .when(
-                            (self.position == HoverCardPosition::Top
-                                || self.position == HoverCardPosition::Bottom)
-                                && self.alignment == HoverCardAlignment::Start,
+                            (position == HoverCardPosition::Top
+                                || position == HoverCardPosition::Bottom)
+                                && alignment == HoverCardAlignment::Start,
                             |this: Div| this.left_0(),
                         )
                         .when(
-                            (self.position == HoverCardPosition::Top
-                                || self.position == HoverCardPosition::Bottom)
-                                && self.alignment == HoverCardAlignment::End,
+                            (position == HoverCardPosition::Top
+                                || position == HoverCardPosition::Bottom)
+                                && alignment == HoverCardAlignment::End,
                             |this: Div| this.right_0(),
                         )
                         .child(
@@ -160,8 +251,51 @@ impl RenderOnce for HoverCard {
                                     div
                                 })
                                 .child(self.content),
-                        ),
+                        )
+                        .map(|this| {
+                            if hover_managed {
+                                let state = state_for_card.unwrap();
+                                this.id(card_id.clone().unwrap())
+                                    .on_hover(move |&hovered, window, cx| {
+                                        state.update(cx, |state, cx| {
+                                            if hovered {
+                                                state.pending_open = false;
+                                                state.generation = state.generation.wrapping_add(1);
+                                            } else {
+                                                let delay = (close_delay > Duration::ZERO)
+                                                    .then_some(close_delay);
+                                                state.schedule_close(delay, window, cx);
+                                            }
+                                        });
+                                    })
+                                    .into_any_element()
+                            } else {
+                                this.into_any_element()
+                            }
+                        }),
                 )
+            })
+            .map(|this| {
+                if hover_managed {
+                    let state = state.unwrap();
+                    this.id(wrapper_id.unwrap())
+                        .on_hover(move |&hovered, window, cx| {
+                            state.update(cx, |state, cx| {
+                                if hovered {
+                                    if !state.visible && !state.pending_open {
+                                        state.open_delayed(open_delay, window, cx);
+                                    }
+                                } else {
+                                    let delay =
+                                        (close_delay > Duration::ZERO).then_some(close_delay);
+                                    state.schedule_close(delay, window, cx);
+                                }
+                            });
+                        })
+                        .into_any_element()
+                } else {
+                    this.into_any_element()
+                }
             })
     }
 }

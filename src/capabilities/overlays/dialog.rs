@@ -1,4 +1,8 @@
 //! Dialog component with focus trap and backdrop.
+//!
+//! Note: this [`Dialog`] is a stateful entity; do not confuse it with
+//! [`super::confirm_dialog::Dialog`], a lightweight `RenderOnce` element for
+//! simple confirmation layouts without focus management.
 
 use gpui::{prelude::FluentBuilder as _, *};
 use std::rc::Rc;
@@ -63,6 +67,8 @@ pub struct Dialog {
     focused: bool,
     dismissing: bool,
     dismiss_complete: bool,
+    previous_focus: Option<FocusHandle>,
+    _focus_lost_subscription: Option<Subscription>,
     style: StyleRefinement,
 }
 
@@ -83,6 +89,8 @@ impl Dialog {
             focused: false,
             dismissing: false,
             dismiss_complete: false,
+            previous_focus: None,
+            _focus_lost_subscription: None,
             style: StyleRefinement::default(),
         }
     }
@@ -159,6 +167,14 @@ impl Dialog {
         self
     }
 
+    fn restore_previous_focus(&mut self, window: &mut Window, cx: &App) {
+        if let Some(previous_focus) = self.previous_focus.take() {
+            window.focus(&previous_focus);
+        } else if let Some(restore_target) = window.focus_lost_restore_target(cx) {
+            window.focus(&restore_target);
+        }
+    }
+
     fn handle_close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.dismissing {
             return;
@@ -170,8 +186,12 @@ impl Dialog {
             cx.background_executor()
                 .timer(Duration::from_millis(200))
                 .await;
-            let _ = this.update(cx, |dialog, cx| {
+            let _ = this.update_in(cx, |dialog, window, cx| {
                 dialog.dismiss_complete = true;
+                dialog.restore_previous_focus(window, cx);
+                if let Some(handler) = dialog.on_close.take() {
+                    (handler)(window, cx);
+                }
                 cx.notify();
             });
         })
@@ -188,9 +208,6 @@ impl Styled for Dialog {
 impl Render for Dialog {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.dismiss_complete {
-            if let Some(handler) = self.on_close.take() {
-                (handler)(window, cx);
-            }
             return div().into_any_element();
         }
 
@@ -214,8 +231,16 @@ impl Render for Dialog {
         let dismissing = self.dismissing;
 
         if !self.focused {
+            self.previous_focus = window.focused(cx);
             window.focus(&self.focus_handle);
             self.focused = true;
+            self._focus_lost_subscription = Some(cx.on_focus_lost(window, |this, window, cx| {
+                if this.focused {
+                    this.focused = false;
+                    this.restore_previous_focus(window, cx);
+                    cx.notify();
+                }
+            }));
         }
 
         div()

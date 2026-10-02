@@ -3,6 +3,8 @@
 use gpui::{prelude::FluentBuilder as _, *};
 use std::rc::Rc;
 
+const SHEET_CONTEXT: &str = "Sheet";
+
 use crate::capabilities::foundation::theme::use_theme;
 use crate::capabilities::primitives::button::{Button, ButtonSize, ButtonVariant};
 
@@ -52,6 +54,9 @@ pub struct Sheet {
     show_close_button: bool,
     close_on_backdrop_click: bool,
     on_close: Option<Rc<dyn Fn(&mut Window, &mut App)>>,
+    focused: bool,
+    previous_focus: Option<FocusHandle>,
+    _focus_lost_subscription: Option<Subscription>,
     style: StyleRefinement,
 }
 
@@ -70,6 +75,9 @@ impl Sheet {
             show_close_button: true,
             close_on_backdrop_click: true,
             on_close: None,
+            focused: false,
+            previous_focus: None,
+            _focus_lost_subscription: None,
             style: StyleRefinement::default(),
         }
     }
@@ -134,7 +142,16 @@ impl Sheet {
         self
     }
 
+    fn restore_previous_focus(&mut self, window: &mut Window, cx: &App) {
+        if let Some(previous_focus) = self.previous_focus.take() {
+            window.focus(&previous_focus);
+        } else if let Some(restore_target) = window.focus_lost_restore_target(cx) {
+            window.focus(&restore_target);
+        }
+    }
+
     fn handle_close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.restore_previous_focus(window, cx);
         if let Some(handler) = &self.on_close {
             handler(window, cx);
         }
@@ -155,7 +172,12 @@ impl Sheet {
     }
 }
 
-pub fn init_sheet(_cx: &mut App) {}
+pub fn init_sheet(cx: &mut App) {
+    if !crate::capabilities::foundation::initialization::begin(cx, "sheet") {
+        return;
+    }
+    cx.bind_keys([KeyBinding::new("escape", SheetClose, Some(SHEET_CONTEXT))]);
+}
 
 impl Styled for Sheet {
     fn style(&mut self) -> &mut StyleRefinement {
@@ -164,15 +186,29 @@ impl Styled for Sheet {
 }
 
 impl Render for Sheet {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = use_theme(cx);
         let has_header =
             self.title.is_some() || self.description.is_some() || self.show_close_button;
         let sheet_size = self.get_sheet_size();
         let user_style = self.style.clone();
 
+        if !self.focused {
+            self.previous_focus = window.focused(cx);
+            window.focus(&self.focus_handle);
+            self.focused = true;
+            self._focus_lost_subscription = Some(cx.on_focus_lost(window, |this, window, cx| {
+                if this.focused {
+                    this.focused = false;
+                    this.restore_previous_focus(window, cx);
+                    cx.notify();
+                }
+            }));
+        }
+
         div()
             .track_focus(&self.focus_handle)
+            .key_context(SHEET_CONTEXT)
             .on_action(cx.listener(Self::handle_escape))
             .absolute()
             .inset_0()
@@ -200,7 +236,7 @@ impl Render for Sheet {
                         spread_radius: px(0.0),
                         inset: false,
                     }])
-                    .on_mouse_down(MouseButton::Left, |_, _, _| {})
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .when(self.side == SheetSide::Right, |this: Div| {
                         this.absolute()
                             .right_0()
