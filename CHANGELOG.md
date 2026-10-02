@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Form submission now receives Enter from single-line `Input` controls while multiline `Textarea` keeps Enter for newline insertion.
+- `ToastManager::add_toast` and `add_toast_no_dismiss` return the manager-assigned toast id; `Select` and `Combobox` expose dedicated clear callbacks instead of reporting the removed value as a new selection.
+- Data-table numeric sorting and virtual-data resets clear stale index-based row selections; cell-edit blur behavior now matches `use_edit_dialog` documentation.
+- Tag input backspace edits the pending text by grapheme before removing the last committed tag, and countdown completion uses the window that rendered the countdown.
+- Bar-chart values are explicitly documented as non-negative; negative and non-finite values are rendered as zero until negative-axis support is added.
+- The GPUI dependency now uses the published `fc-gpui` 0.9.2 crates.io release. The uniform and variable virtual lists snap self-computed padding to device pixels, matching the upstream `clamp_scroll_position` fix for phantom scrollbars on fractionally padded containers.
+- Physics-driven scrolling (`ScrollContainer`, virtual lists with `.with_physics(...)`) is now clamped to the real scroll range instead of drifting unbounded past the end; `overscroll` bounce may now transiently engage at both ends, and reaching the content end pulls the position back instead of coasting into a dead zone.
+- `InputState` focus handling is wired end to end: `InputEvent::Focus`/`Blur`, focus/blur callbacks, `select_on_focus`, `trim_on_blur` and `validate_on_blur` (the latter two on by default) now actually run on real focus transitions. Blurring an input may therefore trim its content and surface validation messages where it previously did nothing.
+- `Input::new(&state)` no longer overwrites the state's placeholder with an empty string; an unset builder placeholder leaves `InputState`'s own placeholder in place.
+- Form submission listens to registered single-line input `Enter` events instead of a bare key listener or action bubbling: Enter submits from single-line inputs while multi-line `Textarea` keeps inserting newlines. Enter while focus is on a control with no enter binding no longer submits.
+- `Form` no longer depends on Enter action bubbling; registered fields emit the submit path directly, so an input `on_enter` callback and the form submit callback each run once.
+- `Sidebar` no longer binds `cmd-b`/`ctrl-b` globally. Applications that relied on the global binding should bind `ToggleSidebar` themselves.
+- Data tables clear the row selection when sorting or replacing data (selection was index-based and drifted onto the wrong rows), and sort numeric-looking strings numerically. `use_edit_dialog` now defaults to `false` (blur saves the edit) and its documentation matches the implemented behavior; the name is retained for API compatibility.
+- Data tables expose window-aware `set_data_with_window` and `virtual_reset_with_window` variants so programmatic data replacement can notify selection observers after stale index-based selections are cleared.
+- Slider, range slider, audio/video player progress and volume tracks, and the crop area now reset their drag states on mouse-up outside the element, and slider/range slider support arrow-key/Home/End adjustment when focused. Checkbox and toggle respond to Space only, per ARIA.
+- `ToastManager` assigns toast ids internally (a caller-supplied id is overwritten). `split_pane` emits a final `Resized` event when a drag ends. `ImageViewerState` mutators (`set_images`, `next`, `prev`, `zoom_in`, `zoom_out`, `reset_zoom`, `set_zoom`, `toggle_thumbnails`, `go_to`) take `&mut Context<Self>` and notify observers; the viewer only grabs focus once when it opens.
+- Video player fullscreen goes through the window's `toggle_fullscreen`, and control-bar auto-hide runs on an internal timer. Audio player `stop()` pauses and seeks to the start so playback can resume; seeking the progress bar calls the audio backend.
+- Video player auto-hide tasks are armed by interaction and invalidated by later interaction or pause/stop, rather than polling permanently every 100ms.
+- Overlays that open now move focus into the overlay and restore the previously focused element on close (`Dialog`, `AlertDialog`, `Sheet`); `AlertDialog` and `Sheet` respond to Escape. Several decorative effect and animation identifiers are now per-instance, so multiple instances on one screen no longer share animation state.
+- Text input `max_length`/character counting is character-based rather than byte-based, matching the validation messages.
+
+### Fixed
+- Editor: cursor movement stays on UTF-8 character boundaries (left/right arrows no longer panic on CJK text and Enter/typing after moving through CJK is safe), stale search matches can no longer panic replace-current/replace-all, and paste clears the IME marked range.
+- Text input: the IME `new_selected_range` mapping no longer targets the wrong byte offset (fixed in input, textarea, mention input, and inline edit); `MentionInput` tracks IME marked text properly so composing CJK text replaces instead of appending; disabled inputs ignore IME edits; mention triggers work for multi-byte characters; `TextField` no longer slices UTF-16 ranges as byte offsets.
+- `Alert` success/warning/error default icons referenced non-existent asset names (`check-circle` etc.) and rendered blank; corrected to the bundled `circle-check`/`triangle-alert`/`circle-alert` assets, along with the same wrong names in `Timeline`, `Toast`, `NotificationCenter`, and demos.
+- `ColorPicker` treated hue degrees as GPUI's 0..1 turns, so most default swatches rendered red and HEX/RGB readouts were wrong; hue is now handled consistently in turns with ground-truth color tests.
+- `DatePicker`'s "today" was hardcoded to 2025-01-23 and `disable_weekends()` was a no-op; both now work.
+- `ToggleGroup` multiple mode never fired `on_multiple_change`; `Rating` with `allows_half` could not select full stars by mouse; `Slider`/`RangeSlider` `set_min`/`set_max` could panic on inverted bounds; `Select`/`Combobox` clear buttons reopened the dropdown and skipped the change callback, and their search fields rejected spaces and multi-byte input (now uses `key_char`).
+- `DropZone`'s `on_drop` callback was never invoked; `TagInput` had no working text input path; `Carousel` auto-play spawned a new timer per render; `SortableList` left items stuck semi-transparent when a drag ended outside the list.
+- Overlays: `Sheet`/`CommandPalette`/`ContextMenu` closed when clicking inside their panels; `Popover` leaked a window subscription per opening; `ContextMenu` ignored item icons; `Tooltip`'s right placement anchored to the wrong corner; `Dialog`'s `on_close` ran during render.
+- Navigation: non-ASCII labels panicked the tree filter highlight (byte offsets used as char indices); `Dock` magnification compared mixed coordinate systems and never engaged; `SegmentedNav`'s sliding indicator was a no-op identity; `ViewRouter` and drawer timers raced on rapid transitions; `MenuBar` never rendered its dropdown; `Pagination` mishandled out-of-range current pages.
+- Data: `Table` panicked when a row had more cells than columns; dragging a column-resize handle also re-sorted the column; `Countdown`'s `on_complete` fired on every render after completion; bar/heatmap charts now guard non-finite values; pie/donut legend percentages sum to 100.
+- Content: nested HTML lists duplicated their text, nested Markdown lists lost their structure and inline images escaped their paragraph, and HTML inline whitespace is collapsed.
+- Motion: the `spring` easing curve started at 1.0 instead of 0.0; overshoot easings are no longer clamped to 0..1; `ContentTransition` can replay (pass `.key(...)`); `Transition` default ids are unique per call site; gesture long-press no longer emits a trailing tap; scroll physics decay is frame-rate independent.
+- Effects: `MagneticButton`/`TiltCard`/`Spotlight` used window-absolute coordinates and threw content off screen — they now position relative to the element; `Confetti` stacked tick loops on repeat bursts; `Meteors` ran ~6x slower than designed; several zero-division hangs and NaN layout inputs are clamped.
+- Media: `SvgRenderer` drew all curve commands incorrectly (cubic commands went through the quadratic path with parameters swapped); `FileUpload`'s drop zone actually accepts dragged files and single-selection mode replaces instead of appending; audio time display rolls over into hours.
+- Layout: `Justify::Evenly` silently degraded to space-around instead of real space-evenly; `Grid`'s last row no longer stretches cells; foundation: `install_theme` now repaints windows, font registration failures warn instead of panicking, and the `z_sticky`/`z_dropdown` token order is corrected.
+
+### Deprecated
+- `TextField` (use `Input`), the legacy `VirtualList` in `capabilities::scroll::variable_virtual_list` (use `uniform_virtual_list`), the crate-local `Spring` (use GPUI's `SpringAnimation`/`with_spring`), `Button::tooltip` (wrap with `overlays::tooltip`), `Label::for_id`, the `icon_button()` free function (use `IconButton`), and `ScrollContainer::no_auto_size()` (no-op).
+
 ## [0.8.1] - 2026-09-05
 
 ### Added
@@ -21,7 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Raised `rust-version` from 1.85 to 1.90, the floor that fc-gpui 0.9 and its dependency tree (`ordered-float` 5.5, `cosmic-text` 0.19) actually require. The `fc-ui` 0.8.0 release declared 1.97.1, which only mirrored fc-gpui's contributor `rust-toolchain.toml` pin rather than a real consumer requirement; building against crates.io `fc-gpui` 0.9.0 on rustc 1.90.0 was verified on 2026-09-05. Contributor tooling may still pin a newer toolchain. The crate itself still uses edition 2021.
 
 ### Migration Notes
-- Downstream crates should depend on `fc-ui` instead of `adabraka-ui` and on `gpui = { package = "fc-gpui", version = "0.9.0" }` instead of `adabraka-gpui`. The git revision pin is no longer needed, since `fc-gpui` and its workspace crates are published on crates.io. Rust 1.90 or newer is required. No `use` statements change, since both crate roots keep their previous names.
+- Downstream crates should depend on `fc-ui` instead of `adabraka-ui` and on `gpui = { package = "fc-gpui", version = "0.9.2" }` instead of `adabraka-gpui`. No `use` statements change, since both crate roots keep their previous names.
 - `Window::blur` and `Window::disable_focus` now take `&mut App` in GPUI 0.9, so blurring also clears pending keystrokes and keybinding-indicator observers. Applications calling these directly must pass the app context, for example `window.blur(cx)`.
 - GPUI 0.9 removed `App::set_keep_alive_without_windows`. Applications that kept themselves alive without windows should use `App::set_quit_mode` or `Application::with_quit_mode` with `QuitMode::Explicit` (previously `true`) or `QuitMode::LastWindowClosed` (previously `false`). On macOS, `QuitMode::Default` now keeps the app alive after the last window closes.
 - `GpuResourceBudget` gained a required `instance_buffer_max_size` field, so struct literals that listed only the atlas and initial instance-buffer sizes no longer compile. Use `GpuResourceBudget::new(atlas, initial)` or add `..GpuResourceBudget::default()`.

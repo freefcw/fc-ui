@@ -53,7 +53,7 @@ Add fc-ui to your `Cargo.toml`:
 ```toml
 [dependencies]
 fc-ui = { git = "https://github.com/freefcw/fc-ui" }
-gpui = { package = "fc-gpui", version = "0.9.0" }
+gpui = { package = "fc-gpui", version = "0.9.2" }
 ```
 
 Optional heavier components are feature-gated. Enable them only when needed:
@@ -1483,13 +1483,15 @@ fn new(cx: &mut App) -> Self {
 }
 
 // Show toast
-fn show_success(&mut self, cx: &mut Context<Self>) {
+fn show_success(&mut self, window: &mut Window, cx: &mut Context<Self>) {
     let toast = ToastItem::new(1, "Success!")
         .description("Operation completed successfully")
         .variant(ToastVariant::Success);
 
     self.toast_manager.update(cx, |manager, cx| {
-        manager.add_toast(toast, window, cx);
+        let id = manager.add_toast(toast, window, cx);
+        // `id` can later be passed to `dismiss_toast`.
+        let _ = id;
     });
 }
 
