@@ -73,13 +73,14 @@ struct ColorPickerDemo {
 impl ColorPickerDemo {
     fn new(cx: &mut Context<Self>) -> Self {
         Self {
-            basic_state: cx.new(|_| ColorPickerState::new(hsla(210.0, 0.7, 0.5, 1.0))),
-            alpha_state: cx.new(|_| ColorPickerState::new(hsla(120.0, 0.6, 0.4, 0.5))),
+            basic_state: cx.new(|_| ColorPickerState::new(hsla(210.0 / 360.0, 0.7, 0.5, 1.0))),
+            alpha_state: cx.new(|_| ColorPickerState::new(hsla(120.0 / 360.0, 0.6, 0.4, 0.5))),
             custom_swatches_state: cx.new(|_| ColorPickerState::new(hsla(0.0, 0.8, 0.5, 1.0))),
-            styled_state: cx.new(|_| ColorPickerState::new(hsla(270.0, 0.6, 0.5, 1.0))),
-            disabled_state: cx.new(|_| ColorPickerState::new(hsla(180.0, 0.6, 0.5, 1.0))),
-            background_state: cx.new(|_| ColorPickerState::new(hsla(220.0, 0.2, 0.15, 1.0))),
-            text_state: cx.new(|_| ColorPickerState::new(hsla(60.0, 0.9, 0.6, 1.0))),
+            styled_state: cx.new(|_| ColorPickerState::new(hsla(270.0 / 360.0, 0.6, 0.5, 1.0))),
+            disabled_state: cx.new(|_| ColorPickerState::new(hsla(180.0 / 360.0, 0.6, 0.5, 1.0))),
+            background_state: cx
+                .new(|_| ColorPickerState::new(hsla(220.0 / 360.0, 0.2, 0.15, 1.0))),
+            text_state: cx.new(|_| ColorPickerState::new(hsla(60.0 / 360.0, 0.9, 0.6, 1.0))),
         }
     }
 }
@@ -250,11 +251,11 @@ impl Render for ColorPickerDemo {
                                                 .swatches(vec![
                                                     // Brand colors
                                                     hsla(0.0, 0.8, 0.5, 1.0),    // Red
-                                                    hsla(30.0, 0.9, 0.5, 1.0),   // Orange
-                                                    hsla(60.0, 0.9, 0.5, 1.0),   // Yellow
-                                                    hsla(120.0, 0.6, 0.4, 1.0),  // Green
-                                                    hsla(210.0, 0.8, 0.5, 1.0),  // Blue
-                                                    hsla(270.0, 0.6, 0.5, 1.0),  // Purple
+                                                    hsla(30.0 / 360.0, 0.9, 0.5, 1.0),   // Orange
+                                                    hsla(60.0 / 360.0, 0.9, 0.5, 1.0),   // Yellow
+                                                    hsla(120.0 / 360.0, 0.6, 0.4, 1.0),  // Green
+                                                    hsla(210.0 / 360.0, 0.8, 0.5, 1.0),  // Blue
+                                                    hsla(270.0 / 360.0, 0.6, 0.5, 1.0),  // Purple
                                                     // Grays
                                                     hsla(0.0, 0.0, 0.2, 1.0),
                                                     hsla(0.0, 0.0, 0.5, 1.0),

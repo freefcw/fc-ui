@@ -31,8 +31,9 @@ impl ColorPickerState {
         }
     }
 
+    /// Set the hue in turns (0.0..1.0), matching `Hsla::h`.
     pub fn set_hue(&mut self, hue: f32) {
-        self.selected_color.h = hue.clamp(0.0, 360.0);
+        self.selected_color.h = hue.clamp(0.0, 1.0);
     }
 
     pub fn set_saturation(&mut self, saturation: f32) {
@@ -128,8 +129,9 @@ impl ColorPicker {
         self
     }
 
-    /// Convert HSL hue/saturation/lightness to linear RGB channels in [0, 1].
+    /// Convert HSL hue (turns, 0..1)/saturation/lightness to linear RGB channels in [0, 1].
     fn hsl_to_rgb_f32(h: f32, s: f32, l: f32) -> (f32, f32, f32) {
+        let h = h * 360.0;
         let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
         let x = c * (1.0 - ((h / 60.0) % 2.0 - 1.0).abs());
         let m = l - c / 2.0;
@@ -381,7 +383,7 @@ fn render_color_value(color: Hsla, mode: ColorMode, theme: Theme) -> impl IntoEl
         ColorMode::HSL => {
             format!(
                 "hsl({:.0}, {:.0}%, {:.0}%)",
-                color.h,
+                color.h * 360.0,
                 color.s * 100.0,
                 color.l * 100.0
             )
@@ -542,25 +544,25 @@ fn render_actions(
 
 fn default_swatches() -> Vec<Hsla> {
     vec![
-        hsla(0.0, 0.7, 0.5, 1.0),
-        hsla(0.0, 0.8, 0.4, 1.0),
-        hsla(0.0, 0.9, 0.3, 1.0),
-        hsla(30.0, 0.8, 0.5, 1.0),
-        hsla(40.0, 0.9, 0.5, 1.0),
-        hsla(60.0, 0.8, 0.5, 1.0),
-        hsla(50.0, 0.9, 0.6, 1.0),
-        hsla(120.0, 0.6, 0.4, 1.0),
-        hsla(140.0, 0.7, 0.4, 1.0),
-        hsla(160.0, 0.6, 0.4, 1.0),
-        hsla(180.0, 0.6, 0.5, 1.0),
-        hsla(190.0, 0.7, 0.5, 1.0),
-        hsla(210.0, 0.7, 0.5, 1.0),
-        hsla(220.0, 0.8, 0.5, 1.0),
-        hsla(240.0, 0.7, 0.5, 1.0),
-        hsla(270.0, 0.6, 0.5, 1.0),
-        hsla(290.0, 0.6, 0.5, 1.0),
-        hsla(310.0, 0.7, 0.5, 1.0),
-        hsla(330.0, 0.7, 0.5, 1.0),
+        hsla(0.0 / 360.0, 0.7, 0.5, 1.0),
+        hsla(0.0 / 360.0, 0.8, 0.4, 1.0),
+        hsla(0.0 / 360.0, 0.9, 0.3, 1.0),
+        hsla(30.0 / 360.0, 0.8, 0.5, 1.0),
+        hsla(40.0 / 360.0, 0.9, 0.5, 1.0),
+        hsla(60.0 / 360.0, 0.8, 0.5, 1.0),
+        hsla(50.0 / 360.0, 0.9, 0.6, 1.0),
+        hsla(120.0 / 360.0, 0.6, 0.4, 1.0),
+        hsla(140.0 / 360.0, 0.7, 0.4, 1.0),
+        hsla(160.0 / 360.0, 0.6, 0.4, 1.0),
+        hsla(180.0 / 360.0, 0.6, 0.5, 1.0),
+        hsla(190.0 / 360.0, 0.7, 0.5, 1.0),
+        hsla(210.0 / 360.0, 0.7, 0.5, 1.0),
+        hsla(220.0 / 360.0, 0.8, 0.5, 1.0),
+        hsla(240.0 / 360.0, 0.7, 0.5, 1.0),
+        hsla(270.0 / 360.0, 0.6, 0.5, 1.0),
+        hsla(290.0 / 360.0, 0.6, 0.5, 1.0),
+        hsla(310.0 / 360.0, 0.7, 0.5, 1.0),
+        hsla(330.0 / 360.0, 0.7, 0.5, 1.0),
         hsla(0.0, 0.0, 0.2, 1.0),
         hsla(0.0, 0.0, 0.4, 1.0),
         hsla(0.0, 0.0, 0.6, 1.0),
@@ -576,14 +578,38 @@ mod tests {
 
     #[gpui::test]
     fn hex_and_rgb_agree_across_hue_sectors() {
-        for h in [
+        for h_degrees in [
             0.0_f32, 59.0, 60.0, 119.0, 120.0, 179.0, 180.0, 239.0, 240.0, 299.0, 300.0, 359.0,
         ] {
-            let color = hsla(h, 0.8, 0.5, 1.0);
+            let color = hsla(h_degrees / 360.0, 0.8, 0.5, 1.0);
             let (r, g, b) = ColorPicker::hsla_to_rgb(color);
             let hex = ColorPicker::hsla_to_hex(color);
-            assert_eq!(hex, format!("#{:02X}{:02X}{:02X}", r, g, b), "h={h}");
+            assert_eq!(
+                hex,
+                format!("#{:02X}{:02X}{:02X}", r, g, b),
+                "h={h_degrees}deg"
+            );
         }
+    }
+
+    #[gpui::test]
+    fn known_colors_match_ground_truth() {
+        assert_eq!(
+            ColorPicker::hsla_to_hex(hsla(0.0, 1.0, 0.5, 1.0)),
+            "#FF0000"
+        );
+        assert_eq!(
+            ColorPicker::hsla_to_rgb(hsla(120.0 / 360.0, 1.0, 0.5, 1.0)),
+            (0, 255, 0)
+        );
+        assert_eq!(
+            ColorPicker::hsla_to_hex(hsla(240.0 / 360.0, 1.0, 0.5, 1.0)),
+            "#0000FF"
+        );
+        assert_eq!(
+            ColorPicker::hsla_to_rgb(hsla(0.5, 1.0, 0.5, 1.0)),
+            (0, 255, 255)
+        );
     }
 
     #[gpui::test]
