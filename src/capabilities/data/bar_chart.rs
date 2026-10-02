@@ -6,22 +6,85 @@ fn pixels_to_f32(p: Pixels) -> f32 {
     p / px(1.0)
 }
 
-/// Normalize values for the current bar-chart model. Bar charts currently use
-/// a zero-based baseline and do not render a negative axis, so negative and
-/// non-finite inputs are intentionally treated as zero.
-fn non_negative_finite_or_zero(value: f64) -> f64 {
-    if value.is_finite() && value > 0.0 {
+fn finite_or_zero(value: f64) -> f64 {
+    if value.is_finite() {
         value
     } else {
         0.0
     }
 }
 
+#[derive(Clone, Copy)]
+struct ValueDomain {
+    min: f64,
+    max: f64,
+    span: f64,
+    zero_ratio: f32,
+}
+
+impl ValueDomain {
+    fn from_values(values: impl IntoIterator<Item = f64>) -> Self {
+        let (min, max) = values
+            .into_iter()
+            .map(finite_or_zero)
+            .fold((0.0_f64, 0.0_f64), |(min, max), value| {
+                (min.min(value), max.max(value))
+            });
+        let span = (max - min).max(f64::EPSILON);
+        Self {
+            min,
+            max,
+            span,
+            zero_ratio: (max / span) as f32,
+        }
+    }
+
+    fn vertical_y(self, value: f64, height: Pixels) -> Pixels {
+        height * ((self.max - finite_or_zero(value)) / self.span) as f32
+    }
+
+    fn vertical_segment(self, start: f64, end: f64, height: Pixels) -> (Pixels, Pixels) {
+        let start_y = self.vertical_y(start, height);
+        let end_y = self.vertical_y(end, height);
+        (start_y.min(end_y), (start_y - end_y).abs())
+    }
+
+    fn horizontal_x(self, value: f64) -> f32 {
+        ((finite_or_zero(value) - self.min) / self.span) as f32
+    }
+
+    fn horizontal_segment(self, start: f64, end: f64) -> (f32, f32) {
+        let start_x = self.horizontal_x(start);
+        let end_x = self.horizontal_x(end);
+        (start_x.min(end_x), (start_x - end_x).abs())
+    }
+
+    fn zero_y(self, height: Pixels) -> Pixels {
+        height * self.zero_ratio
+    }
+}
+
+fn stacked_domain(series: &[BarChartSeries], label_count: usize) -> ValueDomain {
+    ValueDomain::from_values((0..label_count).flat_map(|index| {
+        let mut positive = 0.0;
+        let mut negative = 0.0;
+        for value in series {
+            let value = finite_or_zero(value.data.get(index).copied().unwrap_or(0.0));
+            if value >= 0.0 {
+                positive += value;
+            } else {
+                negative += value;
+            }
+        }
+        [positive, negative]
+    }))
+}
+
 #[derive(Clone)]
 pub struct BarChartData {
     pub label: SharedString,
-    /// Non-negative finite values are rendered. Negative and non-finite values
-    /// are treated as zero because this component has no negative axis.
+    /// Finite values are rendered around a zero axis. Non-finite values are
+    /// treated as zero.
     pub value: f64,
     pub color: Option<Hsla>,
 }
@@ -44,7 +107,8 @@ impl BarChartData {
 #[derive(Clone)]
 pub struct BarChartSeries {
     pub name: SharedString,
-    /// Each value must be non-negative and finite; invalid values render as 0.
+    /// Finite values are rendered around a zero axis. Non-finite values render
+    /// as 0.
     pub data: Vec<f64>,
     pub color: Option<Hsla>,
 }
@@ -199,11 +263,7 @@ impl BarChart {
     }
 
     fn render_single_vertical(self, theme: &crate::capabilities::foundation::theme::Theme) -> Div {
-        let max_value = self
-            .data
-            .iter()
-            .map(|d| non_negative_finite_or_zero(d.value))
-            .fold(0.0_f64, |a, b| a.max(b));
+        let domain = ValueDomain::from_values(self.data.iter().map(|d| d.value));
 
         let chart_height = self.height;
         let bar_width = self.bar_width.unwrap_or(px(40.0));
@@ -243,6 +303,7 @@ impl BarChart {
                     .when_some(grid_lines, |this, grid| this.child(grid))
                     .child(
                         div()
+                            .relative()
                             .h_full()
                             .w_full()
                             .flex()
@@ -250,38 +311,56 @@ impl BarChart {
                             .justify_around()
                             .gap(gap)
                             .px(px(16.0))
+                            .child(
+                                div()
+                                    .absolute()
+                                    .left_0()
+                                    .right_0()
+                                    .top(domain.zero_y(chart_height))
+                                    .h(px(1.0))
+                                    .bg(theme.tokens.border.opacity(0.7)),
+                            )
                             .children(self.data.iter().enumerate().map(|(i, item)| {
-                                let value = non_negative_finite_or_zero(item.value);
-                                let height_percent = if max_value > 0.0 {
-                                    (value / max_value) as f32
+                                let value = finite_or_zero(item.value);
+                                let (top, bar_height) =
+                                    domain.vertical_segment(0.0, value, chart_height);
+                                let label_top = if value >= 0.0 {
+                                    top - px(18.0)
                                 } else {
-                                    0.0
+                                    top + bar_height + px(2.0)
                                 };
                                 let bar_color = item.color.unwrap_or_else(|| default_color(i));
-                                let bar_height = chart_height * height_percent;
 
                                 div()
-                                    .flex()
-                                    .flex_col()
-                                    .items_center()
-                                    .justify_end()
+                                    .flex_1()
                                     .h_full()
-                                    .gap(px(4.0))
+                                    .flex()
+                                    .justify_center()
+                                    .child(
+                                        div().relative().w(bar_width).h_full().child(
+                                            div()
+                                                .absolute()
+                                                .left_0()
+                                                .right_0()
+                                                .top(top)
+                                                .h(bar_height)
+                                                .bg(bar_color)
+                                                .rounded(theme.tokens.radius_sm),
+                                        ),
+                                    )
                                     .when(show_values, |this| {
                                         this.child(
                                             div()
+                                                .absolute()
+                                                .top(label_top)
+                                                .left_0()
+                                                .right_0()
                                                 .text_xs()
                                                 .text_color(theme.tokens.muted_foreground)
+                                                .text_center()
                                                 .child(format!("{:.0}", value)),
                                         )
                                     })
-                                    .child(
-                                        div()
-                                            .w(bar_width)
-                                            .h(bar_height)
-                                            .bg(bar_color)
-                                            .rounded_t(theme.tokens.radius_sm),
-                                    )
                             })),
                     ),
             )
@@ -302,11 +381,7 @@ impl BarChart {
         self,
         theme: &crate::capabilities::foundation::theme::Theme,
     ) -> Div {
-        let max_value = self
-            .data
-            .iter()
-            .map(|d| non_negative_finite_or_zero(d.value))
-            .fold(0.0_f64, |a, b| a.max(b));
+        let domain = ValueDomain::from_values(self.data.iter().map(|d| d.value));
 
         let bar_height = self.bar_width.unwrap_or(px(24.0));
         let gap = self.gap;
@@ -320,12 +395,8 @@ impl BarChart {
             .flex_col()
             .gap(gap)
             .children(self.data.iter().enumerate().map(|(i, item)| {
-                let value = non_negative_finite_or_zero(item.value);
-                let width_percent = if max_value > 0.0 {
-                    (value / max_value) as f32
-                } else {
-                    0.0
-                };
+                let value = finite_or_zero(item.value);
+                let (left, width_percent) = domain.horizontal_segment(0.0, value);
                 let bar_color = item.color.unwrap_or_else(|| default_color(i));
                 let label = item.label.clone();
 
@@ -349,6 +420,15 @@ impl BarChart {
                             .flex_1()
                             .relative()
                             .h(bar_height)
+                            .child(
+                                div()
+                                    .absolute()
+                                    .top_0()
+                                    .bottom_0()
+                                    .left(relative(domain.zero_ratio))
+                                    .w(px(1.0))
+                                    .bg(theme.tokens.border.opacity(0.7)),
+                            )
                             .when(show_grid, |this| {
                                 this.child(
                                     div()
@@ -362,13 +442,17 @@ impl BarChart {
                                         ),
                                 )
                             })
-                            .child(
+                            .child({
+                                let width = width_percent;
                                 div()
-                                    .h_full()
-                                    .w(relative(width_percent))
+                                    .absolute()
+                                    .top_0()
+                                    .bottom_0()
+                                    .left(relative(left))
+                                    .w(relative(width))
                                     .bg(bar_color)
-                                    .rounded_r(theme.tokens.radius_sm),
-                            ),
+                                    .rounded(theme.tokens.radius_sm)
+                            }),
                     )
                     .when(show_values, |this| {
                         this.child(
@@ -386,12 +470,8 @@ impl BarChart {
         self,
         theme: &crate::capabilities::foundation::theme::Theme,
     ) -> Div {
-        let max_value = self
-            .series
-            .iter()
-            .flat_map(|s| s.data.iter())
-            .map(|&b| non_negative_finite_or_zero(b))
-            .fold(0.0_f64, |a, b| a.max(b));
+        let domain =
+            ValueDomain::from_values(self.series.iter().flat_map(|s| s.data.iter()).copied());
 
         let chart_height = self.height;
         let series_count = self.series.len();
@@ -445,44 +525,59 @@ impl BarChart {
                             .justify_around()
                             .gap(gap)
                             .px(px(16.0))
+                            .child(
+                                div()
+                                    .absolute()
+                                    .left_0()
+                                    .right_0()
+                                    .top(domain.zero_y(chart_height))
+                                    .h(px(1.0))
+                                    .bg(theme.tokens.border.opacity(0.7)),
+                            )
                             .children((0..label_count).map(|label_idx| {
                                 div().flex().items_end().h_full().gap(px(2.0)).children(
                                     self.series.iter().enumerate().map(|(series_idx, series)| {
-                                        let value = non_negative_finite_or_zero(
+                                        let value = finite_or_zero(
                                             series.data.get(label_idx).copied().unwrap_or(0.0),
                                         );
-                                        let height_percent = if max_value > 0.0 {
-                                            (value / max_value) as f32
+                                        let (top, bar_height) =
+                                            domain.vertical_segment(0.0, value, chart_height);
+                                        let label_top = if value >= 0.0 {
+                                            top - px(18.0)
                                         } else {
-                                            0.0
+                                            top + bar_height + px(2.0)
                                         };
                                         let bar_color = series
                                             .color
                                             .unwrap_or_else(|| default_color(series_idx));
-                                        let bar_height = chart_height * height_percent;
 
                                         div()
-                                            .flex()
-                                            .flex_col()
-                                            .items_center()
-                                            .justify_end()
+                                            .relative()
+                                            .w(single_bar_width)
                                             .h_full()
-                                            .gap(px(2.0))
+                                            .child(
+                                                div()
+                                                    .absolute()
+                                                    .left_0()
+                                                    .right_0()
+                                                    .top(top)
+                                                    .h(bar_height)
+                                                    .bg(bar_color)
+                                                    .rounded(theme.tokens.radius_sm),
+                                            )
                                             .when(show_values, |this| {
                                                 this.child(
                                                     div()
+                                                        .absolute()
+                                                        .top(label_top)
+                                                        .left_0()
+                                                        .right_0()
                                                         .text_xs()
                                                         .text_color(theme.tokens.muted_foreground)
+                                                        .text_center()
                                                         .child(format!("{:.0}", value)),
                                                 )
                                             })
-                                            .child(
-                                                div()
-                                                    .w(single_bar_width)
-                                                    .h(bar_height)
-                                                    .bg(bar_color)
-                                                    .rounded_t(theme.tokens.radius_sm),
-                                            )
                                     }),
                                 )
                             })),
@@ -533,16 +628,7 @@ impl BarChart {
         theme: &crate::capabilities::foundation::theme::Theme,
     ) -> Div {
         let label_count = self.labels.len();
-        let stacked_totals: Vec<f64> = (0..label_count)
-            .map(|i| {
-                self.series
-                    .iter()
-                    .map(|s| non_negative_finite_or_zero(s.data.get(i).copied().unwrap_or(0.0)))
-                    .sum()
-            })
-            .collect();
-
-        let max_total = stacked_totals.iter().fold(0.0_f64, |a, &b| a.max(b));
+        let domain = stacked_domain(&self.series, label_count);
 
         let chart_height = self.height;
         let bar_width = self.bar_width.unwrap_or(px(40.0));
@@ -593,66 +679,89 @@ impl BarChart {
                             .justify_around()
                             .gap(gap)
                             .px(px(16.0))
+                            .child(
+                                div()
+                                    .absolute()
+                                    .left_0()
+                                    .right_0()
+                                    .top(domain.zero_y(chart_height))
+                                    .h(px(1.0))
+                                    .bg(theme.tokens.border.opacity(0.7)),
+                            )
                             .children((0..label_count).map(|label_idx| {
-                                let total_height_percent = if max_total > 0.0 {
-                                    (stacked_totals[label_idx] / max_total) as f32
-                                } else {
-                                    0.0
-                                };
-                                let total_value = stacked_totals[label_idx];
-                                let bar_height = chart_height * total_height_percent;
+                                let total_value: f64 = self
+                                    .series
+                                    .iter()
+                                    .map(|series| {
+                                        finite_or_zero(
+                                            series.data.get(label_idx).copied().unwrap_or(0.0),
+                                        )
+                                    })
+                                    .sum();
+                                let mut positive = 0.0;
+                                let mut negative = 0.0;
 
                                 div()
-                                    .flex()
-                                    .flex_col()
-                                    .items_center()
-                                    .justify_end()
+                                    .flex_1()
                                     .h_full()
-                                    .gap(px(4.0))
+                                    .flex()
+                                    .justify_center()
                                     .when(show_values, |this| {
+                                        let label_top = if total_value >= 0.0 {
+                                            domain.zero_y(chart_height) - px(18.0)
+                                        } else {
+                                            domain.zero_y(chart_height) + px(2.0)
+                                        };
                                         this.child(
                                             div()
+                                                .absolute()
+                                                .top(label_top)
+                                                .left_0()
+                                                .right_0()
                                                 .text_xs()
                                                 .text_color(theme.tokens.muted_foreground)
+                                                .text_center()
                                                 .child(format!("{:.0}", total_value)),
                                         )
                                     })
-                                    .child(
-                                        div()
-                                            .w(bar_width)
-                                            .h(bar_height)
-                                            .flex()
-                                            .flex_col_reverse()
-                                            .overflow_hidden()
-                                            .rounded_t(theme.tokens.radius_sm)
-                                            .children(self.series.iter().enumerate().map(
-                                                |(series_idx, series)| {
-                                                    let value = non_negative_finite_or_zero(
-                                                        series
-                                                            .data
-                                                            .get(label_idx)
-                                                            .copied()
-                                                            .unwrap_or(0.0),
-                                                    );
-                                                    let segment_percent =
-                                                        if stacked_totals[label_idx] > 0.0 {
-                                                            (value / stacked_totals[label_idx])
-                                                                as f32
-                                                        } else {
-                                                            0.0
-                                                        };
-                                                    let bar_color =
-                                                        series.color.unwrap_or_else(|| {
-                                                            default_color(series_idx)
-                                                        });
+                                    .child(div().relative().w(bar_width).h_full().children(
+                                        self.series.iter().enumerate().map(
+                                            |(series_idx, series)| {
+                                                let value = finite_or_zero(
+                                                    series
+                                                        .data
+                                                        .get(label_idx)
+                                                        .copied()
+                                                        .unwrap_or(0.0),
+                                                );
+                                                let (start, end) = if value >= 0.0 {
+                                                    let start = positive;
+                                                    positive += value;
+                                                    (start, positive)
+                                                } else {
+                                                    let start = negative;
+                                                    negative += value;
+                                                    (start, negative)
+                                                };
+                                                let (top, height) = domain.vertical_segment(
+                                                    start,
+                                                    end,
+                                                    chart_height,
+                                                );
+                                                let bar_color = series
+                                                    .color
+                                                    .unwrap_or_else(|| default_color(series_idx));
 
-                                                    div()
-                                                        .w_full()
-                                                        .h(relative(segment_percent))
-                                                        .bg(bar_color)
-                                                },
-                                            )),
-                                    )
+                                                div()
+                                                    .absolute()
+                                                    .left_0()
+                                                    .right_0()
+                                                    .top(top)
+                                                    .h(height)
+                                                    .bg(bar_color)
+                                            },
+                                        ),
+                                    ))
                             })),
                     ),
             )
@@ -700,12 +809,8 @@ impl BarChart {
         self,
         theme: &crate::capabilities::foundation::theme::Theme,
     ) -> Div {
-        let max_value = self
-            .series
-            .iter()
-            .flat_map(|s| s.data.iter())
-            .map(|&b| non_negative_finite_or_zero(b))
-            .fold(0.0_f64, |a, b| a.max(b));
+        let domain =
+            ValueDomain::from_values(self.series.iter().flat_map(|s| s.data.iter()).copied());
 
         let series_count = self.series.len();
         let bar_height = self.bar_width.unwrap_or(px(16.0));
@@ -748,10 +853,8 @@ impl BarChart {
                             .child(
                                 div()
                                     .flex_1()
-                                    .flex()
-                                    .flex_col()
-                                    .gap(px(2.0))
                                     .relative()
+                                    .h(bar_height)
                                     .when(show_grid, |this| {
                                         this.child(
                                             div()
@@ -764,16 +867,22 @@ impl BarChart {
                                                 })),
                                         )
                                     })
+                                    .child(
+                                        div()
+                                            .absolute()
+                                            .top_0()
+                                            .bottom_0()
+                                            .left(relative(domain.zero_ratio))
+                                            .w(px(1.0))
+                                            .bg(theme.tokens.border.opacity(0.7)),
+                                    )
                                     .children(self.series.iter().enumerate().map(
                                         |(series_idx, series)| {
-                                            let value = non_negative_finite_or_zero(
+                                            let value = finite_or_zero(
                                                 series.data.get(label_idx).copied().unwrap_or(0.0),
                                             );
-                                            let width_percent = if max_value > 0.0 {
-                                                (value / max_value) as f32
-                                            } else {
-                                                0.0
-                                            };
+                                            let (left, width_percent) =
+                                                domain.horizontal_segment(0.0, value);
                                             let bar_color = series
                                                 .color
                                                 .unwrap_or_else(|| default_color(series_idx));
@@ -784,6 +893,9 @@ impl BarChart {
                                                 .gap(px(4.0))
                                                 .child(
                                                     div()
+                                                        .absolute()
+                                                        .top(single_bar_height * series_idx as f32)
+                                                        .left(relative(left))
                                                         .h(single_bar_height)
                                                         .w(relative(width_percent))
                                                         .bg(bar_color)
@@ -833,17 +945,7 @@ impl BarChart {
         self,
         theme: &crate::capabilities::foundation::theme::Theme,
     ) -> Div {
-        let label_count = self.labels.len();
-        let stacked_totals: Vec<f64> = (0..label_count)
-            .map(|i| {
-                self.series
-                    .iter()
-                    .map(|s| non_negative_finite_or_zero(s.data.get(i).copied().unwrap_or(0.0)))
-                    .sum()
-            })
-            .collect();
-
-        let max_total = stacked_totals.iter().fold(0.0_f64, |a, &b| a.max(b));
+        let domain = stacked_domain(&self.series, self.labels.len());
 
         let bar_height = self.bar_width.unwrap_or(px(24.0));
         let gap = self.gap;
@@ -866,12 +968,15 @@ impl BarChart {
                     .flex_col()
                     .gap(gap)
                     .children(labels.iter().enumerate().map(|(label_idx, label)| {
-                        let total_width_percent = if max_total > 0.0 {
-                            (stacked_totals[label_idx] / max_total) as f32
-                        } else {
-                            0.0
-                        };
-                        let total_value = stacked_totals[label_idx];
+                        let total_value: f64 = self
+                            .series
+                            .iter()
+                            .map(|series| {
+                                finite_or_zero(series.data.get(label_idx).copied().unwrap_or(0.0))
+                            })
+                            .sum();
+                        let mut positive = 0.0;
+                        let mut negative = 0.0;
 
                         div()
                             .flex()
@@ -907,39 +1012,48 @@ impl BarChart {
                                     })
                                     .child(
                                         div()
-                                            .h_full()
-                                            .w(relative(total_width_percent))
-                                            .flex()
-                                            .overflow_hidden()
-                                            .rounded_r(theme.tokens.radius_sm)
-                                            .children(self.series.iter().enumerate().map(
-                                                |(series_idx, series)| {
-                                                    let value = non_negative_finite_or_zero(
-                                                        series
-                                                            .data
-                                                            .get(label_idx)
-                                                            .copied()
-                                                            .unwrap_or(0.0),
-                                                    );
-                                                    let segment_percent =
-                                                        if stacked_totals[label_idx] > 0.0 {
-                                                            (value / stacked_totals[label_idx])
-                                                                as f32
-                                                        } else {
-                                                            0.0
-                                                        };
-                                                    let bar_color =
-                                                        series.color.unwrap_or_else(|| {
-                                                            default_color(series_idx)
-                                                        });
+                                            .absolute()
+                                            .top_0()
+                                            .bottom_0()
+                                            .left(relative(domain.zero_ratio))
+                                            .w(px(1.0))
+                                            .bg(theme.tokens.border.opacity(0.7)),
+                                    )
+                                    .child(div().absolute().inset_0().children(
+                                        self.series.iter().enumerate().map(
+                                            |(series_idx, series)| {
+                                                let value = finite_or_zero(
+                                                    series
+                                                        .data
+                                                        .get(label_idx)
+                                                        .copied()
+                                                        .unwrap_or(0.0),
+                                                );
+                                                let (start, end) = if value >= 0.0 {
+                                                    let start = positive;
+                                                    positive += value;
+                                                    (start, positive)
+                                                } else {
+                                                    let start = negative;
+                                                    negative += value;
+                                                    (start, negative)
+                                                };
+                                                let (left, width) =
+                                                    domain.horizontal_segment(start, end);
+                                                let bar_color = series
+                                                    .color
+                                                    .unwrap_or_else(|| default_color(series_idx));
 
-                                                    div()
-                                                        .h_full()
-                                                        .w(relative(segment_percent))
-                                                        .bg(bar_color)
-                                                },
-                                            )),
-                                    ),
+                                                div()
+                                                    .absolute()
+                                                    .top_0()
+                                                    .bottom_0()
+                                                    .left(relative(left))
+                                                    .w(relative(width))
+                                                    .bg(bar_color)
+                                            },
+                                        ),
+                                    )),
                             )
                             .when(show_values, |this| {
                                 this.child(
@@ -1007,5 +1121,78 @@ impl RenderOnce for BarChart {
             div.style().refine(&user_style);
             div
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ValueDomain;
+    use super::{BarChart, BarChartSeries};
+    use crate::capabilities::foundation::theme::{install_theme, Theme};
+    use gpui::{div, px, Context, IntoElement, ParentElement, Render, Styled, TestApp, Window};
+
+    #[test]
+    fn signed_domain_places_zero_between_positive_and_negative_values() {
+        let domain = ValueDomain::from_values([10.0, -5.0, f64::NAN]);
+        assert!((domain.zero_ratio - (10.0 / 15.0) as f32).abs() < f32::EPSILON);
+
+        let (positive_top, positive_height) = domain.vertical_segment(0.0, 10.0, px(300.0));
+        let (negative_top, negative_height) = domain.vertical_segment(0.0, -5.0, px(300.0));
+        assert_eq!(positive_top, px(0.0));
+        assert_eq!(positive_height, px(200.0));
+        assert_eq!(negative_top, px(200.0));
+        assert_eq!(negative_height, px(100.0));
+    }
+
+    #[test]
+    fn non_finite_values_are_zero_but_negative_values_are_preserved() {
+        let domain = ValueDomain::from_values([f64::INFINITY, -4.0]);
+        assert_eq!(domain.min, -4.0);
+        assert_eq!(domain.max, 0.0);
+        let (left, width) = domain.horizontal_segment(0.0, -4.0);
+        assert_eq!(left, 0.0);
+        assert_eq!(width, 1.0);
+    }
+
+    struct SignedBarChartView;
+
+    impl Render for SignedBarChartView {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(16.0))
+                .child(
+                    BarChart::multi_series(
+                        vec!["Jan", "Feb"],
+                        vec![
+                            BarChartSeries::new("Revenue", vec![10.0, -5.0]),
+                            BarChartSeries::new("Cost", vec![-3.0, 4.0]),
+                        ],
+                    )
+                    .stacked()
+                    .show_values(true),
+                )
+                .child(
+                    BarChart::multi_series(
+                        vec!["Jan", "Feb"],
+                        vec![
+                            BarChartSeries::new("Revenue", vec![10.0, -5.0]),
+                            BarChartSeries::new("Cost", vec![-3.0, 4.0]),
+                        ],
+                    )
+                    .horizontal()
+                    .grouped()
+                    .show_values(true),
+                )
+        }
+    }
+
+    #[gpui::test]
+    fn signed_bar_chart_renders_without_panic() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let mut window = app.open_window(|_, _| SignedBarChartView);
+        window.draw();
     }
 }
