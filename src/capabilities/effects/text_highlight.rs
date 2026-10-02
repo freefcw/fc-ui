@@ -75,7 +75,8 @@ impl RenderOnce for TextHighlight {
                     let t = if total_duration.as_millis() > 0 {
                         let delay_frac =
                             delay.as_millis() as f32 / total_duration.as_millis() as f32;
-                        ((delta - delay_frac) / (1.0 - delay_frac)).clamp(0.0, 1.0)
+                        ((delta - delay_frac) / (1.0 - delay_frac).max(f32::EPSILON))
+                            .clamp(0.0, 1.0)
                     } else {
                         1.0
                     };

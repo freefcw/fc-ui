@@ -77,10 +77,14 @@ impl SharedElementState {
         self.version += 1;
         cx.notify();
 
+        let version = self.version;
         let duration = self.duration;
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(duration).await;
             _ = this.update(cx, |state, cx| {
+                if state.version != version {
+                    return;
+                }
                 state.is_transitioning = false;
                 state.progress = 1.0;
                 state.source_bounds = state.target_bounds;

@@ -2,35 +2,48 @@
 
 use gpui::{prelude::FluentBuilder as _, *};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use crate::capabilities::foundation::theme::use_theme;
 use crate::capabilities::motion::animations::easings;
 
+static COLLAPSIBLE_ID: AtomicU32 = AtomicU32::new(0);
+
 #[derive(IntoElement)]
 pub struct AnimatedCollapsible {
+    id: ElementId,
     trigger: Option<AnyElement>,
     content: Option<AnyElement>,
     is_open: bool,
     disabled: bool,
     show_icon: bool,
     duration: Duration,
+    max_content_height: Pixels,
     on_toggle: Option<Rc<dyn Fn(bool, &mut Window, &mut App)>>,
     style: StyleRefinement,
 }
 
 impl AnimatedCollapsible {
     pub fn new() -> Self {
+        let auto_id = COLLAPSIBLE_ID.fetch_add(1, Ordering::Relaxed);
         Self {
+            id: ElementId::Name(format!("animated-collapsible-{auto_id}").into()),
             trigger: None,
             content: None,
             is_open: false,
             disabled: false,
             show_icon: true,
             duration: Duration::from_millis(250),
+            max_content_height: px(1500.0),
             on_toggle: None,
             style: StyleRefinement::default(),
         }
+    }
+
+    pub fn id(mut self, id: impl Into<ElementId>) -> Self {
+        self.id = id.into();
+        self
     }
 
     pub fn trigger(mut self, trigger: impl IntoElement) -> Self {
@@ -60,6 +73,11 @@ impl AnimatedCollapsible {
 
     pub fn duration(mut self, duration: Duration) -> Self {
         self.duration = duration;
+        self
+    }
+
+    pub fn max_content_height(mut self, height: Pixels) -> Self {
+        self.max_content_height = height;
         self
     }
 
@@ -93,11 +111,12 @@ impl RenderOnce for AnimatedCollapsible {
         let show_icon = self.show_icon;
         let on_toggle = self.on_toggle;
         let duration = self.duration;
+        let max_height = self.max_content_height;
 
         let anim_id: SharedString = if is_open {
-            "animated-collapsible-open".into()
+            format!("{}-open", self.id).into()
         } else {
-            "animated-collapsible-close".into()
+            format!("{}-close", self.id).into()
         };
 
         let mut root = div().flex().flex_col().w_full();
@@ -145,9 +164,9 @@ impl RenderOnce for AnimatedCollapsible {
                 Animation::new(duration).with_easing(easings::ease_out_cubic),
                 move |el, delta| {
                     if is_open {
-                        el.max_h(px(1500.0 * delta)).opacity(delta)
+                        el.max_h(max_height * delta).opacity(delta)
                     } else {
-                        el.max_h(px(1500.0 * (1.0 - delta))).opacity(1.0 - delta)
+                        el.max_h(max_height * (1.0 - delta)).opacity(1.0 - delta)
                     }
                 },
             );

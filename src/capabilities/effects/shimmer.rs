@@ -1,15 +1,23 @@
 use gpui::*;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
+static SHIMMER_ID: AtomicU32 = AtomicU32::new(0);
+
+/// Shimmer 扫过效果。扫光在 -200px..600px 区间内循环移动，
+/// 适用于宽度不超过约 600px 的容器。
 #[derive(IntoElement)]
 pub struct Shimmer {
+    id: ElementId,
     base: Div,
     duration: Duration,
 }
 
 impl Shimmer {
     pub fn new() -> Self {
+        let auto_id = SHIMMER_ID.fetch_add(1, Ordering::Relaxed);
         Self {
+            id: ElementId::Name(format!("shimmer-{auto_id}").into()),
             base: div(),
             duration: Duration::from_millis(1500),
         }
@@ -43,7 +51,7 @@ impl RenderOnce for Shimmer {
                     gpui::linear_color_stop(hsla(0.0, 0.0, 1.0, 0.15), 1.0),
                 ))
                 .with_animation(
-                    "shimmer-sweep",
+                    ElementId::Name(format!("{}-sweep", self.id).into()),
                     Animation::new(duration).repeat().with_easing(gpui::linear),
                     move |this, delta| {
                         let start = px(-200.0);

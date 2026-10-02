@@ -167,8 +167,8 @@ impl RenderOnce for TypeWriter {
                 self.show_cursor && (is_typing || !state.is_complete()),
                 |el| {
                     el.child(
-                        div().id(self.id).child(cursor_str).with_animation(
-                            "cursor-blink",
+                        div().id(self.id.clone()).child(cursor_str).with_animation(
+                            ElementId::Name(format!("{}-cursor-blink", self.id).into()),
                             Animation::new(Duration::from_millis(530))
                                 .repeat()
                                 .with_easing(gpui::linear),

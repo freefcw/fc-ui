@@ -4,6 +4,7 @@ use std::time::Duration;
 
 #[derive(IntoElement)]
 pub struct PulseIndicator {
+    id: ElementId,
     base: Stateful<Div>,
     color: Hsla,
     dot_size: Pixels,
@@ -12,8 +13,10 @@ pub struct PulseIndicator {
 
 impl PulseIndicator {
     pub fn new(id: impl Into<ElementId>) -> Self {
+        let id = id.into();
         Self {
-            base: div().id(id.into()),
+            base: div().id(id.clone()),
+            id,
             color: hsla(142.0 / 360.0, 0.71, 0.45, 1.0),
             dot_size: px(8.0),
             speed: Duration::from_secs(2),
@@ -55,7 +58,7 @@ impl RenderOnce for PulseIndicator {
                     .bg(color.opacity(0.6))
                     .size(dot)
                     .with_animation(
-                        "pulse-ring",
+                        ElementId::Name(format!("{}-ring", self.id).into()),
                         Animation::new(speed)
                             .repeat()
                             .with_easing(easings::ease_out_cubic),

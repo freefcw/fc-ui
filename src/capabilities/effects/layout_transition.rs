@@ -79,9 +79,10 @@ impl RenderOnce for LayoutTransition {
         let stagger = self.stagger;
         let animation = self.animation;
         let version = self.version;
+        let id = self.id;
 
         div()
-            .id(self.id)
+            .id(id.clone())
             .children(
                 self.children
                     .into_iter()
@@ -97,18 +98,21 @@ impl RenderOnce for LayoutTransition {
 
                         div()
                             .id(ElementId::Name(
-                                format!("lt-child-{}-{}", idx, version).into(),
+                                format!("{}-lt-child-{}-{}", id, idx, version).into(),
                             ))
                             .child(child)
                             .with_animation(
-                                ElementId::Name(format!("lt-anim-{}-{}", idx, version).into()),
+                                ElementId::Name(
+                                    format!("{}-lt-anim-{}-{}", id, idx, version).into(),
+                                ),
                                 Animation::new(total_duration).with_easing(easings::ease_out_cubic),
                                 move |el, raw_delta| {
                                     let delta = if raw_delta <= delay_fraction {
                                         0.0
                                     } else {
-                                        ((raw_delta - delay_fraction) / (1.0 - delay_fraction))
-                                            .min(1.0)
+                                        ((raw_delta - delay_fraction)
+                                            / (1.0 - delay_fraction).max(f32::EPSILON))
+                                        .min(1.0)
                                     };
 
                                     match animation {

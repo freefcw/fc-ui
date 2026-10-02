@@ -7,7 +7,7 @@ use crate::capabilities::motion::animations::easings;
 
 #[derive(IntoElement)]
 pub struct NumberTicker {
-    _id: ElementId,
+    id: ElementId,
     base: Div,
     value: i64,
     separator: Option<char>,
@@ -19,7 +19,7 @@ pub struct NumberTicker {
 impl NumberTicker {
     pub fn new(id: impl Into<ElementId>, value: i64) -> Self {
         Self {
-            _id: id.into(),
+            id: id.into(),
             base: div(),
             value,
             separator: None,
@@ -96,6 +96,7 @@ impl RenderOnce for NumberTicker {
         let column_height = digit_height * 10.0;
 
         self.base
+            .id(self.id)
             .flex()
             .flex_row()
             .items_center()

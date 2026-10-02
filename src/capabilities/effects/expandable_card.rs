@@ -11,6 +11,7 @@ pub struct ExpandableCardState {
     is_animating: bool,
     is_expanding: bool,
     animation_version: usize,
+    duration: Duration,
 }
 
 impl ExpandableCardState {
@@ -20,11 +21,16 @@ impl ExpandableCardState {
             is_animating: false,
             is_expanding: false,
             animation_version: 0,
+            duration: durations::NORMAL,
         }
     }
 
     pub fn is_expanded(&self) -> bool {
         self.is_expanded
+    }
+
+    pub fn set_duration(&mut self, duration: Duration) {
+        self.duration = duration;
     }
 
     pub fn toggle(&mut self, cx: &mut Context<Self>) {
@@ -43,10 +49,9 @@ impl ExpandableCardState {
             self.animation_version = self.animation_version.wrapping_add(1);
             cx.notify();
 
+            let duration = self.duration;
             cx.spawn(async move |this, cx| {
-                cx.background_executor()
-                    .timer(Duration::from_millis(300))
-                    .await;
+                cx.background_executor().timer(duration).await;
                 _ = this.update(cx, |state, cx| {
                     state.is_animating = false;
                     state.is_expanding = false;
@@ -64,10 +69,9 @@ impl ExpandableCardState {
             self.animation_version = self.animation_version.wrapping_add(1);
             cx.notify();
 
+            let duration = self.duration;
             cx.spawn(async move |this, cx| {
-                cx.background_executor()
-                    .timer(Duration::from_millis(300))
-                    .await;
+                cx.background_executor().timer(duration).await;
                 _ = this.update(cx, |state, cx| {
                     state.is_expanded = false;
                     state.is_animating = false;
@@ -127,12 +131,14 @@ impl RenderOnce for ExpandableCard {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = use_theme(cx);
         let user_style = self.style;
+        self.state.update(cx, |s, _| s.set_duration(self.duration));
         let state = self.state.read(cx);
         let is_expanded = state.is_expanded;
         let is_animating = state.is_animating;
         let is_expanding = state.is_expanding;
         let animation_version = state.animation_version;
         let duration = self.duration;
+        let id = self.id.clone();
         let state_for_click = self.state.clone();
 
         let shadow = BoxShadow {
@@ -144,7 +150,7 @@ impl RenderOnce for ExpandableCard {
         };
 
         div()
-            .id(self.id)
+            .id(id.clone())
             .bg(theme.tokens.card)
             .border_1()
             .border_color(theme.tokens.border)
@@ -170,7 +176,9 @@ impl RenderOnce for ExpandableCard {
                             .overflow_hidden()
                             .child(content)
                             .with_animation(
-                                ElementId::Name(format!("expand-{}", animation_version).into()),
+                                ElementId::Name(
+                                    format!("{}-expand-{}", id, animation_version).into(),
+                                ),
                                 Animation::new(duration).with_easing(easings::ease_out_cubic),
                                 move |el, delta| {
                                     if is_expanding {

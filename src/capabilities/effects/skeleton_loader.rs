@@ -32,6 +32,8 @@ impl SkeletonLoaderState {
     }
 }
 
+/// 加载骨架屏。每行 shimmer 扫光在 -200px..600px 区间内循环移动，
+/// 适用于宽度不超过约 600px 的容器。
 #[derive(IntoElement)]
 pub struct SkeletonLoader {
     id: ElementId,
@@ -161,7 +163,7 @@ impl RenderOnce for SkeletonLoader {
             wrapper = wrapper.child(skeleton_container);
         } else {
             let content = div().w_full().children(self.children).with_animation(
-                ElementId::Name(format!("skeleton-fade-{version}").into()),
+                ElementId::Name(format!("{}-skeleton-fade-{version}", self.id).into()),
                 Animation::new(Duration::from_millis(300)).with_easing(gpui::ease_in_out),
                 move |el, delta| el.opacity(delta),
             );

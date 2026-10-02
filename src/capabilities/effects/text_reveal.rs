@@ -138,7 +138,8 @@ impl RenderOnce for TextReveal {
                 move |el, delta| {
                     let seg_t = if total_duration.as_millis() > 0 {
                         let delay_fraction = delay as f32 / total_duration.as_millis() as f32;
-                        ((delta - delay_fraction) / (1.0 - delay_fraction)).clamp(0.0, 1.0)
+                        ((delta - delay_fraction) / (1.0 - delay_fraction).max(f32::EPSILON))
+                            .clamp(0.0, 1.0)
                     } else {
                         1.0
                     };

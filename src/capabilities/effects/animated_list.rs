@@ -96,6 +96,7 @@ impl AnimatedListState {
         self.keys = new_keys;
         cx.notify();
 
+        let version = self.version;
         let exit_dur = self.exit_duration;
         let has_exiting = !exiting.is_empty();
         let has_entering = !entering.is_empty();
@@ -104,6 +105,9 @@ impl AnimatedListState {
             cx.spawn(async move |this, cx| {
                 cx.background_executor().timer(exit_dur).await;
                 _ = this.update(cx, |state, cx| {
+                    if state.version != version {
+                        return;
+                    }
                     state
                         .phases
                         .retain(|(_, phase)| *phase != ItemPhase::Exiting);
@@ -118,6 +122,9 @@ impl AnimatedListState {
             cx.spawn(async move |this, cx| {
                 cx.background_executor().timer(enter_dur).await;
                 _ = this.update(cx, |state, cx| {
+                    if state.version != version {
+                        return;
+                    }
                     for (_, phase) in &mut state.phases {
                         if *phase == ItemPhase::Entering {
                             *phase = ItemPhase::Present;
@@ -205,7 +212,9 @@ impl RenderOnce for AnimatedList {
                         div()
                             .child(element)
                             .with_animation(
-                                ElementId::Name(format!("al-enter-{}-{}", key, version).into()),
+                                ElementId::Name(
+                                    format!("{}-al-enter-{}-{}", self.id, key, version).into(),
+                                ),
                                 Animation::new(enter_dur).with_easing(easings::ease_out_cubic),
                                 move |el, delta| {
                                     el.opacity(delta)
@@ -217,7 +226,9 @@ impl RenderOnce for AnimatedList {
                         div()
                             .child(element)
                             .with_animation(
-                                ElementId::Name(format!("al-exit-{}-{}", key, version).into()),
+                                ElementId::Name(
+                                    format!("{}-al-exit-{}-{}", self.id, key, version).into(),
+                                ),
                                 Animation::new(exit_dur).with_easing(easings::ease_in_cubic),
                                 move |el, delta| {
                                     el.opacity(1.0 - delta).mt(lerp_pixels(

@@ -5,6 +5,8 @@ use crate::capabilities::foundation::theme::use_theme;
 use crate::capabilities::motion::animations::easings;
 use crate::capabilities::primitives::progress::{ProgressSize, ProgressVariant};
 
+/// 带动画的进度条。shimmer 扫光在 -120px..600px 区间内循环移动，
+/// 适用于宽度不超过约 600px 的进度条。
 #[derive(IntoElement)]
 pub struct AnimatedProgress {
     id: ElementId,
@@ -121,7 +123,7 @@ impl RenderOnce for AnimatedProgress {
                                         gpui::linear_color_stop(hsla(0.0, 0.0, 1.0, 0.2), 1.0),
                                     ))
                                     .with_animation(
-                                        "shimmer-sweep",
+                                        ElementId::Name(format!("{}-shimmer", self.id).into()),
                                         Animation::new(Duration::from_millis(1500))
                                             .repeat()
                                             .with_easing(gpui::linear),

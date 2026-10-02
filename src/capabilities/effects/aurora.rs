@@ -2,12 +2,16 @@
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use crate::capabilities::foundation::theme::use_theme;
 
+static AURORA_ID: AtomicU32 = AtomicU32::new(0);
+
 #[derive(IntoElement)]
 pub struct Aurora {
+    id: ElementId,
     colors: Vec<Hsla>,
     speed: f32,
     blur_amount: Pixels,
@@ -17,13 +21,20 @@ pub struct Aurora {
 
 impl Aurora {
     pub fn new() -> Self {
+        let auto_id = AURORA_ID.fetch_add(1, Ordering::Relaxed);
         Self {
+            id: ElementId::Name(format!("aurora-{auto_id}").into()),
             colors: Vec::new(),
             speed: 1.0,
             blur_amount: px(80.0),
             children: Vec::new(),
             style: StyleRefinement::default(),
         }
+    }
+
+    pub fn id(mut self, id: impl Into<ElementId>) -> Self {
+        self.id = id.into();
+        self
     }
 
     pub fn colors(mut self, colors: Vec<Hsla>) -> Self {
@@ -171,7 +182,7 @@ impl RenderOnce for Aurora {
                     .rounded(px(blur_f32 * 2.0))
                     .bg(color)
                     .with_animation(
-                        ElementId::Name(format!("aurora-blob-{idx}").into()),
+                        ElementId::Name(format!("{}-blob-{idx}", self.id).into()),
                         Animation::new(duration)
                             .repeat()
                             .with_easing(gpui::ease_in_out),

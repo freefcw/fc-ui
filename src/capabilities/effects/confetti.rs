@@ -69,6 +69,7 @@ impl ConfettiState {
     }
 
     pub fn burst(&mut self, cx: &mut Context<Self>) {
+        let was_active = self.is_active;
         self.particles.clear();
         self.is_active = true;
 
@@ -103,7 +104,9 @@ impl ConfettiState {
             });
         }
 
-        self.schedule_tick(cx);
+        if !was_active {
+            self.schedule_tick(cx);
+        }
         cx.notify();
     }
 

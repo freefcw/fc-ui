@@ -37,11 +37,12 @@ impl AnimatedPresenceState {
             self.version += 1;
             cx.notify();
 
+            let version = self.version;
             let duration = self.exit_duration;
             cx.spawn(async move |this, cx| {
                 cx.background_executor().timer(duration).await;
                 _ = this.update(cx, |state, cx| {
-                    if state.is_animating_out {
+                    if state.version == version {
                         state.is_visible = false;
                         state.is_animating_out = false;
                         cx.notify();

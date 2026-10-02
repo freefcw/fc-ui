@@ -114,7 +114,8 @@ impl RenderOnce for AnimatedText {
                 move |el, delta| {
                     let char_t = if total_duration.as_millis() > 0 {
                         let delay_fraction = delay as f32 / total_duration.as_millis() as f32;
-                        ((delta - delay_fraction) / (1.0 - delay_fraction)).clamp(0.0, 1.0)
+                        ((delta - delay_fraction) / (1.0 - delay_fraction).max(f32::EPSILON))
+                            .clamp(0.0, 1.0)
                     } else {
                         1.0
                     };
@@ -144,7 +145,7 @@ impl RenderOnce for AnimatedText {
                             let wave_offset =
                                 (char_t * std::f32::consts::PI * 2.0 + i as f32 * 0.5).sin()
                                     * 6.0
-                                    * (1.0 - char_t * 0.5);
+                                    * (1.0 - char_t);
                             el.mt(px(wave_offset))
                         }
                     }
