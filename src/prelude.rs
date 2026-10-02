@@ -57,6 +57,7 @@ pub use crate::components::file_upload::{
 pub use crate::components::form::{Form, FormState};
 pub use crate::components::glass_morphism::{GlassIntensity, GlassMorphism};
 pub use crate::components::hotkey_input::{HotkeyInput, HotkeyInputState, HotkeyValue};
+#[allow(deprecated)]
 pub use crate::components::icon::{icon, icon_button, Icon, IconSize, IconVariant};
 pub use crate::components::icon_button::IconButton;
 pub use crate::components::icon_source::IconSource;
@@ -114,6 +115,7 @@ pub use crate::components::text::{
     body, body_large, body_small, caption, code, code_small, h1, h2, h3, h4, h5, h6, label,
     label_small, muted, muted_small, Text, TextVariant,
 };
+#[allow(deprecated)]
 pub use crate::components::text_field::{TextField, TextFieldSize};
 pub use crate::components::textarea::Textarea;
 pub use crate::components::textarea_state::{TextareaEvent, TextareaState};
@@ -186,6 +188,7 @@ pub use crate::responsive::{
     current_breakpoint, responsive_columns, responsive_value, Breakpoint, Responsive,
 };
 pub use crate::scroll_physics::ScrollPhysics;
+#[allow(deprecated)]
 pub use crate::spring::Spring;
 
 pub use crate::components::animated_counter::{AnimatedCounter, AnimatedCounterState};

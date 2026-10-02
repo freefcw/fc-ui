@@ -1,4 +1,5 @@
 //! Virtual list component for efficient rendering of large item counts.
+#![allow(deprecated)]
 
 use std::{cmp, ops::Range, rc::Rc};
 
@@ -12,12 +13,14 @@ use smallvec::SmallVec;
 
 use crate::capabilities::foundation::util::{AxisExt, PixelsExt};
 
+#[deprecated(note = "use uniform_virtual_list::VariableVirtualList instead")]
 pub struct VirtualListFrameState {
     items: SmallVec<[AnyElement; 32]>,
     size_layout: ItemSizeLayout,
 }
 
 #[derive(Default, Clone)]
+#[deprecated(note = "use uniform_virtual_list::VariableVirtualList instead")]
 pub struct ItemSizeLayout {
     items_sizes: Rc<Vec<Size<Pixels>>>,
     content_size: Size<Pixels>,
@@ -26,6 +29,7 @@ pub struct ItemSizeLayout {
 }
 
 #[inline]
+#[deprecated(note = "use uniform_virtual_list::VariableVirtualList instead")]
 pub fn v_virtual_list<R, V>(
     view: Entity<V>,
     id: impl Into<ElementId>,
@@ -76,6 +80,7 @@ where
     }
 }
 
+#[deprecated(note = "use uniform_virtual_list::VariableVirtualList instead")]
 pub struct VirtualList {
     id: ElementId,
     axis: Axis,

@@ -1,5 +1,25 @@
+//! Manual spring simulation.
+//!
+//! **Deprecated:** this is a hand-rolled parallel implementation of GPUI's
+//! built-in spring support. Prefer `gpui::SpringAnimation` with
+//! `AnimationExt::with_spring`, e.g.:
+//!
+//! ```rust,ignore
+//! element.with_spring(
+//!     "my-spring",
+//!     SpringAnimation::new(SpringConfig::new(stiffness, damping, mass))
+//!         .to(px(target)),
+//!     |el, value| el.left(value),
+//! )
+//! ```
+//!
+//! The element id preserves position and velocity across target changes, so
+//! retargeting no longer requires storing and ticking a `Spring` yourself.
+//! `Spring` remains exported for compatibility.
+
 use std::time::Duration;
 
+#[deprecated(note = "use gpui::SpringAnimation / with_spring instead")]
 #[derive(Clone, Debug)]
 pub struct Spring {
     pub position: f32,
@@ -11,12 +31,14 @@ pub struct Spring {
     rest_threshold: f32,
 }
 
+#[allow(deprecated)]
 impl Default for Spring {
     fn default() -> Self {
         Self::gentle()
     }
 }
 
+#[allow(deprecated)]
 impl Spring {
     pub fn new(stiffness: f32, damping: f32, mass: f32) -> Self {
         Self {

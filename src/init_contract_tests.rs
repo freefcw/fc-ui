@@ -4,6 +4,7 @@ use crate::capabilities::{
     controls::{
         combobox::{self, ComboboxCancel},
         date_picker::{self, ClosePicker},
+        dropdown::{self, CloseDropdown},
         inline_edit::{self, Save},
         input::{self, Backspace as InputBackspace},
         mention_input::{self, MentionConfirm},
@@ -56,7 +57,9 @@ fn assert_representative_bindings(cx: &App) {
         ("inline-edit", &Save, 1),
         ("mention-input", &MentionConfirm, 1),
         ("video-player", &VideoPlayerTogglePlay, 1),
-        ("sidebar", &ToggleSidebar, 2),
+        // Sidebar intentionally installs no global bindings; apps bind ToggleSidebar themselves.
+        ("sidebar", &ToggleSidebar, 0),
+        ("dropdown", &CloseDropdown, 1),
         ("tabs", &TabNext, 1),
         ("popover", &ClosePopover, 1),
         ("dialog", &DialogCancel, 1),
@@ -75,6 +78,7 @@ fn init_individually(cx: &mut App) {
     select::init_select(cx);
     combobox::init_combobox(cx);
     date_picker::init(cx);
+    dropdown::init_dropdown(cx);
     image_viewer::init_image_viewer(cx);
     inline_edit::init(cx);
     mention_input::init_mention_input(cx);
