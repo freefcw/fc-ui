@@ -29,6 +29,9 @@ impl AnimationPreset {
         self
     }
 
+    /// Set a start delay. Reserved: GPUI's `Animation` has no delay support,
+    /// so [`AnimationPreset::to_animation`] does not apply it (only
+    /// `StaggerConfig` scheduling reads this value).
     pub fn delay(mut self, delay: Duration) -> Self {
         self.delay = delay;
         self
@@ -44,6 +47,9 @@ impl AnimationPreset {
         self
     }
 
+    /// Set a start delay. Reserved: GPUI's `Animation` has no delay support,
+    /// so [`AnimationPreset::to_animation`] does not apply it (only
+    /// `StaggerConfig` scheduling reads this value).
     pub fn with_delay(mut self, delay: Duration) -> Self {
         self.delay = delay;
         self
@@ -57,6 +63,8 @@ impl AnimationPreset {
         self.easing
     }
 
+    /// Returns the reserved start delay (not applied by
+    /// [`AnimationPreset::to_animation`]; see [`AnimationPreset::delay`]).
     pub fn get_delay(&self) -> Duration {
         self.delay
     }
@@ -101,6 +109,11 @@ pub fn slide_in_right() -> AnimationPreset {
 #[derive(Clone, Debug, PartialEq)]
 pub enum AnimationRepeat {
     Once,
+    /// Finite repeat count. **Treated as infinite repeat** because GPUI's
+    /// `Animation` has no finite-repeat support: the animation loops forever.
+    /// To emulate a finite count, cancel it with a timer after
+    /// `count * duration` (e.g. `AnimationHandle::cancel` from
+    /// `with_cancellable_animation`, or stop rendering the animated element).
     Count(u32),
     Infinite,
 }
@@ -202,7 +215,7 @@ impl KeyframeAnimation {
     }
 
     pub fn to_animation(&self) -> Animation {
-        let anim = Animation::new(self.duration);
+        let anim = Animation::new(self.duration).with_easing(self.easing);
         match &self.repeat {
             AnimationRepeat::Once => anim,
             AnimationRepeat::Infinite => anim.repeat(),
@@ -298,6 +311,8 @@ impl Transition {
         self
     }
 
+    /// Set a start delay. Reserved: GPUI's `Animation` has no delay support,
+    /// so [`Transition::to_animation`] does not apply it.
     pub fn delay(mut self, delay: Duration) -> Self {
         self.delay = delay;
         self
@@ -315,6 +330,8 @@ impl Transition {
         self.easing
     }
 
+    /// Returns the reserved start delay (not applied by
+    /// [`Transition::to_animation`]; see [`Transition::delay`]).
     pub fn get_delay(&self) -> Duration {
         self.delay
     }

@@ -74,12 +74,17 @@ impl ScrollPhysics {
         }
     }
 
+    /// Advance the simulation by `dt` seconds. `velocity` is expressed in
+    /// px per 60 Hz frame, so both the deceleration factor and the position
+    /// step are scaled by `dt * 60.0` — passing `dt = 1.0 / 60.0` reproduces
+    /// the original per-frame behavior exactly while keeping the decay
+    /// frame-rate independent.
     pub fn tick(&mut self, dt: f32) -> bool {
         if !self.momentum_enabled && !self.is_overscrolled() {
             return false;
         }
 
-        self.velocity *= self.deceleration;
+        self.velocity *= self.deceleration.powf(dt * 60.0);
         self.position += self.velocity * dt * 60.0;
 
         if self.overscroll_enabled {

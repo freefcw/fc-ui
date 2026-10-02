@@ -10,6 +10,7 @@ pub struct ContentTransition {
     new_content: AnyElement,
     duration: Duration,
     transitioning: bool,
+    key: u64,
 }
 
 impl ContentTransition {
@@ -20,7 +21,17 @@ impl ContentTransition {
             new_content: content.into_any_element(),
             duration: Duration::from_millis(200),
             transitioning: false,
+            key: 0,
         }
+    }
+
+    /// Tag the transition with the current content key (e.g. from
+    /// [`ContentTransitionState::key`]). The key is mixed into the animation
+    /// element ids so every content switch spawns fresh animations; without
+    /// it the crossfade only plays once per mount.
+    pub fn key(mut self, key: u64) -> Self {
+        self.key = key;
+        self
     }
 
     pub fn duration(mut self, duration: Duration) -> Self {
@@ -44,14 +55,14 @@ impl RenderOnce for ContentTransition {
 
             if let Some(old) = self.old_content {
                 container = container.child(div().absolute().inset_0().child(old).with_animation(
-                    ElementId::Name(format!("{}-old", self.id).into()),
+                    ElementId::Name(format!("{}-old-{}", self.id, self.key).into()),
                     Animation::new(duration).with_easing(easings::ease_in_cubic),
                     |el, delta| el.opacity(1.0 - delta),
                 ));
             }
 
             container = container.child(div().size_full().child(self.new_content).with_animation(
-                ElementId::Name(format!("{}-new", self.id).into()),
+                ElementId::Name(format!("{}-new-{}", self.id, self.key).into()),
                 Animation::new(duration).with_easing(easings::ease_out_cubic),
                 |el, delta| el.opacity(delta),
             ));

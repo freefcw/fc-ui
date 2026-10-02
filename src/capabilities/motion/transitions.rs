@@ -41,16 +41,18 @@
 //!
 //! ### Complex Transitions
 //! ```rust,ignore
-//! Transition::combined()
-//!     .fade_in()
-//!     .slide_from(Direction::Bottom)
-//!     .scale_from(0.8)
+//! // Combine fade and slide with a custom easing
+//! Transition::new()
+//!     .fade()
+//!     .slide(Direction::Bottom)
+//!     .snappy()
 //!     .duration(Duration::from_millis(400))
 //!     .child(complex_component)
 //! ```
 //!
 
 use gpui::*;
+use std::panic::Location;
 use std::time::Duration;
 
 use crate::capabilities::motion::animations::{durations, easings};
@@ -84,19 +86,34 @@ pub struct Transition {
 
 impl Transition {
     /// Create a new transition
+    ///
+    /// The default animation id is derived from the call site so multiple
+    /// transitions do not share state; override it with [`Transition::id`].
+    #[track_caller]
     pub fn new() -> Self {
+        let location = Location::caller();
+        let animation_id = ElementId::Name(
+            format!(
+                "transition:{}:{}:{}",
+                location.file(),
+                location.line(),
+                location.column()
+            )
+            .into(),
+        );
+
         Self {
             slide_direction: None,
             slide_distance: px(20.0),
             duration: durations::NORMAL,
             easing_fn: easings::ease_out_cubic,
             child: None,
-            animation_id: ElementId::Name("transition".into()),
+            animation_id,
             apply_fade: false,
         }
     }
 
-    /// Set a unique ID for this transition (useful for multiple transitions)
+    /// Set a unique ID for this transition (overrides the call-site-derived id)
     pub fn id(mut self, id: impl Into<ElementId>) -> Self {
         self.animation_id = id.into();
         self
@@ -213,21 +230,25 @@ impl RenderOnce for Transition {
 /// Preset transition builders for common use cases
 impl Transition {
     /// Quick fade in (200ms)
+    #[track_caller]
     pub fn fade_quick() -> Self {
         Self::new().fade().duration(durations::FAST)
     }
 
     /// Normal fade in (300ms)
+    #[track_caller]
     pub fn fade_normal() -> Self {
         Self::new().fade().duration(durations::NORMAL)
     }
 
     /// Slow fade in (400ms)
+    #[track_caller]
     pub fn fade_slow() -> Self {
         Self::new().fade().duration(durations::SLOW)
     }
 
     /// Slide in from bottom with fade (smooth)
+    #[track_caller]
     pub fn slide_up() -> Self {
         Self::new()
             .slide(Direction::Bottom)
@@ -236,6 +257,7 @@ impl Transition {
     }
 
     /// Slide in from top with fade
+    #[track_caller]
     pub fn slide_down() -> Self {
         Self::new()
             .slide(Direction::Top)
@@ -244,6 +266,7 @@ impl Transition {
     }
 
     /// Slide in from left with fade
+    #[track_caller]
     pub fn slide_left() -> Self {
         Self::new()
             .slide(Direction::Left)
@@ -252,6 +275,7 @@ impl Transition {
     }
 
     /// Slide in from right with fade
+    #[track_caller]
     pub fn slide_right() -> Self {
         Self::new()
             .slide(Direction::Right)
@@ -260,6 +284,7 @@ impl Transition {
     }
 
     /// Smooth slide up with spring
+    #[track_caller]
     pub fn slide_up_spring() -> Self {
         Self::new()
             .slide(Direction::Bottom)
@@ -268,19 +293,23 @@ impl Transition {
             .duration(durations::SLOW)
     }
 
-    /// Scale in with fade (smooth)
+    /// Fade in with snappy easing (named for a future scale transform: this
+    /// currently applies fade only, no scaling)
+    #[track_caller]
     pub fn scale_smooth() -> Self {
-        // For now, just use fade since we don't have transform support
         Self::fade_normal().snappy()
     }
 
-    /// Scale in with spring bounce
+    /// Fade in with spring easing (named for a future scale transform: this
+    /// currently applies fade only, no scaling)
+    #[track_caller]
     pub fn scale_bounce() -> Self {
-        // For now, just use fade with spring
         Self::fade_normal().spring().duration(durations::SLOW)
     }
 
-    /// Snappy scale in (quick with slight overshoot)
+    /// Quick fade in with snappy easing (named for a future scale transform:
+    /// this currently applies fade only, no scaling)
+    #[track_caller]
     pub fn scale_snappy() -> Self {
         Self::fade_quick().snappy()
     }

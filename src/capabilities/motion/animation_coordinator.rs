@@ -10,6 +10,17 @@ struct AnimationEntry {
     completed: bool,
 }
 
+/// Tracks named animations and their completion callbacks.
+///
+/// Two semantics to be aware of:
+///
+/// - Starting an id that is already tracked **silently replaces** the
+///   existing entry: the previous entry's pending completion callback is
+///   dropped and never fires.
+/// - The coordinator is **passive**: nothing is driven by timers internally.
+///   Completion callbacks fire only while the host polls
+///   [`AnimationCoordinator::tick`] (call it every frame/update); without
+///   polling, callbacks never run.
 pub struct AnimationCoordinator {
     animations: HashMap<String, AnimationEntry>,
 }
@@ -27,6 +38,8 @@ impl AnimationCoordinator {
         }
     }
 
+    /// Start tracking an animation. If `id` is already tracked, the existing
+    /// entry (including any pending completion callback) is silently replaced.
     pub fn start(&mut self, id: impl Into<String>, duration: Duration) {
         let id = id.into();
         self.animations.insert(
@@ -40,6 +53,10 @@ impl AnimationCoordinator {
         );
     }
 
+    /// Start tracking an animation with a completion callback. If `id` is
+    /// already tracked, the existing entry (including any pending completion
+    /// callback) is silently replaced. The callback fires from
+    /// [`AnimationCoordinator::tick`], which must be polled by the host.
     pub fn start_with_callback(
         &mut self,
         id: impl Into<String>,
@@ -90,6 +107,9 @@ impl AnimationCoordinator {
             .unwrap_or(false)
     }
 
+    /// Poll the coordinator: fires completion callbacks for animations whose
+    /// duration has elapsed and returns their ids. Must be called regularly
+    /// (e.g. every frame) — callbacks are never fired spontaneously.
     pub fn tick(&mut self) -> Vec<String> {
         let mut completed = Vec::new();
 

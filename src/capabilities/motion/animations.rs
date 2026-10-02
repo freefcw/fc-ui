@@ -185,6 +185,10 @@ pub mod easings {
     }
 
     /// Spring easing - natural bouncy effect
+    ///
+    /// Starts at 0 and settles at 1 with a decaying oscillation. The output is
+    /// intentionally not clamped so the bounce can overshoot 1.0, matching
+    /// GPUI's `Animation::with_easing` semantics.
     pub fn spring(t: f32) -> f32 {
         if t >= 1.0 {
             return 1.0;
@@ -192,12 +196,14 @@ pub mod easings {
         let damping = 0.7;
         let frequency = 1.5;
         let decay = (-damping * t * 10.0).exp();
-        let oscillation = (frequency * t * std::f32::consts::PI * 2.0).sin();
-        let result = 1.0 - decay * oscillation * 0.5; // Reduced amplitude
-        result.clamp(0.0, 1.0)
+        let oscillation = (frequency * t * std::f32::consts::PI * 2.0).cos();
+        1.0 - decay * oscillation
     }
 
     /// Elastic easing - more pronounced spring effect
+    ///
+    /// The output is intentionally not clamped so the elastic wobble can
+    /// overshoot 1.0, matching GPUI's `Animation::with_easing` semantics.
     pub fn elastic(t: f32) -> f32 {
         if t == 0.0 {
             return 0.0;
@@ -208,12 +214,13 @@ pub mod easings {
         let p = 0.3;
         let s = p / 4.0;
         let t_adj = t - 1.0;
-        let result = 1.0
-            + (2_f32.powf(10.0 * t_adj)) * ((t_adj - s) * (2.0 * std::f32::consts::PI) / p).sin();
-        result.clamp(0.0, 1.0)
+        1.0 + (2_f32.powf(10.0 * t_adj)) * ((t_adj - s) * (2.0 * std::f32::consts::PI) / p).sin()
     }
 
     /// Smooth spring - subtle spring effect (recommended for UI)
+    ///
+    /// The output is intentionally not clamped so the subtle spring can
+    /// overshoot 1.0, matching GPUI's `Animation::with_easing` semantics.
     pub fn smooth_spring(t: f32) -> f32 {
         if t >= 1.0 {
             return 1.0;
@@ -222,22 +229,22 @@ pub mod easings {
         let frequency = 1.0;
         let decay = (-damping * t * 10.0).exp();
         let oscillation = (frequency * t * std::f32::consts::PI * 2.0).sin();
-        let result = t + decay * oscillation * 0.1; // Very subtle spring
-        result.clamp(0.0, 1.0)
+        t + decay * oscillation * 0.1 // Very subtle spring
     }
 
     /// Back easing - slight overshoot for emphasis
-    /// Note: Clamped to prevent values outside 0-1 range
+    ///
+    /// `c1` is deliberately smaller than the canonical 1.70158 for a subtle
+    /// overshoot. The output is not clamped, matching GPUI's
+    /// `Animation::with_easing` semantics.
     pub fn ease_out_back(t: f32) -> f32 {
         if t >= 1.0 {
             return 1.0;
         }
-        // Use a smaller constant to reduce overshoot
-        let c1 = 1.2; // Reduced from 1.70158 to stay within bounds
+        let c1 = 1.2;
         let c3 = c1 + 1.0;
         let t_adj = t - 1.0;
-        let result = 1.0 + c3 * t_adj * t_adj * t_adj + c1 * t_adj * t_adj;
-        result.clamp(0.0, 1.0)
+        1.0 + c3 * t_adj * t_adj * t_adj + c1 * t_adj * t_adj
     }
 
     pub fn ease_in_expo(t: f32) -> f32 {
@@ -680,8 +687,15 @@ pub fn lerp_pixels(from: Pixels, to: Pixels, t: f32) -> Pixels {
 
 pub fn lerp_color(from: Hsla, to: Hsla, t: f32) -> Hsla {
     let t = t.clamp(0.0, 1.0);
+    // Hue travels the shortest path around the color wheel (h is 0..1).
+    let mut dh = to.h - from.h;
+    if dh > 0.5 {
+        dh -= 1.0;
+    } else if dh < -0.5 {
+        dh += 1.0;
+    }
     Hsla {
-        h: from.h + (to.h - from.h) * t,
+        h: (from.h + dh * t).rem_euclid(1.0),
         s: from.s + (to.s - from.s) * t,
         l: from.l + (to.l - from.l) * t,
         a: from.a + (to.a - from.a) * t,
@@ -698,7 +712,8 @@ pub fn lerp_shadow(from: &BoxShadow, to: &BoxShadow, t: f32) -> BoxShadow {
         ),
         blur_radius: lerp_pixels(from.blur_radius, to.blur_radius, t),
         spread_radius: lerp_pixels(from.spread_radius, to.spread_radius, t),
-        inset: false,
+        // `inset` is not interpolatable; keep it if either end uses it.
+        inset: from.inset || to.inset,
     }
 }
 
@@ -718,4 +733,66 @@ pub fn lerp_shadows(from: &[BoxShadow], to: &[BoxShadow], t: f32) -> SmallVec<[B
         result.push(lerp_shadow(f, t_shadow, t));
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{easings, lerp_color, lerp_shadow};
+    use gpui::{point, px, BoxShadow, Hsla};
+
+    #[test]
+    fn spring_starts_at_zero_and_settles_at_one() {
+        assert_eq!(easings::spring(0.0), 0.0);
+        assert_eq!(easings::spring(1.0), 1.0);
+        assert!(easings::spring(0.5).is_finite());
+    }
+
+    #[test]
+    fn overshoot_easings_are_not_clamped() {
+        assert!(easings::ease_out_back(0.63) > 1.0);
+        assert!(easings::spring(1.0 / 3.0) > 1.0);
+    }
+
+    #[test]
+    fn lerp_color_takes_shortest_hue_path() {
+        let from = Hsla {
+            h: 0.9,
+            s: 1.0,
+            l: 0.5,
+            a: 1.0,
+        };
+        let to = Hsla {
+            h: 0.1,
+            s: 1.0,
+            l: 0.5,
+            a: 1.0,
+        };
+        let mid = lerp_color(from, to, 0.5);
+        // Shortest path crosses 1.0/0.0, not 0.5.
+        assert!(mid.h > 0.9 || mid.h < 0.1, "mid hue was {}", mid.h);
+        let end = lerp_color(from, to, 1.0);
+        assert!((end.h - to.h).abs() < 1e-5);
+    }
+
+    #[test]
+    fn lerp_shadow_preserves_inset() {
+        let base = || BoxShadow {
+            color: Hsla {
+                h: 0.0,
+                s: 0.0,
+                l: 0.0,
+                a: 0.5,
+            },
+            offset: point(px(0.0), px(0.0)),
+            blur_radius: px(4.0),
+            spread_radius: px(0.0),
+            inset: false,
+        };
+        let mut inset_shadow = base();
+        inset_shadow.inset = true;
+
+        assert!(lerp_shadow(&base(), &inset_shadow, 0.5).inset);
+        assert!(lerp_shadow(&inset_shadow, &base(), 0.5).inset);
+        assert!(!lerp_shadow(&base(), &base(), 0.5).inset);
+    }
 }

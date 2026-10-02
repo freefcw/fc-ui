@@ -49,12 +49,14 @@ const SWIPE_MIN_DISTANCE: f32 = 50.0;
 const SWIPE_MIN_VELOCITY: f32 = 200.0;
 const LONG_PRESS_DURATION: Duration = Duration::from_millis(500);
 const DOUBLE_TAP_INTERVAL: Duration = Duration::from_millis(300);
+const DOUBLE_TAP_MAX_DISTANCE: f32 = 8.0;
 const PAN_THRESHOLD: f32 = 5.0;
 
 #[derive(Clone, Debug)]
 pub struct GestureDetector {
     press_start: Option<(Point<Pixels>, Instant)>,
     last_position: Option<Point<Pixels>>,
+    last_move_time: Option<Instant>,
     velocity: Point<Pixels>,
     total_delta: Point<Pixels>,
     is_panning: bool,
@@ -77,6 +79,7 @@ impl GestureDetector {
         Self {
             press_start: None,
             last_position: None,
+            last_move_time: None,
             velocity: point(px(0.0), px(0.0)),
             total_delta: point(px(0.0), px(0.0)),
             is_panning: false,
@@ -100,8 +103,10 @@ impl GestureDetector {
     }
 
     pub fn on_mouse_down(&mut self, position: Point<Pixels>) -> Vec<GestureEvent> {
-        self.press_start = Some((position, Instant::now()));
+        let now = Instant::now();
+        self.press_start = Some((position, now));
         self.last_position = Some(position);
+        self.last_move_time = Some(now);
         self.velocity = point(px(0.0), px(0.0));
         self.total_delta = point(px(0.0), px(0.0));
         self.is_panning = false;
@@ -122,7 +127,18 @@ impl GestureDetector {
         let delta = point(position.x - last.x, position.y - last.y);
         self.total_delta = point(position.x - start.x, position.y - start.y);
 
-        self.velocity = point(delta.x * 60.0, delta.y * 60.0);
+        // Velocity in px/second from the real elapsed time between moves.
+        let now = Instant::now();
+        let dt = self
+            .last_move_time
+            .map(|t| now.duration_since(t).as_secs_f32())
+            .unwrap_or(0.0);
+        self.velocity = if dt > 0.0 {
+            point(delta.x / dt, delta.y / dt)
+        } else {
+            point(px(0.0), px(0.0))
+        };
+        self.last_move_time = Some(now);
 
         let total_distance =
             (f32::from(self.total_delta.x).powi(2) + f32::from(self.total_delta.y).powi(2)).sqrt();
@@ -192,16 +208,23 @@ impl GestureDetector {
         } else {
             let elapsed = start_time.elapsed();
 
-            if elapsed >= self.long_press_duration && !self.long_press_triggered {
+            if self.long_press_triggered {
+                // The long press already fired via `check_long_press`;
+                // releasing the press must not emit a tap.
+            } else if elapsed >= self.long_press_duration {
                 events.push(GestureEvent::LongPress(LongPressGesture {
                     position,
                     duration: elapsed,
                 }));
             } else {
-                let is_double = self
-                    .last_tap_time
-                    .map(|t| t.elapsed() < DOUBLE_TAP_INTERVAL)
-                    .unwrap_or(false);
+                let is_double = match (self.last_tap_time, self.last_tap_position) {
+                    (Some(t), Some(p)) if t.elapsed() < DOUBLE_TAP_INTERVAL => {
+                        let dx = f32::from(position.x - p.x);
+                        let dy = f32::from(position.y - p.y);
+                        (dx * dx + dy * dy).sqrt() <= DOUBLE_TAP_MAX_DISTANCE
+                    }
+                    _ => false,
+                };
 
                 if is_double {
                     self.tap_count += 1;
@@ -253,6 +276,7 @@ impl GestureDetector {
     pub fn reset(&mut self) {
         self.press_start = None;
         self.last_position = None;
+        self.last_move_time = None;
         self.is_panning = false;
         self.long_press_triggered = false;
     }

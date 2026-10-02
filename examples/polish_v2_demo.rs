@@ -446,6 +446,7 @@ impl PolishV2Demo {
 
         let transition = if key > 0 {
             ContentTransition::new("content-transition-demo", current_content)
+                .key(key)
                 .duration(Duration::from_millis(300))
                 .crossfade_from(
                     div()
