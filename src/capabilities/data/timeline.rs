@@ -17,9 +17,9 @@ impl TimelineItemVariant {
     fn default_icon(&self) -> &'static str {
         match self {
             TimelineItemVariant::Default => "circle",
-            TimelineItemVariant::Success => "check-circle",
-            TimelineItemVariant::Warning => "alert-triangle",
-            TimelineItemVariant::Error => "alert-circle",
+            TimelineItemVariant::Success => "circle-check",
+            TimelineItemVariant::Warning => "triangle-alert",
+            TimelineItemVariant::Error => "circle-alert",
             TimelineItemVariant::Info => "info",
         }
     }
@@ -609,14 +609,16 @@ impl Timeline {
         } else {
             None
         };
-        let content = self.render_content(item, theme, on_left);
-
-        let left_content = if on_left { Some(content) } else { None };
-
-        let right_content = if !on_left {
-            Some(self.render_content(item, theme, false))
+        let left_content = if on_left {
+            Some(self.render_content(item, theme, true))
         } else {
             None
+        };
+
+        let right_content = if on_left {
+            None
+        } else {
+            Some(self.render_content(item, theme, false))
         };
 
         div()

@@ -164,6 +164,7 @@ pub struct CountdownState {
     count_up: bool,
     running: bool,
     completed: bool,
+    completion_handlers: Vec<(AnyWindowHandle, Rc<dyn Fn(&mut Window, &mut App) + 'static>)>,
 }
 
 impl CountdownState {
@@ -174,6 +175,7 @@ impl CountdownState {
             count_up: false,
             running: false,
             completed: false,
+            completion_handlers: Vec::new(),
         }
     }
 
@@ -203,6 +205,18 @@ impl CountdownState {
 
     pub fn start_count_up(&mut self, cx: &mut Context<Self>) {
         self.set_count_up(SystemTime::now(), cx);
+    }
+
+    fn register_completion_handler(
+        &mut self,
+        window: AnyWindowHandle,
+        handler: Option<Rc<dyn Fn(&mut Window, &mut App) + 'static>>,
+    ) {
+        self.completion_handlers
+            .retain(|(registered_window, _)| *registered_window != window);
+        if let Some(handler) = handler {
+            self.completion_handlers.push((window, handler));
+        }
     }
 
     pub fn stop(&mut self, cx: &mut Context<Self>) {
@@ -260,13 +274,15 @@ impl CountdownState {
         cx.spawn(async |this, cx| {
             cx.background_executor().timer(Duration::from_secs(1)).await;
 
-            _ = this.update(cx, |state, cx| {
+            let completion = this.update(cx, |state, cx| {
+                let mut completion = None;
                 if state.running {
                     if !state.count_up {
                         if let Some(target) = state.target_time {
                             if SystemTime::now() >= target {
                                 state.completed = true;
                                 state.running = false;
+                                completion = Some(std::mem::take(&mut state.completion_handlers));
                             }
                         }
                     }
@@ -277,7 +293,15 @@ impl CountdownState {
 
                     cx.notify();
                 }
+                completion
             });
+            if let Ok(Some(handlers)) = completion {
+                for (window_handle, handler) in handlers {
+                    _ = cx.update_window(window_handle, |_, window, cx| {
+                        handler(window, cx);
+                    });
+                }
+            }
         })
         .detach();
     }
@@ -426,16 +450,14 @@ impl Styled for Countdown {
 impl RenderOnce for Countdown {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = use_theme(cx);
+        let on_complete = self.on_complete.clone();
+        let window_handle = window.window_handle();
+        self.state.update(cx, move |state, _cx| {
+            state.register_completion_handler(window_handle, on_complete);
+        });
         let state = self.state.read(cx);
         let units = state.time_units();
-        let completed = state.is_completed();
         let user_style = self.style.clone();
-
-        if completed {
-            if let Some(ref handler) = self.on_complete {
-                handler(window, cx);
-            }
-        }
 
         let mut elements: Vec<AnyElement> = Vec::new();
 
@@ -494,5 +516,58 @@ impl RenderOnce for Countdown {
                 d
             })
             .children(elements)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::capabilities::foundation::theme::{install_theme, Theme};
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    struct CountdownTestView {
+        state: Entity<CountdownState>,
+        completions: Rc<Cell<usize>>,
+    }
+
+    impl Render for CountdownTestView {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            let completions = self.completions.clone();
+            Countdown::new("countdown", self.state.clone()).on_complete(move |_, _| {
+                completions.set(completions.get() + 1);
+            })
+        }
+    }
+
+    #[gpui::test]
+    fn shared_state_registers_completion_handler_per_window() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+
+        let state = app.update(|cx| cx.new(CountdownState::new));
+        let first_calls = Rc::new(Cell::new(0));
+        let second_calls = Rc::new(Cell::new(0));
+        let first_calls_for_view = first_calls.clone();
+        let second_calls_for_view = second_calls.clone();
+
+        let mut first_window = app.open_window(|_, _| CountdownTestView {
+            state: state.clone(),
+            completions: first_calls_for_view,
+        });
+        let mut second_window = app.open_window(|_, _| CountdownTestView {
+            state: state.clone(),
+            completions: second_calls_for_view,
+        });
+
+        first_window.draw();
+        second_window.draw();
+        first_window.draw();
+
+        app.read(|cx| {
+            assert_eq!(state.read(cx).completion_handlers.len(), 2);
+        });
+        assert_eq!(first_calls.get(), 0);
+        assert_eq!(second_calls.get(), 0);
     }
 }
