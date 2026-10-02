@@ -240,13 +240,17 @@ pub enum AxisPosition {
 
 #[derive(Clone)]
 pub struct Axis {
+    /// Currently not rendered.
     pub label: Option<SharedString>,
+    /// Currently not honored; the x-axis always renders on the bottom and the
+    /// y-axis on the left.
     pub position: AxisPosition,
     pub min: Option<f64>,
     pub max: Option<f64>,
     pub tick_count: usize,
     pub tick_format: Option<Rc<dyn Fn(f64) -> String>>,
     pub show_grid: bool,
+    /// Currently not rendered.
     pub show_ticks: bool,
     pub show_labels: bool,
 }
@@ -357,6 +361,7 @@ pub enum LegendPosition {
 
 #[derive(Clone)]
 pub struct Legend {
+    /// Currently not honored; the legend always renders below the chart.
     pub position: LegendPosition,
     pub show: bool,
 }

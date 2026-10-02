@@ -5,6 +5,8 @@ use gpui::{prelude::FluentBuilder as _, *};
 #[derive(Clone)]
 pub struct RadarDataset {
     pub label: SharedString,
+    /// Values are expected to be normalized to the 0.0..=1.0 axis scale;
+    /// out-of-range values are clamped during rendering.
     pub values: Vec<f64>,
     pub color: Option<Hsla>,
 }

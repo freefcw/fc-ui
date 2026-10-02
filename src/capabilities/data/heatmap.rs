@@ -162,6 +162,7 @@ impl RenderOnce for Heatmap {
                             .children(self.data.iter().map(|row| {
                                 div().flex().gap(gap).children(row.iter().map(|&val| {
                                     let t = ((val - global_min) / value_range) as f32;
+                                    let t = if t.is_finite() { t } else { 0.0 };
                                     let bg = lerp_color(low_color, high_color, t);
 
                                     let contrast = if bg.l > 0.5 {

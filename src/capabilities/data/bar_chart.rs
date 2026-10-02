@@ -6,9 +6,22 @@ fn pixels_to_f32(p: Pixels) -> f32 {
     p / px(1.0)
 }
 
+/// Normalize values for the current bar-chart model. Bar charts currently use
+/// a zero-based baseline and do not render a negative axis, so negative and
+/// non-finite inputs are intentionally treated as zero.
+fn non_negative_finite_or_zero(value: f64) -> f64 {
+    if value.is_finite() && value > 0.0 {
+        value
+    } else {
+        0.0
+    }
+}
+
 #[derive(Clone)]
 pub struct BarChartData {
     pub label: SharedString,
+    /// Non-negative finite values are rendered. Negative and non-finite values
+    /// are treated as zero because this component has no negative axis.
     pub value: f64,
     pub color: Option<Hsla>,
 }
@@ -31,6 +44,7 @@ impl BarChartData {
 #[derive(Clone)]
 pub struct BarChartSeries {
     pub name: SharedString,
+    /// Each value must be non-negative and finite; invalid values render as 0.
     pub data: Vec<f64>,
     pub color: Option<Hsla>,
 }
@@ -188,7 +202,7 @@ impl BarChart {
         let max_value = self
             .data
             .iter()
-            .map(|d| d.value)
+            .map(|d| non_negative_finite_or_zero(d.value))
             .fold(0.0_f64, |a, b| a.max(b));
 
         let chart_height = self.height;
@@ -237,13 +251,13 @@ impl BarChart {
                             .gap(gap)
                             .px(px(16.0))
                             .children(self.data.iter().enumerate().map(|(i, item)| {
+                                let value = non_negative_finite_or_zero(item.value);
                                 let height_percent = if max_value > 0.0 {
-                                    (item.value / max_value) as f32
+                                    (value / max_value) as f32
                                 } else {
                                     0.0
                                 };
                                 let bar_color = item.color.unwrap_or_else(|| default_color(i));
-                                let value = item.value;
                                 let bar_height = chart_height * height_percent;
 
                                 div()
@@ -291,7 +305,7 @@ impl BarChart {
         let max_value = self
             .data
             .iter()
-            .map(|d| d.value)
+            .map(|d| non_negative_finite_or_zero(d.value))
             .fold(0.0_f64, |a, b| a.max(b));
 
         let bar_height = self.bar_width.unwrap_or(px(24.0));
@@ -306,13 +320,13 @@ impl BarChart {
             .flex_col()
             .gap(gap)
             .children(self.data.iter().enumerate().map(|(i, item)| {
+                let value = non_negative_finite_or_zero(item.value);
                 let width_percent = if max_value > 0.0 {
-                    (item.value / max_value) as f32
+                    (value / max_value) as f32
                 } else {
                     0.0
                 };
                 let bar_color = item.color.unwrap_or_else(|| default_color(i));
-                let value = item.value;
                 let label = item.label.clone();
 
                 div()
@@ -376,13 +390,12 @@ impl BarChart {
             .series
             .iter()
             .flat_map(|s| s.data.iter())
-            .fold(0.0_f64, |a, &b| a.max(b));
+            .map(|&b| non_negative_finite_or_zero(b))
+            .fold(0.0_f64, |a, b| a.max(b));
 
         let chart_height = self.height;
         let series_count = self.series.len();
-        let bar_width = self
-            .bar_width
-            .unwrap_or(px(24.0 / series_count.max(1) as f32 * series_count as f32));
+        let bar_width = self.bar_width.unwrap_or(px(24.0));
         let single_bar_width = px(pixels_to_f32(bar_width) / series_count.max(1) as f32);
         let gap = self.gap;
         let show_values = self.show_values;
@@ -435,8 +448,9 @@ impl BarChart {
                             .children((0..label_count).map(|label_idx| {
                                 div().flex().items_end().h_full().gap(px(2.0)).children(
                                     self.series.iter().enumerate().map(|(series_idx, series)| {
-                                        let value =
-                                            series.data.get(label_idx).copied().unwrap_or(0.0);
+                                        let value = non_negative_finite_or_zero(
+                                            series.data.get(label_idx).copied().unwrap_or(0.0),
+                                        );
                                         let height_percent = if max_value > 0.0 {
                                             (value / max_value) as f32
                                         } else {
@@ -523,7 +537,7 @@ impl BarChart {
             .map(|i| {
                 self.series
                     .iter()
-                    .map(|s| s.data.get(i).copied().unwrap_or(0.0))
+                    .map(|s| non_negative_finite_or_zero(s.data.get(i).copied().unwrap_or(0.0)))
                     .sum()
             })
             .collect();
@@ -613,11 +627,13 @@ impl BarChart {
                                             .rounded_t(theme.tokens.radius_sm)
                                             .children(self.series.iter().enumerate().map(
                                                 |(series_idx, series)| {
-                                                    let value = series
-                                                        .data
-                                                        .get(label_idx)
-                                                        .copied()
-                                                        .unwrap_or(0.0);
+                                                    let value = non_negative_finite_or_zero(
+                                                        series
+                                                            .data
+                                                            .get(label_idx)
+                                                            .copied()
+                                                            .unwrap_or(0.0),
+                                                    );
                                                     let segment_percent =
                                                         if stacked_totals[label_idx] > 0.0 {
                                                             (value / stacked_totals[label_idx])
@@ -688,7 +704,8 @@ impl BarChart {
             .series
             .iter()
             .flat_map(|s| s.data.iter())
-            .fold(0.0_f64, |a, &b| a.max(b));
+            .map(|&b| non_negative_finite_or_zero(b))
+            .fold(0.0_f64, |a, b| a.max(b));
 
         let series_count = self.series.len();
         let bar_height = self.bar_width.unwrap_or(px(16.0));
@@ -749,8 +766,9 @@ impl BarChart {
                                     })
                                     .children(self.series.iter().enumerate().map(
                                         |(series_idx, series)| {
-                                            let value =
-                                                series.data.get(label_idx).copied().unwrap_or(0.0);
+                                            let value = non_negative_finite_or_zero(
+                                                series.data.get(label_idx).copied().unwrap_or(0.0),
+                                            );
                                             let width_percent = if max_value > 0.0 {
                                                 (value / max_value) as f32
                                             } else {
@@ -820,7 +838,7 @@ impl BarChart {
             .map(|i| {
                 self.series
                     .iter()
-                    .map(|s| s.data.get(i).copied().unwrap_or(0.0))
+                    .map(|s| non_negative_finite_or_zero(s.data.get(i).copied().unwrap_or(0.0)))
                     .sum()
             })
             .collect();
@@ -896,11 +914,13 @@ impl BarChart {
                                             .rounded_r(theme.tokens.radius_sm)
                                             .children(self.series.iter().enumerate().map(
                                                 |(series_idx, series)| {
-                                                    let value = series
-                                                        .data
-                                                        .get(label_idx)
-                                                        .copied()
-                                                        .unwrap_or(0.0);
+                                                    let value = non_negative_finite_or_zero(
+                                                        series
+                                                            .data
+                                                            .get(label_idx)
+                                                            .copied()
+                                                            .unwrap_or(0.0),
+                                                    );
                                                     let segment_percent =
                                                         if stacked_totals[label_idx] > 0.0 {
                                                             (value / stacked_totals[label_idx])

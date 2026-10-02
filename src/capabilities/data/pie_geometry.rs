@@ -72,6 +72,13 @@ pub(crate) fn render_legend(
     show_percentages: bool,
     theme: &Theme,
 ) -> Div {
+    let visible_count = segments
+        .iter()
+        .filter(|s| s.value.is_finite() && s.value > 0.0)
+        .count();
+    let mut displayed_total = 0u32;
+    let mut visible_index = 0usize;
+
     div()
         .flex()
         .flex_col()
@@ -81,9 +88,16 @@ pub(crate) fn render_legend(
                 return None;
             }
 
+            visible_index += 1;
             let color = segment.color.unwrap_or_else(|| default_color(index));
             let percentage = if total > 0.0 {
-                (segment.value / total * 100.0) as u32
+                if visible_index == visible_count {
+                    100u32.saturating_sub(displayed_total)
+                } else {
+                    let pct = (segment.value / total * 100.0) as u32;
+                    displayed_total += pct;
+                    pct
+                }
             } else {
                 0
             };
