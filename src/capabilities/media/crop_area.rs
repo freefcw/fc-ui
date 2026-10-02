@@ -280,6 +280,7 @@ impl RenderOnce for CropArea {
         let state_down = self.state.clone();
         let state_move = self.state.clone();
         let state_up = self.state.clone();
+        let state_up_out = self.state.clone();
         let min_size = self.min_size;
         let aspect_ratio = self.aspect_ratio;
 
@@ -396,6 +397,16 @@ impl RenderOnce for CropArea {
                 MouseButton::Left,
                 move |_event: &MouseUpEvent, _window, cx| {
                     state_up.update(cx, |s, cx| {
+                        s.is_dragging = false;
+                        s.drag_handle = DragHandle::None;
+                        cx.notify();
+                    });
+                },
+            )
+            .on_mouse_up_out(
+                MouseButton::Left,
+                move |_event: &MouseUpEvent, _window, cx| {
+                    state_up_out.update(cx, |s, cx| {
                         s.is_dragging = false;
                         s.drag_handle = DragHandle::None;
                         cx.notify();

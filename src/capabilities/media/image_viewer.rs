@@ -90,52 +90,61 @@ impl ImageViewerState {
         }
     }
 
-    pub fn set_images(&mut self, images: Vec<ImageItem>) {
+    pub fn set_images(&mut self, images: Vec<ImageItem>, cx: &mut Context<Self>) {
         self.images = images;
         self.current_index = 0;
         self.reset_view();
+        cx.notify();
     }
 
-    pub fn go_to(&mut self, index: usize) {
+    pub fn go_to(&mut self, index: usize, cx: &mut Context<Self>) {
         if index < self.images.len() {
             self.current_index = index;
             self.reset_view();
+            cx.notify();
         }
     }
 
-    pub fn next(&mut self) {
+    pub fn next(&mut self, cx: &mut Context<Self>) {
         if self.current_index < self.images.len().saturating_sub(1) {
             self.current_index += 1;
             self.reset_view();
+            cx.notify();
         }
     }
 
-    pub fn prev(&mut self) {
+    pub fn prev(&mut self, cx: &mut Context<Self>) {
         if self.current_index > 0 {
             self.current_index -= 1;
             self.reset_view();
+            cx.notify();
         }
     }
 
-    pub fn zoom_in(&mut self) {
+    pub fn zoom_in(&mut self, cx: &mut Context<Self>) {
         self.zoom = (self.zoom + ZOOM_STEP).min(MAX_ZOOM);
+        cx.notify();
     }
 
-    pub fn zoom_out(&mut self) {
+    pub fn zoom_out(&mut self, cx: &mut Context<Self>) {
         self.zoom = (self.zoom - ZOOM_STEP).max(MIN_ZOOM);
+        cx.notify();
     }
 
-    pub fn reset_zoom(&mut self) {
+    pub fn reset_zoom(&mut self, cx: &mut Context<Self>) {
         self.zoom = 1.0;
         self.pan_offset = point(px(0.0), px(0.0));
+        cx.notify();
     }
 
-    pub fn set_zoom(&mut self, zoom: f32) {
+    pub fn set_zoom(&mut self, zoom: f32, cx: &mut Context<Self>) {
         self.zoom = zoom.clamp(MIN_ZOOM, MAX_ZOOM);
+        cx.notify();
     }
 
-    pub fn toggle_thumbnails(&mut self) {
+    pub fn toggle_thumbnails(&mut self, cx: &mut Context<Self>) {
         self.show_thumbnails = !self.show_thumbnails;
+        cx.notify();
     }
 
     fn reset_view(&mut self) {
@@ -174,6 +183,7 @@ impl ImageViewerState {
 
 pub struct ImageViewer {
     focus_handle: FocusHandle,
+    has_focused: bool,
     state: Entity<ImageViewerState>,
     on_close: Option<Rc<dyn Fn(&mut Window, &mut App)>>,
     close_on_backdrop_click: bool,
@@ -188,6 +198,7 @@ impl ImageViewer {
     pub fn new(state: Entity<ImageViewerState>, cx: &mut Context<Self>) -> Self {
         Self {
             focus_handle: cx.focus_handle(),
+            has_focused: false,
             state,
             on_close: None,
             close_on_backdrop_click: true,
@@ -267,7 +278,10 @@ impl Render for ImageViewer {
         let viewer_entity = cx.entity().clone();
         let state_entity = self.state.clone();
 
-        window.focus(&self.focus_handle);
+        if !self.has_focused {
+            window.focus(&self.focus_handle);
+            self.has_focused = true;
+        }
 
         let close_handler = self.on_close.clone();
         let close_on_escape = self.close_on_escape;
@@ -295,31 +309,31 @@ impl Render for ImageViewer {
             .on_action({
                 let state_entity = state_entity.clone();
                 move |_: &ImageViewerNext, _, cx| {
-                    cx.update_entity(&state_entity, |state, _| state.next());
+                    cx.update_entity(&state_entity, |state, cx| state.next(cx));
                 }
             })
             .on_action({
                 let state_entity = state_entity.clone();
                 move |_: &ImageViewerPrev, _, cx| {
-                    cx.update_entity(&state_entity, |state, _| state.prev());
+                    cx.update_entity(&state_entity, |state, cx| state.prev(cx));
                 }
             })
             .on_action({
                 let state_entity = state_entity.clone();
                 move |_: &ImageViewerZoomIn, _, cx| {
-                    cx.update_entity(&state_entity, |state, _| state.zoom_in());
+                    cx.update_entity(&state_entity, |state, cx| state.zoom_in(cx));
                 }
             })
             .on_action({
                 let state_entity = state_entity.clone();
                 move |_: &ImageViewerZoomOut, _, cx| {
-                    cx.update_entity(&state_entity, |state, _| state.zoom_out());
+                    cx.update_entity(&state_entity, |state, cx| state.zoom_out(cx));
                 }
             })
             .on_action({
                 let state_entity = state_entity.clone();
                 move |_: &ImageViewerResetZoom, _, cx| {
-                    cx.update_entity(&state_entity, |state, _| state.reset_zoom());
+                    cx.update_entity(&state_entity, |state, cx| state.reset_zoom(cx));
                 }
             })
             .child(
@@ -355,8 +369,8 @@ impl Render for ImageViewer {
                                     .size(ButtonSize::Icon)
                                     .icon("zoom-out")
                                     .on_click(move |_, _, cx| {
-                                        cx.update_entity(&state_entity, |state, _| {
-                                            state.zoom_out()
+                                        cx.update_entity(&state_entity, |state, cx| {
+                                            state.zoom_out(cx)
                                         });
                                     }),
                             )
@@ -375,8 +389,8 @@ impl Render for ImageViewer {
                                     .size(ButtonSize::Icon)
                                     .icon("zoom-in")
                                     .on_click(move |_, _, cx| {
-                                        cx.update_entity(&state_entity2, |state, _| {
-                                            state.zoom_in()
+                                        cx.update_entity(&state_entity2, |state, cx| {
+                                            state.zoom_in(cx)
                                         });
                                     }),
                             )
@@ -392,8 +406,8 @@ impl Render for ImageViewer {
                                     .variant(ButtonVariant::Ghost)
                                     .size(ButtonSize::Sm)
                                     .on_click(move |_, _, cx| {
-                                        cx.update_entity(&state_entity3, |state, _| {
-                                            state.reset_zoom()
+                                        cx.update_entity(&state_entity3, |state, cx| {
+                                            state.reset_zoom(cx)
                                         });
                                     }),
                             )
@@ -446,8 +460,8 @@ impl Render for ImageViewer {
                                         .size(ButtonSize::Icon)
                                         .icon("arrow-left")
                                         .on_click(move |_, _, cx| {
-                                            cx.update_entity(&state_entity, |state, _| {
-                                                state.prev()
+                                            cx.update_entity(&state_entity, |state, cx| {
+                                                state.prev(cx)
                                             });
                                         }),
                                 ),
@@ -470,8 +484,8 @@ impl Render for ImageViewer {
                                         .size(ButtonSize::Icon)
                                         .icon("arrow-right")
                                         .on_click(move |_, _, cx| {
-                                            cx.update_entity(&state_entity, |state, _| {
-                                                state.next()
+                                            cx.update_entity(&state_entity, |state, cx| {
+                                                state.next(cx)
                                             });
                                         }),
                                 ),
@@ -541,7 +555,9 @@ impl Render for ImageViewer {
                                 .hover(|style| style.opacity(0.8))
                                 .on_mouse_down(MouseButton::Left, move |_, _window, cx| {
                                     cx.stop_propagation();
-                                    cx.update_entity(&state_entity, |state, _| state.go_to(idx));
+                                    cx.update_entity(&state_entity, |state, cx| {
+                                        state.go_to(idx, cx)
+                                    });
                                 })
                                 .child(
                                     img(image.src.clone())

@@ -8,6 +8,8 @@ use crate::capabilities::foundation::theme::use_theme;
 enum SvgCommand {
     MoveTo(f32, f32),
     LineTo(f32, f32),
+    HLineTo(f32),
+    VLineTo(f32),
     CurveTo(f32, f32, f32, f32, f32, f32),
     QuadTo(f32, f32, f32, f32),
     Close,
@@ -84,14 +86,14 @@ fn parse_svg_path(data: &str) -> Vec<SvgCommand> {
             }
             'H' => {
                 if let Some(x) = parse_number(&mut chars) {
-                    commands.push(SvgCommand::LineTo(x, f32::NAN));
+                    commands.push(SvgCommand::HLineTo(x));
                 } else {
                     break;
                 }
             }
             'V' => {
                 if let Some(y) = parse_number(&mut chars) {
-                    commands.push(SvgCommand::LineTo(f32::NAN, y));
+                    commands.push(SvgCommand::VLineTo(y));
                 } else {
                     break;
                 }
@@ -266,20 +268,30 @@ impl RenderOnce for SVGRenderer {
                                         started = true;
                                     }
                                     SvgCommand::LineTo(x, y) => {
-                                        let fx = if x.is_nan() { current_x } else { *x };
-                                        let fy = if y.is_nan() { current_y } else { *y };
-                                        let pt = transform_point(fx, fy, &data.view_box, &bounds);
+                                        let pt = transform_point(*x, *y, &data.view_box, &bounds);
                                         builder.line_to(pt);
-                                        current_x = fx;
-                                        current_y = fy;
+                                        current_x = *x;
+                                        current_y = *y;
+                                    }
+                                    SvgCommand::HLineTo(x) => {
+                                        let pt =
+                                            transform_point(*x, current_y, &data.view_box, &bounds);
+                                        builder.line_to(pt);
+                                        current_x = *x;
+                                    }
+                                    SvgCommand::VLineTo(y) => {
+                                        let pt =
+                                            transform_point(current_x, *y, &data.view_box, &bounds);
+                                        builder.line_to(pt);
+                                        current_y = *y;
                                     }
                                     SvgCommand::CurveTo(x1, y1, x2, y2, x, y) => {
-                                        let _cp1 =
+                                        let cp1 =
                                             transform_point(*x1, *y1, &data.view_box, &bounds);
                                         let cp2 =
                                             transform_point(*x2, *y2, &data.view_box, &bounds);
                                         let end = transform_point(*x, *y, &data.view_box, &bounds);
-                                        builder.curve_to(cp2, end);
+                                        builder.cubic_bezier_to(end, cp1, cp2);
                                         current_x = *x;
                                         current_y = *y;
                                     }
@@ -287,7 +299,7 @@ impl RenderOnce for SVGRenderer {
                                         let cp =
                                             transform_point(*cx1, *cy1, &data.view_box, &bounds);
                                         let end = transform_point(*x, *y, &data.view_box, &bounds);
-                                        builder.curve_to(cp, end);
+                                        builder.curve_to(end, cp);
                                         current_x = *x;
                                         current_y = *y;
                                     }
@@ -327,20 +339,30 @@ impl RenderOnce for SVGRenderer {
                                         started = true;
                                     }
                                     SvgCommand::LineTo(x, y) => {
-                                        let fx = if x.is_nan() { current_x } else { *x };
-                                        let fy = if y.is_nan() { current_y } else { *y };
-                                        let pt = transform_point(fx, fy, &data.view_box, &bounds);
+                                        let pt = transform_point(*x, *y, &data.view_box, &bounds);
                                         builder.line_to(pt);
-                                        current_x = fx;
-                                        current_y = fy;
+                                        current_x = *x;
+                                        current_y = *y;
+                                    }
+                                    SvgCommand::HLineTo(x) => {
+                                        let pt =
+                                            transform_point(*x, current_y, &data.view_box, &bounds);
+                                        builder.line_to(pt);
+                                        current_x = *x;
+                                    }
+                                    SvgCommand::VLineTo(y) => {
+                                        let pt =
+                                            transform_point(current_x, *y, &data.view_box, &bounds);
+                                        builder.line_to(pt);
+                                        current_y = *y;
                                     }
                                     SvgCommand::CurveTo(x1, y1, x2, y2, x, y) => {
-                                        let _cp1 =
+                                        let cp1 =
                                             transform_point(*x1, *y1, &data.view_box, &bounds);
                                         let cp2 =
                                             transform_point(*x2, *y2, &data.view_box, &bounds);
                                         let end = transform_point(*x, *y, &data.view_box, &bounds);
-                                        builder.curve_to(cp2, end);
+                                        builder.cubic_bezier_to(end, cp1, cp2);
                                         current_x = *x;
                                         current_y = *y;
                                     }
@@ -348,7 +370,7 @@ impl RenderOnce for SVGRenderer {
                                         let cp =
                                             transform_point(*cx1, *cy1, &data.view_box, &bounds);
                                         let end = transform_point(*x, *y, &data.view_box, &bounds);
-                                        builder.curve_to(cp, end);
+                                        builder.curve_to(end, cp);
                                         current_x = *x;
                                         current_y = *y;
                                     }

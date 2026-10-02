@@ -139,6 +139,8 @@ pub struct VideoPlayerState {
     show_controls: bool,
     last_interaction: Instant,
     controls_timeout: Duration,
+    auto_hide_generation: u64,
+    auto_hide_task: Option<Task<()>>,
     is_seeking: bool,
     progress_bounds: Bounds<Pixels>,
     volume_bounds: Bounds<Pixels>,
@@ -163,6 +165,8 @@ impl VideoPlayerState {
             show_controls: true,
             last_interaction: Instant::now(),
             controls_timeout: Duration::from_secs(3),
+            auto_hide_generation: 0,
+            auto_hide_task: None,
             is_seeking: false,
             progress_bounds: Bounds::default(),
             volume_bounds: Bounds::default(),
@@ -214,6 +218,7 @@ impl VideoPlayerState {
     pub fn pause(&mut self, cx: &mut Context<Self>) {
         self.playback_state = VideoPlaybackState::Paused;
         self.show_controls = true;
+        self.cancel_auto_hide();
         cx.notify();
     }
 
@@ -221,6 +226,7 @@ impl VideoPlayerState {
         self.playback_state = VideoPlaybackState::Stopped;
         self.current_time = 0.0;
         self.show_controls = true;
+        self.cancel_auto_hide();
         cx.notify();
     }
 
@@ -331,8 +337,9 @@ impl VideoPlayerState {
         self.is_fullscreen
     }
 
-    pub fn toggle_fullscreen(&mut self, cx: &mut Context<Self>) {
+    pub fn toggle_fullscreen(&mut self, window: &Window, cx: &mut Context<Self>) {
         self.is_fullscreen = !self.is_fullscreen;
+        window.toggle_fullscreen();
         self.touch_controls(cx);
         cx.notify();
     }
@@ -344,13 +351,30 @@ impl VideoPlayerState {
     pub fn touch_controls(&mut self, cx: &mut Context<Self>) {
         self.show_controls = true;
         self.last_interaction = Instant::now();
+        self.auto_hide_generation = self.auto_hide_generation.wrapping_add(1);
+        let generation = self.auto_hide_generation;
+        let timeout = self.controls_timeout;
+        self.auto_hide_task = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(timeout).await;
+            _ = this.update(cx, |state, cx| {
+                if state.auto_hide_generation == generation {
+                    state.hide_controls(cx);
+                }
+            });
+        }));
         cx.notify();
+    }
+
+    fn cancel_auto_hide(&mut self) {
+        self.auto_hide_generation = self.auto_hide_generation.wrapping_add(1);
+        self.auto_hide_task = None;
     }
 
     pub fn hide_controls(&mut self, cx: &mut Context<Self>) {
         if self.playback_state == VideoPlaybackState::Playing
             && !self.is_seeking
             && !self.is_volume_dragging
+            && self.show_controls
         {
             self.show_controls = false;
             cx.notify();
@@ -639,7 +663,7 @@ impl RenderOnce for VideoPlayer {
                 let state = state_for_actions.clone();
                 let on_fullscreen = on_fullscreen.clone();
                 move |_: &VideoPlayerFullscreen, window, cx| {
-                    cx.update_entity(&state, |state, cx| state.toggle_fullscreen(cx));
+                    cx.update_entity(&state, |state, cx| state.toggle_fullscreen(window, cx));
                     let is_fullscreen = state.read(cx).is_fullscreen();
                     if let Some(handler) = &on_fullscreen {
                         handler(is_fullscreen, window, cx);
@@ -927,6 +951,15 @@ impl RenderOnce for VideoPlayer {
                                                 },
                                             ),
                                         )
+                                        .on_mouse_up_out(
+                                            MouseButton::Left,
+                                            window.listener_for(
+                                                &state_progress_up,
+                                                move |state, _: &MouseUpEvent, _, _| {
+                                                    state.is_seeking = false;
+                                                },
+                                            ),
+                                        )
                                 )
                         )
                         .child(
@@ -1145,6 +1178,15 @@ impl RenderOnce for VideoPlayer {
                                                                 },
                                                             ),
                                                         )
+                                                        .on_mouse_up_out(
+                                                            MouseButton::Left,
+                                                            window.listener_for(
+                                                                &state_volume_up,
+                                                                move |state, _: &MouseUpEvent, _, _| {
+                                                                    state.is_volume_dragging = false;
+                                                                },
+                                                            ),
+                                                        )
                                                 )
                                         )
                                         .child(
@@ -1227,7 +1269,7 @@ impl RenderOnce for VideoPlayer {
                                                 .cursor(CursorStyle::PointingHand)
                                                 .hover(|style| style.bg(gpui::white().opacity(0.2)))
                                                 .on_mouse_down(MouseButton::Left, move |_, window, cx| {
-                                                    cx.update_entity(&state_fullscreen, |state, cx| state.toggle_fullscreen(cx));
+                                                    cx.update_entity(&state_fullscreen, |state, cx| state.toggle_fullscreen(window, cx));
                                                     let is_fs = state_fullscreen.read(cx).is_fullscreen();
                                                     if let Some(handler) = &on_fullscreen_btn {
                                                         handler(is_fs, window, cx);

@@ -105,7 +105,12 @@ impl AudioBackend {
     }
 
     pub fn stop(&self) {
-        self.sink.stop();
+        self.sink.pause();
+        let _ = self.sink.try_seek(std::time::Duration::ZERO);
+    }
+
+    pub fn seek(&self, position: std::time::Duration) {
+        let _ = self.sink.try_seek(position);
     }
 
     pub fn set_volume(&self, volume: f32) {
@@ -161,7 +166,6 @@ impl AudioPlayerState {
     #[cfg(feature = "audio")]
     pub fn load_file(&mut self, path: impl Into<String>, cx: &mut Context<Self>) -> bool {
         let path_str = path.into();
-        self.source_path = Some(path_str.clone());
 
         if let Some(ref backend) = self.backend {
             if let Ok(mut backend) = backend.lock() {
@@ -172,16 +176,18 @@ impl AudioPlayerState {
                         self.is_playing = false;
                         backend.set_volume(self.volume);
                         backend.set_speed(self.playback_speed.value());
+                        self.source_path = Some(path_str);
                         cx.notify();
                         return true;
                     }
                     Err(e) => {
                         eprintln!("Failed to load audio: {}", e);
-                        return false;
                     }
                 }
             }
         }
+        self.source_path = None;
+        cx.notify();
         false
     }
 
@@ -366,6 +372,12 @@ impl AudioPlayerState {
         let relative_x = (position.x - self.progress_bounds.left()).clamp(px(0.0), track_width);
         let percentage = (relative_x / track_width).clamp(0.0, 1.0);
         self.current_time = percentage * self.duration;
+        #[cfg(feature = "audio")]
+        if let Some(ref backend) = self.backend {
+            if let Ok(backend) = backend.lock() {
+                backend.seek(std::time::Duration::from_secs_f32(self.current_time));
+            }
+        }
         cx.notify();
     }
 
@@ -404,9 +416,15 @@ impl Render for AudioPlayerState {
 
 fn format_time(seconds: f32) -> String {
     let total_seconds = seconds.max(0.0) as u32;
-    let minutes = total_seconds / 60;
+    let hours = total_seconds / 3600;
+    let minutes = (total_seconds % 3600) / 60;
     let secs = total_seconds % 60;
-    format!("{:02}:{:02}", minutes, secs)
+
+    if hours > 0 {
+        format!("{}:{:02}:{:02}", hours, minutes, secs)
+    } else {
+        format!("{:02}:{:02}", minutes, secs)
+    }
 }
 
 #[derive(IntoElement)]
@@ -807,6 +825,12 @@ impl AudioPlayer {
                         state.progress_dragging = false;
                     }),
                 )
+                .on_mouse_up_out(
+                    MouseButton::Left,
+                    window.listener_for(&state_up, move |state, _: &MouseUpEvent, _, _| {
+                        state.progress_dragging = false;
+                    }),
+                )
             })
     }
 
@@ -939,6 +963,12 @@ impl AudioPlayer {
                     },
                 ))
                 .on_mouse_up(
+                    MouseButton::Left,
+                    window.listener_for(&state_up, move |state, _: &MouseUpEvent, _, _| {
+                        state.volume_dragging = false;
+                    }),
+                )
+                .on_mouse_up_out(
                     MouseButton::Left,
                     window.listener_for(&state_up, move |state, _: &MouseUpEvent, _, _| {
                         state.volume_dragging = false;

@@ -225,6 +225,7 @@ type ErrorCallback = Rc<dyn Fn(&FileUploadError, &mut Window, &mut App)>;
 #[derive(Clone)]
 struct FileSelectionHandler {
     state: Entity<FileUploadState>,
+    multiple: bool,
     max_file_size: Option<u64>,
     file_types: Option<FileTypeFilter>,
     on_files_changed: Option<FilesChangedCallback>,
@@ -267,7 +268,11 @@ impl FileSelectionHandler {
         let files_changed = !outcome.accepted.is_empty();
         let reported_errors = outcome.rejected.clone();
         let committed_files = self.state.update(cx, |state, state_cx| {
-            state.files.extend(outcome.accepted);
+            if self.multiple {
+                state.files.extend(outcome.accepted);
+            } else if files_changed {
+                state.files = outcome.accepted;
+            }
             state.errors.extend(outcome.rejected);
             state_cx.notify();
 
@@ -458,6 +463,7 @@ impl FileUpload {
     fn selection_handler(&self) -> FileSelectionHandler {
         FileSelectionHandler {
             state: self.state.clone(),
+            multiple: self.multiple,
             max_file_size: self.max_file_size,
             file_types: self.file_types.clone(),
             on_files_changed: self.on_files_changed.clone(),
@@ -513,6 +519,7 @@ impl RenderOnce for FileUpload {
         let multiple = self.multiple;
         let max_file_size = self.max_file_size;
         let file_types = self.file_types.clone();
+        let drop_zone_state = self.state.clone();
 
         let show_file_list = self.show_file_list;
         let show_previews = self.show_previews;
@@ -552,6 +559,44 @@ impl RenderOnce for FileUpload {
                     })
                     .when(disabled, |this| {
                         this.cursor(CursorStyle::Arrow).opacity(0.6)
+                    })
+                    .when(!disabled, |this| {
+                        this.drag_over::<ExternalPaths>({
+                            let state = drop_zone_state.clone();
+                            move |style, _, _, cx| {
+                                state.update(cx, |s, cx| {
+                                    if !s.is_dragging {
+                                        s.set_dragging(true);
+                                        cx.notify();
+                                    }
+                                });
+                                style
+                                    .border_color(theme.tokens.primary)
+                                    .bg(theme.tokens.primary.opacity(0.1))
+                            }
+                        })
+                        .on_drop::<ExternalPaths>({
+                            let selection_handler = selection_handler.clone();
+                            let state = drop_zone_state.clone();
+                            move |paths: &ExternalPaths, window, cx| {
+                                selection_handler.add_paths(paths.paths().to_vec(), window, cx);
+                                state.update(cx, |s, cx| {
+                                    s.set_dragging(false);
+                                    cx.notify();
+                                });
+                            }
+                        })
+                        .on_file_drop_exit({
+                            let state = drop_zone_state.clone();
+                            move |_, _, cx| {
+                                state.update(cx, |s, cx| {
+                                    if s.is_dragging {
+                                        s.set_dragging(false);
+                                        cx.notify();
+                                    }
+                                });
+                            }
+                        })
                     })
                     .when(is_uploading, |this| {
                         this.child(
