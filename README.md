@@ -1038,6 +1038,14 @@ DataTable::new(data, columns, cx)
     })
 ```
 
+When replacing data from a window event, use the window-aware reset methods so
+index-based row selections are cleared and `on_selection_change` is notified:
+
+```rust
+table.set_data_with_window(new_data, window, cx);
+table.virtual_reset_with_window(total_items, page_size, window, cx);
+```
+
 #### Badge
 
 ```rust
