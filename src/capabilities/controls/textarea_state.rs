@@ -1358,4 +1358,116 @@ mod tests {
             });
         });
     }
+
+    #[gpui::test]
+    fn grapheme_deletion_removes_whole_unicode_clusters() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| cx.new(|cx| TextareaState::new(cx)));
+        let mut window = app.open_window(|_, _| TestView {
+            state: state.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.set_value("a👩‍💻e\u{301}b", window, cx);
+                state.backspace(&Backspace, window, cx);
+                assert_eq!(state.content(), "a👩‍💻e\u{301}");
+                assert_eq!(
+                    state.selected_range,
+                    state.content().len()..state.content().len()
+                );
+
+                state.backspace(&Backspace, window, cx);
+                assert_eq!(state.content(), "a👩‍💻");
+                assert_eq!(
+                    state.selected_range,
+                    state.content().len()..state.content().len()
+                );
+
+                state.selected_range = "a".len().."a".len();
+                state.selection_reversed = false;
+                state.delete(&Delete, window, cx);
+                assert_eq!(state.content(), "a");
+                assert_eq!(state.selected_range, "a".len().."a".len());
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn selection_direction_flips_when_crossing_the_anchor() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| cx.new(|cx| TextareaState::new(cx)));
+        let mut window = app.open_window(|_, _| TestView {
+            state: state.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                let text = "a😀b";
+                let emoji_start = "a".len();
+                let emoji_end = "a😀".len();
+
+                state.set_value(text, window, cx);
+                state.selected_range = emoji_start..emoji_start;
+                state.selection_reversed = false;
+                state.select_right(&SelectRight, window, cx);
+                assert_eq!(state.selected_range, emoji_start..emoji_end);
+                assert!(!state.selection_reversed);
+
+                state.select_left(&SelectLeft, window, cx);
+                assert_eq!(state.selected_range, emoji_start..emoji_start);
+                assert!(!state.selection_reversed);
+                state.select_left(&SelectLeft, window, cx);
+                assert_eq!(state.selected_range, 0..emoji_start);
+                assert!(state.selection_reversed);
+
+                state.selected_range = emoji_end..emoji_end;
+                state.selection_reversed = false;
+                state.select_left(&SelectLeft, window, cx);
+                assert_eq!(state.selected_range, emoji_start..emoji_end);
+                assert!(state.selection_reversed);
+                state.select_right(&SelectRight, window, cx);
+                assert_eq!(state.selected_range, emoji_end..emoji_end);
+                assert!(state.selection_reversed);
+                state.select_right(&SelectRight, window, cx);
+                assert_eq!(state.selected_range, emoji_end..text.len());
+                assert!(!state.selection_reversed);
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn utf16_ranges_preserve_astral_character_boundaries() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| cx.new(|cx| TextareaState::new(cx)));
+        let mut window = app.open_window(|_, _| TestView {
+            state: state.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.set_value("a😀b", window, cx);
+                let mut actual_range = None;
+                assert_eq!(
+                    state.text_for_range(1..3, &mut actual_range, window, cx),
+                    Some("😀".to_string())
+                );
+                assert_eq!(actual_range, Some(1..3));
+
+                state.selected_range = "a".len().."a😀".len();
+                let selected = state
+                    .selected_text_range(false, window, cx)
+                    .expect("selection should be available");
+                assert_eq!(selected.range, 1..3);
+                assert!(!selected.reversed);
+
+                state.replace_text_in_range(Some(1..3), "", window, cx);
+                assert_eq!(state.content(), "ab");
+                assert_eq!(state.selected_range, 1..1);
+            });
+        });
+    }
 }

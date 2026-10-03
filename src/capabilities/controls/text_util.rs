@@ -196,6 +196,24 @@ mod tests {
     }
 
     #[test]
+    fn utf16_boundaries_round_trip_astral_characters() {
+        let text = "a😀b";
+        let emoji_start = "a".len();
+        let emoji_end = "a😀".len();
+
+        assert_eq!(offset_to_utf16(text, 0), 0);
+        assert_eq!(offset_to_utf16(text, emoji_start), 1);
+        assert_eq!(offset_to_utf16(text, emoji_end), 3);
+        assert_eq!(offset_to_utf16(text, text.len()), 4);
+        assert_eq!(offset_from_utf16(text, 0), 0);
+        assert_eq!(offset_from_utf16(text, 1), emoji_start);
+        assert_eq!(offset_from_utf16(text, 3), emoji_end);
+        assert_eq!(offset_from_utf16(text, 4), text.len());
+        assert_eq!(range_to_utf16(text, &(emoji_start..emoji_end)), 1..3);
+        assert_eq!(range_from_utf16(text, &(1..3)), emoji_start..emoji_end);
+    }
+
+    #[test]
     fn clamp_offset_stays_within_text_bounds() {
         assert_eq!(clamp_offset("abc", 0), 0);
         assert_eq!(clamp_offset("abc", 2), 2);
