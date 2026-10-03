@@ -3,6 +3,12 @@ use gpui::{prelude::FluentBuilder as _, *};
 use std::collections::HashMap;
 use std::rc::Rc;
 
+/// Editing strategy for an editable [`DataGrid`] cell.
+///
+/// [`CellEditor::Custom`] is currently a compatibility placeholder. It does
+/// not install a custom renderer or editing hook; until such an API exists, it
+/// follows [`CellEditor::Text`] for editing input, edit display, submission,
+/// and cancellation.
 #[derive(Clone, Debug, PartialEq)]
 pub enum CellEditor {
     /// Free-form text editing.
@@ -11,7 +17,12 @@ pub enum CellEditor {
     Number,
     /// Boolean editing toggled with the Space key.
     Checkbox,
-    /// Reserved for a future custom editor hook; currently behaves like text editing.
+    /// Compatibility placeholder for a future custom renderer or editing hook.
+    ///
+    /// This variant currently has no custom behavior and is handled exactly
+    /// like [`CellEditor::Text`]. It remains constructible for callers that
+    /// need the forward-compatible variant shape, but it is not a renderer or
+    /// hook registration point yet.
     Custom,
 }
 
@@ -486,6 +497,41 @@ mod tests {
 
         state.handle_edit_key("space", None);
         assert_eq!(state.edit_value, "false");
+    }
+
+    #[::core::prelude::v1::test]
+    fn custom_editor_uses_text_editing_and_commits_value() {
+        let column = value_column().editor(CellEditor::Custom);
+        let mut state = DataGridState::new(vec![Row { value: 1 }], vec![column]);
+        state.start_editing(CellPosition { row: 0, col: 0 });
+
+        state.handle_edit_key("backspace", None);
+        state.handle_edit_key("", Some("4"));
+        state.handle_edit_key("", Some("2"));
+
+        assert_eq!(state.edit_value, "42");
+        state.commit_edit();
+
+        assert_eq!(state.data[0].value, 42);
+        assert!(state.editing_cell.is_none());
+        assert!(state.edit_value.is_empty());
+    }
+
+    #[::core::prelude::v1::test]
+    fn custom_editor_cancels_text_edits_without_mutating_the_row() {
+        let column = value_column().editor(CellEditor::Custom);
+        let mut state = DataGridState::new(vec![Row { value: 1 }], vec![column]);
+        state.start_editing(CellPosition { row: 0, col: 0 });
+
+        state.handle_edit_key("backspace", None);
+        state.handle_edit_key("", Some("9"));
+        assert_eq!(state.edit_value, "9");
+
+        state.cancel_edit();
+
+        assert_eq!(state.data[0].value, 1);
+        assert!(state.editing_cell.is_none());
+        assert!(state.edit_value.is_empty());
     }
 }
 

@@ -112,6 +112,17 @@ fn representative_builders_traits_and_generic_apis_remain_public() {
 }
 
 #[test]
+fn data_grid_facade_and_prelude_expose_custom_editor_fallback() {
+    let facade_editor = display::data_grid::CellEditor::Custom;
+    let prelude_editor = prelude::CellEditor::Custom;
+
+    assert_eq!(facade_editor, prelude_editor);
+    let _ = std::any::type_name::<display::data_grid::DataGrid<()>>();
+    let _ = std::any::type_name::<prelude::DataGrid<()>>();
+    let _ = std::any::type_name::<prelude::DataGridState<()>>();
+}
+
+#[test]
 fn every_legacy_component_module_remains_public() {
     #[allow(unused_imports)]
     use components::{
