@@ -210,7 +210,7 @@ fn layout_strip(
         }
 
         if split_at < nodes.len() {
-            let remaining: Vec<&TreeMapNode> = nodes[split_at..].iter().copied().collect();
+            let remaining: Vec<&TreeMapNode> = nodes[split_at..].to_vec();
             let mut sub_out = Vec::new();
             layout_strip(
                 &remaining,
@@ -237,7 +237,7 @@ fn layout_strip(
         }
 
         if split_at < nodes.len() {
-            let remaining: Vec<&TreeMapNode> = nodes[split_at..].iter().copied().collect();
+            let remaining: Vec<&TreeMapNode> = nodes[split_at..].to_vec();
             let mut sub_out = Vec::new();
             layout_strip(
                 &remaining,
@@ -365,7 +365,7 @@ impl RenderOnce for TreeMap {
                                 corner_radii: Corners::all(px(3.0)),
                                 background: rect.color.into(),
                                 border_widths: Edges::all(px(1.0)),
-                                border_color: border_color.into(),
+                                border_color,
                                 border_style: BorderStyle::default(),
                                 continuous_corners: false,
                                 transform: Default::default(),

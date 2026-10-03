@@ -1610,10 +1610,7 @@ impl<T: Clone + 'static> Render for DataTable<T> {
                         let mut page = first_page_start;
                         while page <= last_page_start {
                             let mut needs_fetch = false;
-                            let page_end = page
-                                .checked_add(*page_size)
-                                .unwrap_or(usize::MAX)
-                                .min(total_items);
+                            let page_end = page.saturating_add(*page_size).min(total_items);
                             for i in page..page_end {
                                 if !cache.contains_key(&i) {
                                     needs_fetch = true;
