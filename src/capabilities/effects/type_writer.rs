@@ -3,6 +3,8 @@ use std::time::Duration;
 
 use crate::capabilities::foundation::theme::use_theme;
 
+type TypeWriterCallback = Box<dyn Fn(&mut App) + 'static>;
+
 pub struct TypeWriterState {
     full_text: SharedString,
     visible_count: usize,
@@ -10,7 +12,7 @@ pub struct TypeWriterState {
     _cursor_visible: bool,
     version: usize,
     speed: Duration,
-    on_complete: Option<Box<dyn Fn(&mut App)>>,
+    on_complete: Option<TypeWriterCallback>,
 }
 
 impl TypeWriterState {
