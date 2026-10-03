@@ -22,6 +22,9 @@ static EMAIL_REGEX: LazyLock<regex::Regex> = LazyLock::new(|| {
         .expect("Invalid email regex pattern")
 });
 
+type ValidationCallback = Arc<dyn Fn(&str) -> Result<(), ValidationError>>;
+type TextTransformer = Arc<dyn Fn(&str) -> String>;
+
 actions!(
     input_state,
     [
@@ -94,11 +97,11 @@ pub struct ValidationRules {
     /// Regex pattern to match
     pub pattern: Option<String>,
     /// Custom validation function
-    pub custom_validator: Option<Arc<dyn Fn(&str) -> Result<(), ValidationError>>>,
+    pub custom_validator: Option<ValidationCallback>,
     /// Custom filter function for input
-    pub custom_filter: Option<Arc<dyn Fn(&str) -> String>>,
+    pub custom_filter: Option<TextTransformer>,
     /// Custom formatter function for display
-    pub custom_formatter: Option<Arc<dyn Fn(&str) -> String>>,
+    pub custom_formatter: Option<TextTransformer>,
     /// Whether the field is required
     pub required: bool,
 }

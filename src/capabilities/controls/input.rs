@@ -14,6 +14,11 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
+type InputValidator = Rc<dyn Fn(&str) -> Result<(), String>>;
+type InputTransformer = Rc<dyn Fn(&str) -> String>;
+type InputValueCallback = Rc<dyn Fn(SharedString, &mut App)>;
+type InputValidationCallback = Rc<dyn Fn(Result<(), ValidationError>, &mut App)>;
+
 pub fn init(cx: &mut App) {
     if !crate::capabilities::foundation::initialization::begin(cx, "input") {
         return;
@@ -108,16 +113,16 @@ pub struct Input {
     required: bool,
 
     // Custom functions for extensibility
-    custom_validator: Option<Rc<dyn Fn(&str) -> Result<(), String>>>,
-    custom_filter: Option<Rc<dyn Fn(&str) -> String>>,
-    custom_formatter: Option<Rc<dyn Fn(&str) -> String>>,
+    custom_validator: Option<InputValidator>,
+    custom_filter: Option<InputTransformer>,
+    custom_formatter: Option<InputTransformer>,
 
     // Callbacks
-    on_change: Option<Rc<dyn Fn(SharedString, &mut App)>>,
-    on_enter: Option<Rc<dyn Fn(SharedString, &mut App)>>,
-    on_focus: Option<Rc<dyn Fn(SharedString, &mut App)>>,
-    on_blur: Option<Rc<dyn Fn(SharedString, &mut App)>>,
-    on_validate: Option<Rc<dyn Fn(Result<(), ValidationError>, &mut App)>>,
+    on_change: Option<InputValueCallback>,
+    on_enter: Option<InputValueCallback>,
+    on_focus: Option<InputValueCallback>,
+    on_blur: Option<InputValueCallback>,
+    on_validate: Option<InputValidationCallback>,
 
     // Style refinement for Styled trait
     style: StyleRefinement,
