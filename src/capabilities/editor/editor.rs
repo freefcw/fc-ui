@@ -2803,7 +2803,10 @@ impl EditorState {
         self.line_layouts.clear();
         self.line_content_hashes.clear();
         self.highlight_cache_version = u64::MAX;
-        self.max_line_width = px(0.0);
+        // Keep the previous maximum during incremental edits. Clearing it
+        // would underestimate off-screen long lines until they are rendered
+        // again, temporarily shrinking the horizontal scroll range. Full
+        // document replacement still resets it via invalidate_all_caches.
         self.clear_search_results();
     }
 
@@ -5221,6 +5224,26 @@ mod tests {
                 state.max_line_width = px(900.0);
                 state.set_content("short", cx);
                 assert_eq!(state.max_line_width, px(0.0));
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn incremental_edits_preserve_cached_max_line_width() {
+        let mut app = TestApp::new();
+        let editor = app.update(|cx| cx.new(EditorState::new));
+        let mut window = app.open_window(|_, _| EditorTestView {
+            state: editor.clone(),
+        });
+
+        window.update(|view, _window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.set_content("short", cx);
+                state.max_line_width = px(900.0);
+                state.set_cursor_position(0, 5, cx);
+                state.insert_text_at_cursor("!", cx);
+
+                assert_eq!(state.max_line_width, px(900.0));
             });
         });
     }
