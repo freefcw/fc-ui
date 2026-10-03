@@ -101,19 +101,22 @@ impl<T: 'static> GridColumnDef<T> {
         self.value_setter = Some(Rc::new(setter));
         self
     }
+
+    fn clamp_width(&self, width: Pixels) -> Pixels {
+        let min_width = self.min_width.unwrap_or(px(50.0)).max(px(0.0));
+        let max_width = self.max_width.map(|max| max.max(min_width));
+        max_width.map_or(width.max(min_width), |max| width.max(min_width).min(max))
+    }
 }
 
-#[allow(dead_code)]
 pub struct DataGridState<T: 'static> {
     data: Vec<T>,
     columns: Vec<GridColumnDef<T>>,
     editing_cell: Option<CellPosition>,
     edit_value: String,
-    selected_cells: Vec<CellPosition>,
     column_widths: HashMap<SharedString, Pixels>,
     sort_column: Option<SharedString>,
     sort_direction: GridSortDirection,
-    scroll_handle: ScrollHandle,
     focus_handle: Option<FocusHandle>,
     resizing_column: Option<usize>,
     resize_start_x: f32,
@@ -124,18 +127,16 @@ impl<T: 'static> DataGridState<T> {
     pub fn new(data: Vec<T>, columns: Vec<GridColumnDef<T>>) -> Self {
         let column_widths = columns
             .iter()
-            .map(|col| (col.id.clone(), col.width))
+            .map(|col| (col.id.clone(), col.clamp_width(col.width)))
             .collect();
         Self {
             data,
             columns,
             editing_cell: None,
             edit_value: String::new(),
-            selected_cells: Vec::new(),
             column_widths,
             sort_column: None,
             sort_direction: GridSortDirection::None,
-            scroll_handle: ScrollHandle::new(),
             focus_handle: None,
             resizing_column: None,
             resize_start_x: 0.0,
@@ -211,8 +212,56 @@ impl<T: 'static> DataGridState<T> {
         }
     }
 
+    fn resort_data(&mut self) {
+        let Some(sort_column) = self.sort_column.clone() else {
+            return;
+        };
+        let Some(col_idx) = self
+            .columns
+            .iter()
+            .position(|column| column.id == sort_column)
+        else {
+            self.sort_column = None;
+            self.sort_direction = GridSortDirection::None;
+            return;
+        };
+        if self.sort_direction == GridSortDirection::None {
+            return;
+        }
+
+        let getter = self.columns[col_idx].value_getter.clone();
+        let ascending = self.sort_direction == GridSortDirection::Ascending;
+        self.data.sort_by(|a, b| {
+            let va = getter(a);
+            let vb = getter(b);
+            let ordering = match (va.parse::<f64>(), vb.parse::<f64>()) {
+                (Ok(number_a), Ok(number_b)) => number_a
+                    .partial_cmp(&number_b)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+                _ => va.cmp(&vb),
+            };
+            if ascending {
+                ordering
+            } else {
+                ordering.reverse()
+            }
+        });
+    }
+
     pub fn sort_by_column(&mut self, col_id: &str) {
         let col_id_shared: SharedString = SharedString::from(col_id.to_string());
+        let Some(col_idx) = self.columns.iter().position(|c| c.id == col_id_shared) else {
+            return;
+        };
+        if !self.columns[col_idx].sortable {
+            return;
+        }
+        // Sorting changes the row order, so commit the active edit first. Otherwise
+        // the editing position would refer to a different row after the reorder.
+        if self.editing_cell.is_some() {
+            self.commit_edit();
+        }
+
         if self.sort_column.as_ref() == Some(&col_id_shared) {
             self.sort_direction = match self.sort_direction {
                 GridSortDirection::Ascending => GridSortDirection::Descending,
@@ -229,37 +278,93 @@ impl<T: 'static> DataGridState<T> {
             return;
         }
 
-        let col_idx = self.columns.iter().position(|c| c.id == col_id_shared);
-        if let Some(idx) = col_idx {
-            let getter = self.columns[idx].value_getter.clone();
-            let ascending = self.sort_direction == GridSortDirection::Ascending;
-            self.data.sort_by(|a, b| {
-                let va = getter(a);
-                let vb = getter(b);
-                let ordering = match (va.parse::<f64>(), vb.parse::<f64>()) {
-                    (Ok(number_a), Ok(number_b)) => number_a
-                        .partial_cmp(&number_b)
-                        .unwrap_or(std::cmp::Ordering::Equal),
-                    _ => va.cmp(&vb),
-                };
-                if ascending {
-                    ordering
-                } else {
-                    ordering.reverse()
-                }
-            });
-        }
+        self.resort_data();
     }
 
     pub fn resize_column(&mut self, col_id: &str, width: Pixels) {
-        self.column_widths
-            .insert(SharedString::from(col_id.to_string()), width);
+        let col_id = SharedString::from(col_id.to_string());
+        let Some(column) = self.columns.iter().find(|column| column.id == col_id) else {
+            return;
+        };
+        self.column_widths.insert(col_id, column.clamp_width(width));
     }
 
     pub fn set_data(&mut self, data: Vec<T>) {
         self.data = data;
         self.editing_cell = None;
         self.edit_value.clear();
+        self.resort_data();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Clone)]
+    struct Row {
+        value: i32,
+    }
+
+    fn value_column() -> GridColumnDef<Row> {
+        GridColumnDef::new(
+            "value",
+            "Value",
+            |row: &Row, _| div().child(row.value.to_string()).into_any_element(),
+            |row: &Row| row.value.to_string(),
+        )
+        .sortable(true)
+        .editable(true)
+        .value_setter(|row, value| {
+            row.value = value.parse().expect("test value should be numeric");
+        })
+    }
+
+    #[::core::prelude::v1::test]
+    fn sorting_commits_edit_before_reordering_rows() {
+        let mut state = DataGridState::new(
+            vec![Row { value: 2 }, Row { value: 1 }],
+            vec![value_column()],
+        );
+        state.start_editing(CellPosition { row: 0, col: 0 });
+        state.edit_value = "0".into();
+
+        state.sort_by_column("value");
+
+        assert!(state.editing_cell.is_none());
+        assert_eq!(
+            state.data.iter().map(|row| row.value).collect::<Vec<_>>(),
+            [0, 1]
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn replacing_data_reapplies_the_active_sort() {
+        let mut state = DataGridState::new(
+            vec![Row { value: 2 }, Row { value: 1 }],
+            vec![value_column()],
+        );
+        state.sort_by_column("value");
+        state.set_data(vec![Row { value: 10 }, Row { value: 3 }]);
+
+        assert_eq!(
+            state.data.iter().map(|row| row.value).collect::<Vec<_>>(),
+            [3, 10]
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn resize_column_respects_consistent_width_bounds() {
+        let column = value_column().min_width(px(120.0)).max_width(px(80.0));
+        let mut state = DataGridState::new(vec![Row { value: 1 }], vec![column]);
+
+        state.resize_column("value", px(20.0));
+        assert_eq!(state.column_widths[&SharedString::from("value")], px(120.0));
+
+        state.resize_column("value", px(240.0));
+        // An invalid max < min is normalized to the minimum rather than
+        // allowing a resize operation to violate its own lower bound.
+        assert_eq!(state.column_widths[&SharedString::from("value")], px(120.0));
     }
 }
 
@@ -304,13 +409,10 @@ impl<T: 'static> Styled for DataGrid<T> {
     }
 }
 
-#[allow(dead_code)]
 struct ColSnapshot {
     id: SharedString,
     header: SharedString,
     width: Pixels,
-    min_width: Option<Pixels>,
-    max_width: Option<Pixels>,
     resizable: bool,
     sortable: bool,
     editable: bool,
@@ -353,8 +455,6 @@ impl<T: 'static> RenderOnce for DataGrid<T> {
                 id: c.id.clone(),
                 header: c.header.clone(),
                 width: state.column_widths.get(&c.id).copied().unwrap_or(c.width),
-                min_width: c.min_width,
-                max_width: c.max_width,
                 resizable: c.resizable,
                 sortable: c.sortable,
                 editable: c.editable,
@@ -629,20 +729,8 @@ impl<T: 'static> RenderOnce for DataGrid<T> {
                         let current_x: f32 = event.position.x.into();
                         let delta = current_x - s.resize_start_x;
                         let start_w: f32 = s.resize_start_width.into();
-                        let new_width = px((start_w + delta).max(50.0));
-                        let min = s.columns[col_idx].min_width.unwrap_or(px(50.0));
-                        let max = s.columns[col_idx].max_width;
-                        let clamped = if new_width < min {
-                            min
-                        } else if let Some(max_w) = max {
-                            if new_width > max_w {
-                                max_w
-                            } else {
-                                new_width
-                            }
-                        } else {
-                            new_width
-                        };
+                        let new_width = px((start_w + delta).max(0.0));
+                        let clamped = s.columns[col_idx].clamp_width(new_width);
                         let col_id = s.columns[col_idx].id.clone();
                         s.column_widths.insert(col_id, clamped);
                         scx.notify();
