@@ -176,6 +176,15 @@ enum EditOp {
     Batch(Vec<EditOp>),
 }
 
+impl EditOp {
+    fn changes_line_structure(&self) -> bool {
+        match self {
+            Self::Insert { text, .. } | Self::Delete { text, .. } => text.contains('\n'),
+            Self::Batch(edits) => edits.iter().any(Self::changes_line_structure),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FoldRange {
     pub start_line: usize,
@@ -1710,7 +1719,7 @@ impl EditorState {
                     // Clear all index-keyed caches (line layouts, content
                     // hashes, highlights) so the next render rebuilds them
                     // from the updated text and syntax tree.
-                    state.invalidate_after_edit();
+                    state.invalidate_after_edit(false);
                     cx.notify();
                 });
             });
@@ -1885,7 +1894,7 @@ impl EditorState {
             old_end_position,
             cx,
         );
-        self.invalidate_after_edit();
+        self.invalidate_after_edit(text.contains('\n'));
         if replaces_selection {
             self.group_last_edits(2);
         }
@@ -1903,6 +1912,7 @@ impl EditorState {
 
         let old_end_position = self.byte_to_ts_point(end_offset);
         let deleted: String = self.rope.byte_slice(start_offset..end_offset).into();
+        let line_structure_changed = deleted.contains('\n');
         self.undo_stack.push(EditOp::Delete {
             byte_offset: start_offset,
             text: deleted,
@@ -1920,7 +1930,7 @@ impl EditorState {
             old_end_position,
             cx,
         );
-        self.invalidate_after_edit();
+        self.invalidate_after_edit(line_structure_changed);
     }
 
     fn get_selection_text(&self, selection: &Selection) -> String {
@@ -2071,24 +2081,26 @@ impl EditorState {
 
     pub fn undo(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {
         if let Some(op) = self.undo_stack.pop() {
+            let line_structure_changed = op.changes_line_structure();
             self.apply_edit_op(&op, true);
             self.redo_stack.push(op);
             self.selection = None;
             self.mark_modified();
             self.update_syntax_tree();
-            self.invalidate_after_edit();
+            self.invalidate_after_edit(line_structure_changed);
             cx.notify();
         }
     }
 
     pub fn redo(&mut self, _: &Redo, _: &mut Window, cx: &mut Context<Self>) {
         if let Some(op) = self.redo_stack.pop() {
+            let line_structure_changed = op.changes_line_structure();
             self.apply_edit_op(&op, false);
             self.undo_stack.push(op);
             self.selection = None;
             self.mark_modified();
             self.update_syntax_tree();
-            self.invalidate_after_edit();
+            self.invalidate_after_edit(line_structure_changed);
             cx.notify();
         }
     }
@@ -2349,6 +2361,7 @@ impl EditorState {
 
         let old_end_position = self.byte_to_ts_point(del_end);
         let deleted: String = self.rope.byte_slice(del_start..del_end).into();
+        let line_structure_changed = deleted.contains('\n');
         self.undo_stack.push(EditOp::Delete {
             byte_offset: del_start,
             text: deleted,
@@ -2358,7 +2371,7 @@ impl EditorState {
         self.mark_modified();
         self.cursor = self.byte_offset_to_pos(del_start);
         self.update_syntax_tree_incremental(del_start, del_end, del_start, old_end_position, cx);
-        self.invalidate_after_edit();
+        self.invalidate_after_edit(line_structure_changed);
         cx.notify();
     }
 
@@ -2384,6 +2397,7 @@ impl EditorState {
         let del_end = min(next_char_byte, self.rope.len_bytes());
         let old_end_position = self.byte_to_ts_point(del_end);
         let deleted: String = self.rope.byte_slice(offset..del_end).into();
+        let line_structure_changed = deleted.contains('\n');
         self.undo_stack.push(EditOp::Delete {
             byte_offset: offset,
             text: deleted,
@@ -2392,7 +2406,7 @@ impl EditorState {
         self.rope_remove(offset, del_end);
         self.mark_modified();
         self.update_syntax_tree_incremental(offset, del_end, offset, old_end_position, cx);
-        self.invalidate_after_edit();
+        self.invalidate_after_edit(line_structure_changed);
         cx.notify();
     }
 
@@ -2408,6 +2422,7 @@ impl EditorState {
         let end_offset = self.pos_to_byte_offset(self.cursor);
         let old_end_position = self.byte_to_ts_point(end_offset);
         let deleted: String = self.rope.byte_slice(start_offset..end_offset).into();
+        let line_structure_changed = deleted.contains('\n');
         self.undo_stack.push(EditOp::Delete {
             byte_offset: start_offset,
             text: deleted,
@@ -2423,7 +2438,7 @@ impl EditorState {
             old_end_position,
             cx,
         );
-        self.invalidate_after_edit();
+        self.invalidate_after_edit(line_structure_changed);
         cx.notify();
     }
 
@@ -2732,6 +2747,7 @@ impl EditorState {
         }
         let old_end_position = self.byte_to_ts_point(end.min(self.rope.len_bytes()));
         let deleted: String = self.rope.byte_slice(start..end).into();
+        let line_structure_changed = deleted.contains('\n') || replacement.contains('\n');
         self.undo_stack.push(EditOp::Delete {
             byte_offset: start,
             text: deleted,
@@ -2747,7 +2763,7 @@ impl EditorState {
         self.mark_modified();
         let new_end = start + replacement.len();
         self.update_syntax_tree_incremental(start, end, new_end, old_end_position, cx);
-        self.invalidate_after_edit();
+        self.invalidate_after_edit(line_structure_changed);
         let query = self.search_query.clone();
         self.find_all(&query, cx);
     }
@@ -2765,8 +2781,10 @@ impl EditorState {
             self.find_all(&query, cx);
             return;
         }
+        let mut line_structure_changed = replacement.contains('\n');
         for (start, end) in matches {
             let deleted: String = self.rope.byte_slice(start..end).into();
+            line_structure_changed |= deleted.contains('\n');
             self.undo_stack.push(EditOp::Delete {
                 byte_offset: start,
                 text: deleted,
@@ -2782,7 +2800,7 @@ impl EditorState {
         self.group_last_edits(self.search_matches.len().saturating_mul(2));
         self.mark_modified();
         self.update_syntax_tree();
-        self.invalidate_after_edit();
+        self.invalidate_after_edit(line_structure_changed);
         let query = self.search_query.clone();
         self.find_all(&query, cx);
     }
@@ -2799,10 +2817,13 @@ impl EditorState {
     /// Invalidation for text edits. Clears all caches since line indices
     /// shift on insert/delete, making index-keyed caches stale. Search
     /// matches hold byte ranges into the old content and are dropped too.
-    fn invalidate_after_edit(&mut self) {
+    fn invalidate_after_edit(&mut self, line_structure_changed: bool) {
         self.line_layouts.clear();
         self.line_content_hashes.clear();
         self.highlight_cache_version = u64::MAX;
+        if line_structure_changed {
+            self.clear_fold_state();
+        }
         // Keep the previous maximum during incremental edits. Clearing it
         // would underestimate off-screen long lines until they are rendered
         // again, temporarily shrinking the horizontal scroll range. Full
@@ -5426,6 +5447,34 @@ mod tests {
                 state.cached_display_lines = Some(Rc::new(vec![0]));
 
                 state.set_content("fn main() {}", cx);
+
+                assert!(state.fold_ranges.is_empty());
+                assert!(state.folded.is_empty());
+                assert!(state.cached_display_lines.is_none());
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn line_edits_clear_stale_fold_state() {
+        let mut app = TestApp::new();
+        let editor = app.update(|cx| cx.new(EditorState::new));
+
+        app.update(|cx| {
+            editor.update(cx, |state, cx| {
+                state.set_content("line", cx);
+                state.fold_ranges.push(FoldRange {
+                    start_line: 0,
+                    end_line: 2,
+                });
+                state.folded.push(FoldRange {
+                    start_line: 0,
+                    end_line: 2,
+                });
+                state.cached_display_lines = Some(Rc::new(vec![0]));
+                state.set_cursor_position(0, 4, cx);
+
+                state.insert_text_at_cursor("\n", cx);
 
                 assert!(state.fold_ranges.is_empty());
                 assert!(state.folded.is_empty());
