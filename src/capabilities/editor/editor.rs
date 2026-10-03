@@ -245,6 +245,47 @@ impl TextEditRange {
 }
 
 #[derive(Debug, Clone, Copy)]
+struct LineEditRange {
+    start_line: usize,
+    old_end_line: usize,
+    new_end_line: usize,
+}
+
+impl LineEditRange {
+    fn shift_line(self, line: usize) -> usize {
+        if self.new_end_line >= self.old_end_line {
+            line.saturating_add(self.new_end_line - self.old_end_line)
+        } else {
+            line.saturating_sub(self.old_end_line - self.new_end_line)
+        }
+    }
+
+    fn map_fold_range(self, range: FoldRange) -> Option<FoldRange> {
+        if self.start_line == self.old_end_line {
+            if range.end_line < self.start_line {
+                Some(range)
+            } else if range.start_line > self.start_line {
+                Some(FoldRange {
+                    start_line: self.shift_line(range.start_line),
+                    end_line: self.shift_line(range.end_line),
+                })
+            } else {
+                None
+            }
+        } else if range.end_line < self.start_line {
+            Some(range)
+        } else if range.start_line >= self.old_end_line {
+            Some(FoldRange {
+                start_line: self.shift_line(range.start_line),
+                end_line: self.shift_line(range.end_line),
+            })
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 struct PositionSnapshot {
     cursor_offset: usize,
     selection_offsets: Option<(usize, usize)>,
@@ -1135,11 +1176,17 @@ impl EditorState {
         ranges.dedup_by_key(|r| r.start_line);
         self.fold_ranges = ranges;
 
-        self.folded.retain(|f| {
-            self.fold_ranges
-                .iter()
-                .any(|r| r.start_line == f.start_line)
-        });
+        let current_ranges = &self.fold_ranges;
+        self.folded = self
+            .folded
+            .iter()
+            .filter_map(|folded| {
+                current_ranges
+                    .iter()
+                    .find(|range| range.start_line == folded.start_line)
+                    .copied()
+            })
+            .collect();
 
         if self.folded.is_empty() {
             self.cached_display_lines = None;
@@ -1963,6 +2010,7 @@ impl EditorState {
         }
 
         let byte_offset = self.pos_to_byte_offset(self.cursor);
+        let start_line = self.rope.byte_to_line(byte_offset);
         let old_end_position = self.byte_to_ts_point(byte_offset);
         self.undo_stack.push(EditOp::Insert {
             byte_offset,
@@ -1982,7 +2030,15 @@ impl EditorState {
             old_end_position,
             cx,
         );
-        self.invalidate_after_edit(text.contains('\n'));
+        if text.contains('\n') {
+            self.invalidate_after_line_edit(LineEditRange {
+                start_line,
+                old_end_line: start_line,
+                new_end_line: self.rope.byte_to_line(new_end_byte),
+            });
+        } else {
+            self.invalidate_after_edit(false);
+        }
         if replaces_selection {
             self.group_last_edits(2);
         }
@@ -1998,6 +2054,8 @@ impl EditorState {
             return;
         }
 
+        let start_line = self.rope.byte_to_line(start_offset);
+        let old_end_line = self.rope.byte_to_line(end_offset);
         let old_end_position = self.byte_to_ts_point(end_offset);
         let deleted: String = self.rope.byte_slice(start_offset..end_offset).into();
         let line_structure_changed = deleted.contains('\n');
@@ -2018,7 +2076,15 @@ impl EditorState {
             old_end_position,
             cx,
         );
-        self.invalidate_after_edit(line_structure_changed);
+        if line_structure_changed {
+            self.invalidate_after_line_edit(LineEditRange {
+                start_line,
+                old_end_line,
+                new_end_line: self.rope.byte_to_line(start_offset),
+            });
+        } else {
+            self.invalidate_after_edit(false);
+        }
     }
 
     fn get_selection_text(&self, selection: &Selection) -> String {
@@ -2447,6 +2513,8 @@ impl EditorState {
             offset
         };
 
+        let start_line = self.rope.byte_to_line(del_start);
+        let old_end_line = self.rope.byte_to_line(del_end);
         let old_end_position = self.byte_to_ts_point(del_end);
         let deleted: String = self.rope.byte_slice(del_start..del_end).into();
         let line_structure_changed = deleted.contains('\n');
@@ -2459,7 +2527,15 @@ impl EditorState {
         self.mark_modified();
         self.cursor = self.byte_offset_to_pos(del_start);
         self.update_syntax_tree_incremental(del_start, del_end, del_start, old_end_position, cx);
-        self.invalidate_after_edit(line_structure_changed);
+        if line_structure_changed {
+            self.invalidate_after_line_edit(LineEditRange {
+                start_line,
+                old_end_line,
+                new_end_line: self.rope.byte_to_line(del_start),
+            });
+        } else {
+            self.invalidate_after_edit(false);
+        }
         cx.notify();
     }
 
@@ -2483,6 +2559,8 @@ impl EditorState {
             self.rope.len_bytes()
         };
         let del_end = min(next_char_byte, self.rope.len_bytes());
+        let start_line = self.rope.byte_to_line(offset);
+        let old_end_line = self.rope.byte_to_line(del_end);
         let old_end_position = self.byte_to_ts_point(del_end);
         let deleted: String = self.rope.byte_slice(offset..del_end).into();
         let line_structure_changed = deleted.contains('\n');
@@ -2494,7 +2572,15 @@ impl EditorState {
         self.rope_remove(offset, del_end);
         self.mark_modified();
         self.update_syntax_tree_incremental(offset, del_end, offset, old_end_position, cx);
-        self.invalidate_after_edit(line_structure_changed);
+        if line_structure_changed {
+            self.invalidate_after_line_edit(LineEditRange {
+                start_line,
+                old_end_line,
+                new_end_line: self.rope.byte_to_line(offset),
+            });
+        } else {
+            self.invalidate_after_edit(false);
+        }
         cx.notify();
     }
 
@@ -2508,6 +2594,8 @@ impl EditorState {
         }
         let start_offset = self.pos_to_byte_offset(word_start);
         let end_offset = self.pos_to_byte_offset(self.cursor);
+        let start_line = self.rope.byte_to_line(start_offset);
+        let old_end_line = self.rope.byte_to_line(end_offset);
         let old_end_position = self.byte_to_ts_point(end_offset);
         let deleted: String = self.rope.byte_slice(start_offset..end_offset).into();
         let line_structure_changed = deleted.contains('\n');
@@ -2526,7 +2614,15 @@ impl EditorState {
             old_end_position,
             cx,
         );
-        self.invalidate_after_edit(line_structure_changed);
+        if line_structure_changed {
+            self.invalidate_after_line_edit(LineEditRange {
+                start_line,
+                old_end_line,
+                new_end_line: self.rope.byte_to_line(start_offset),
+            });
+        } else {
+            self.invalidate_after_edit(false);
+        }
         cx.notify();
     }
 
@@ -2834,6 +2930,8 @@ impl EditorState {
             return;
         }
         let positions = self.snapshot_positions();
+        let start_line = self.rope.byte_to_line(start);
+        let old_end_line = self.rope.byte_to_line(end);
         let old_end_position = self.byte_to_ts_point(end.min(self.rope.len_bytes()));
         let deleted: String = self.rope.byte_slice(start..end).into();
         let line_structure_changed = deleted.contains('\n') || replacement.contains('\n');
@@ -2860,7 +2958,15 @@ impl EditorState {
                 new_end,
             },
         );
-        self.invalidate_after_edit(line_structure_changed);
+        if line_structure_changed {
+            self.invalidate_after_line_edit(LineEditRange {
+                start_line,
+                old_end_line,
+                new_end_line: self.rope.byte_to_line(new_end),
+            });
+        } else {
+            self.invalidate_after_edit(false);
+        }
         let query = self.search_query.clone();
         self.find_all(&query, cx);
     }
@@ -2920,13 +3026,38 @@ impl EditorState {
         self.max_line_width = px(0.0);
     }
 
+    fn map_fold_ranges(ranges: &[FoldRange], edit: LineEditRange) -> Vec<FoldRange> {
+        ranges
+            .iter()
+            .filter_map(|range| edit.map_fold_range(*range))
+            .collect()
+    }
+
+    fn update_fold_state_after_line_edit(&mut self, edit: LineEditRange) {
+        self.fold_ranges = Self::map_fold_ranges(&self.fold_ranges, edit);
+        self.folded = Self::map_fold_ranges(&self.folded, edit);
+        self.cached_display_lines = if self.folded.is_empty() {
+            None
+        } else {
+            Some(Rc::new(self.compute_display_lines()))
+        };
+        self.clamp_scroll_after_fold();
+    }
+
+    fn invalidate_text_edit_caches(&mut self) {
+        self.line_layouts.clear();
+        self.line_content_hashes.clear();
+        self.highlight_cache_version = u64::MAX;
+        // Search matches hold byte ranges into the old content and are
+        // dropped after every committed text edit.
+        self.clear_search_results();
+    }
+
     /// Invalidation for text edits. Clears all caches since line indices
     /// shift on insert/delete, making index-keyed caches stale. Search
     /// matches hold byte ranges into the old content and are dropped too.
     fn invalidate_after_edit(&mut self, line_structure_changed: bool) {
-        self.line_layouts.clear();
-        self.line_content_hashes.clear();
-        self.highlight_cache_version = u64::MAX;
+        self.invalidate_text_edit_caches();
         if line_structure_changed {
             self.clear_fold_state();
         }
@@ -2934,7 +3065,11 @@ impl EditorState {
         // would underestimate off-screen long lines until they are rendered
         // again, temporarily shrinking the horizontal scroll range. Full
         // document replacement still resets it via invalidate_all_caches.
-        self.clear_search_results();
+    }
+
+    fn invalidate_after_line_edit(&mut self, edit: LineEditRange) {
+        self.invalidate_text_edit_caches();
+        self.update_fold_state_after_line_edit(edit);
     }
 
     pub fn invalidate_line_layouts(&mut self, cx: &mut Context<Self>) {
@@ -5628,6 +5763,59 @@ mod tests {
                 assert!(state.fold_ranges.is_empty());
                 assert!(state.folded.is_empty());
                 assert!(state.cached_display_lines.is_none());
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn line_edits_shift_unaffected_fold_ranges() {
+        let mut app = TestApp::new();
+        let editor = app.update(|cx| cx.new(EditorState::new));
+        let mut window = app.open_window(|_, _| EditorTestView {
+            state: editor.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.set_content("a\nb\nc\nd", cx);
+                state.fold_ranges = vec![FoldRange {
+                    start_line: 2,
+                    end_line: 3,
+                }];
+                state.folded = state.fold_ranges.clone();
+                state.cached_display_lines = Some(Rc::new(vec![0, 1, 2]));
+                state.set_cursor_position(0, 0, cx);
+
+                state.insert_text_at_cursor("\n", cx);
+
+                assert_eq!(
+                    state.fold_ranges,
+                    vec![FoldRange {
+                        start_line: 3,
+                        end_line: 4,
+                    }]
+                );
+                assert_eq!(state.folded, state.fold_ranges);
+
+                state.set_content("a\nb\nc\nd", cx);
+                state.fold_ranges = vec![FoldRange {
+                    start_line: 2,
+                    end_line: 3,
+                }];
+                state.folded = state.fold_ranges.clone();
+                state.cached_display_lines = Some(Rc::new(vec![0, 1, 2]));
+                state.set_cursor_position(0, 1, cx);
+
+                state.delete(&Delete, window, cx);
+
+                assert_eq!(
+                    state.fold_ranges,
+                    vec![FoldRange {
+                        start_line: 1,
+                        end_line: 2,
+                    }]
+                );
+                assert_eq!(state.folded, state.fold_ranges);
             });
         });
     }
