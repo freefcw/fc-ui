@@ -5,9 +5,13 @@ use std::rc::Rc;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum CellEditor {
+    /// Free-form text editing.
     Text,
+    /// Numeric editing that accepts digits, one leading minus sign, and one decimal point.
     Number,
+    /// Boolean editing toggled with the Space key.
     Checkbox,
+    /// Reserved for a future custom editor hook; currently behaves like text editing.
     Custom,
 }
 
@@ -179,6 +183,63 @@ impl<T: 'static> DataGridState<T> {
     pub fn cancel_edit(&mut self) {
         self.editing_cell = None;
         self.edit_value.clear();
+    }
+
+    fn handle_edit_key(&mut self, key: &str, key_char: Option<&str>) {
+        let Some(position) = self.editing_cell.as_ref() else {
+            return;
+        };
+        let Some(editor) = self
+            .columns
+            .get(position.col)
+            .map(|column| column.editor.clone())
+        else {
+            return;
+        };
+
+        match editor {
+            CellEditor::Checkbox => {
+                if key == "space" {
+                    self.edit_value = if Self::is_truthy(&self.edit_value) {
+                        "false"
+                    } else {
+                        "true"
+                    }
+                    .into();
+                }
+            }
+            CellEditor::Number => {
+                if key == "backspace" {
+                    self.edit_value.pop();
+                    return;
+                }
+                let Some(character) = key_char else {
+                    return;
+                };
+                let is_digit = character.chars().all(|ch| ch.is_ascii_digit());
+                let is_minus = character == "-"
+                    && self.edit_value.is_empty()
+                    && !self.edit_value.contains('-');
+                let is_decimal = character == "." && !self.edit_value.contains('.');
+                if is_digit || is_minus || is_decimal {
+                    self.edit_value.push_str(character);
+                }
+            }
+            CellEditor::Text | CellEditor::Custom => {
+                if key == "backspace" {
+                    self.edit_value.pop();
+                } else if let Some(character) = key_char {
+                    self.edit_value.push_str(character);
+                }
+            }
+        }
+    }
+
+    fn is_truthy(value: &str) -> bool {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "true" | "1" | "yes" | "on"
+        )
     }
 
     pub fn move_edit_next(&mut self) {
@@ -366,6 +427,36 @@ mod tests {
         // allowing a resize operation to violate its own lower bound.
         assert_eq!(state.column_widths[&SharedString::from("value")], px(120.0));
     }
+
+    #[::core::prelude::v1::test]
+    fn number_editor_rejects_invalid_characters() {
+        let column = value_column().editor(CellEditor::Number);
+        let mut state = DataGridState::new(vec![Row { value: 1 }], vec![column]);
+        state.start_editing(CellPosition { row: 0, col: 0 });
+        state.edit_value.clear();
+
+        state.handle_edit_key("", Some("1"));
+        state.handle_edit_key("", Some("."));
+        state.handle_edit_key("", Some("2"));
+        state.handle_edit_key("", Some("."));
+        state.handle_edit_key("", Some("x"));
+
+        assert_eq!(state.edit_value, "1.2");
+    }
+
+    #[::core::prelude::v1::test]
+    fn checkbox_editor_toggles_boolean_value_with_space() {
+        let column = value_column().editor(CellEditor::Checkbox);
+        let mut state = DataGridState::new(vec![Row { value: 1 }], vec![column]);
+        state.start_editing(CellPosition { row: 0, col: 0 });
+        state.edit_value = "false".into();
+
+        state.handle_edit_key("space", None);
+        assert_eq!(state.edit_value, "true");
+
+        state.handle_edit_key("space", None);
+        assert_eq!(state.edit_value, "false");
+    }
 }
 
 pub struct DataGrid<T: 'static> {
@@ -469,6 +560,22 @@ impl<T: 'static> RenderOnce for DataGrid<T> {
                     .as_ref()
                     .map_or(false, |p| p.row == row_idx && p.col == col_idx);
                 if is_editing {
+                    let editor = &state.columns[col_idx].editor;
+                    let edit_display = match editor {
+                        CellEditor::Checkbox => {
+                            if DataGridState::<T>::is_truthy(&edit_val) {
+                                "☑"
+                            } else {
+                                "☐"
+                            }
+                        }
+                        CellEditor::Text | CellEditor::Number | CellEditor::Custom => "",
+                    };
+                    let value = if edit_display.is_empty() {
+                        format!("{}|", edit_val)
+                    } else {
+                        edit_display.to_string()
+                    };
                     row_cells.push(
                         div()
                             .flex()
@@ -476,7 +583,7 @@ impl<T: 'static> RenderOnce for DataGrid<T> {
                             .size_full()
                             .text_size(px(13.0))
                             .text_color(theme.tokens.foreground)
-                            .child(format!("{}|", edit_val))
+                            .child(value)
                             .into_any_element(),
                     );
                 } else {
@@ -715,10 +822,15 @@ impl<T: 'static> RenderOnce for DataGrid<T> {
                         s.cancel_edit();
                     } else if key == "tab" {
                         s.move_edit_next();
-                    } else if key == "backspace" {
-                        s.edit_value.pop();
-                    } else if let Some(ref ch) = event.keystroke.key_char {
-                        s.edit_value.push_str(ch);
+                    } else {
+                        s.handle_edit_key(
+                            key,
+                            event
+                                .keystroke
+                                .key_char
+                                .as_ref()
+                                .map(|character| character.as_ref()),
+                        );
                     }
                     scx.notify();
                 });
