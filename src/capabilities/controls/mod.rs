@@ -13,6 +13,7 @@ pub mod form;
 pub mod hotkey_input;
 pub mod inline_edit;
 pub mod input;
+pub(crate) mod input_format;
 pub mod input_state;
 pub mod mention_input;
 pub mod number_input;
