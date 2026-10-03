@@ -44,12 +44,10 @@ fn compute_scales(
 
     for i in 0..item_count {
         let center = start_x + i as f32 * (item_size_f + gap) + item_size_f * 0.5;
-        let scale = if let Some(cx_pos) = cursor_rel_x {
+        let scale = cursor_rel_x.map_or(1.0, |cx_pos| {
             let dist = (center - cx_pos).abs();
             1.0 + max_scale * (-dist * dist / (2.0 * sigma * sigma)).exp()
-        } else {
-            1.0
-        };
+        });
         items.push(DockItemInfo {
             center_x: center,
             scale,

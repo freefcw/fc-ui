@@ -205,15 +205,12 @@ impl CommandPalette {
 
         cx.subscribe(&search_input, |this, _input, event, cx| {
             use crate::capabilities::controls::input_state::InputEvent;
-            match event {
-                InputEvent::Change => {
-                    let query = this.search_input.read(cx).content().to_string();
-                    this.state.update(cx, |state, _cx| {
-                        state.update_search(query);
-                    });
-                    cx.notify();
-                }
-                _ => {}
+            if matches!(event, InputEvent::Change) {
+                let query = this.search_input.read(cx).content().to_string();
+                this.state.update(cx, |state, _cx| {
+                    state.update_search(query);
+                });
+                cx.notify();
             }
         })
         .detach();
