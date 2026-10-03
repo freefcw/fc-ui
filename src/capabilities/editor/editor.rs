@@ -185,6 +185,71 @@ impl EditOp {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct TextEditRange {
+    start: usize,
+    old_end: usize,
+    new_end: usize,
+}
+
+impl TextEditRange {
+    fn shift_offset_after_edit(self, offset: usize) -> usize {
+        self.new_end
+            .saturating_add(offset.saturating_sub(self.old_end))
+    }
+
+    fn map_cursor_offset(self, offset: usize) -> usize {
+        if offset <= self.start {
+            offset
+        } else if offset >= self.old_end {
+            self.shift_offset_after_edit(offset)
+        } else {
+            self.new_end
+        }
+    }
+
+    fn map_selection_offsets(self, anchor: usize, cursor: usize) -> (usize, usize) {
+        if anchor == cursor {
+            let mapped = self.map_cursor_offset(anchor);
+            return (mapped, mapped);
+        }
+
+        let reversed = anchor > cursor;
+        let (start, end) = if reversed {
+            (cursor, anchor)
+        } else {
+            (anchor, cursor)
+        };
+
+        let mapped_start = if start < self.start {
+            start
+        } else if start >= self.old_end {
+            self.shift_offset_after_edit(start)
+        } else {
+            self.start
+        };
+        let mapped_end = if end <= self.start {
+            end
+        } else if end >= self.old_end {
+            self.shift_offset_after_edit(end)
+        } else {
+            self.new_end
+        };
+
+        if reversed {
+            (mapped_end, mapped_start)
+        } else {
+            (mapped_start, mapped_end)
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PositionSnapshot {
+    cursor_offset: usize,
+    selection_offsets: Option<(usize, usize)>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FoldRange {
     pub start_line: usize,
@@ -1754,6 +1819,29 @@ impl EditorState {
         line_start + floor_char_boundary(&line_text, min(pos.col, line_text.len()))
     }
 
+    fn snapshot_positions(&self) -> PositionSnapshot {
+        PositionSnapshot {
+            cursor_offset: self.pos_to_byte_offset(self.cursor),
+            selection_offsets: self.selection.as_ref().map(|selection| {
+                (
+                    self.pos_to_byte_offset(selection.anchor),
+                    self.pos_to_byte_offset(selection.cursor),
+                )
+            }),
+        }
+    }
+
+    fn restore_positions_after_edit(&mut self, snapshot: PositionSnapshot, edit: TextEditRange) {
+        self.cursor = self.byte_offset_to_pos(edit.map_cursor_offset(snapshot.cursor_offset));
+        self.selection = snapshot.selection_offsets.map(|(anchor, cursor)| {
+            let (anchor, cursor) = edit.map_selection_offsets(anchor, cursor);
+            Selection::new(
+                self.byte_offset_to_pos(anchor),
+                self.byte_offset_to_pos(cursor),
+            )
+        });
+    }
+
     fn byte_offset_to_pos(&self, offset: usize) -> Position {
         let offset = min(offset, self.rope.len_bytes());
         let line = self.rope.byte_to_line(offset);
@@ -2745,6 +2833,7 @@ impl EditorState {
             self.find_all(&query, cx);
             return;
         }
+        let positions = self.snapshot_positions();
         let old_end_position = self.byte_to_ts_point(end.min(self.rope.len_bytes()));
         let deleted: String = self.rope.byte_slice(start..end).into();
         let line_structure_changed = deleted.contains('\n') || replacement.contains('\n');
@@ -2763,6 +2852,14 @@ impl EditorState {
         self.mark_modified();
         let new_end = start + replacement.len();
         self.update_syntax_tree_incremental(start, end, new_end, old_end_position, cx);
+        self.restore_positions_after_edit(
+            positions,
+            TextEditRange {
+                start,
+                old_end: end,
+                new_end,
+            },
+        );
         self.invalidate_after_edit(line_structure_changed);
         let query = self.search_query.clone();
         self.find_all(&query, cx);
@@ -2783,6 +2880,7 @@ impl EditorState {
         }
         let mut line_structure_changed = replacement.contains('\n');
         for (start, end) in matches {
+            let positions = self.snapshot_positions();
             let deleted: String = self.rope.byte_slice(start..end).into();
             line_structure_changed |= deleted.contains('\n');
             self.undo_stack.push(EditOp::Delete {
@@ -2795,6 +2893,14 @@ impl EditorState {
                 text: replacement.to_string(),
             });
             self.rope_insert(start, replacement);
+            self.restore_positions_after_edit(
+                positions,
+                TextEditRange {
+                    start,
+                    old_end: end,
+                    new_end: start + replacement.len(),
+                },
+            );
         }
         self.redo_stack.clear();
         self.group_last_edits(self.search_matches.len().saturating_mul(2));
@@ -5391,6 +5497,49 @@ mod tests {
 
                 state.replace_current("bye", cx);
                 assert_eq!(state.content(), "bye world hello\n");
+                assert_eq!(state.cursor(), Position::zero());
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn line_replacements_adjust_cursor_and_selection_offsets() {
+        let mut app = TestApp::new();
+        let editor = app.update(|cx| cx.new(EditorState::new));
+
+        app.update(|cx| {
+            editor.update(cx, |state, cx| {
+                state.set_content("a\nb\nc", cx);
+                state.set_cursor_position(2, 1, cx);
+                state.selection = Some(Selection::new(Position::new(2, 0), Position::new(2, 1)));
+                state.search_query = "\n".to_string();
+                state.search_matches = vec![(1, 2)];
+                state.current_match_idx = Some(0);
+
+                state.replace_current("x\ny\nz", cx);
+
+                assert_eq!(state.content(), "ax\ny\nzb\nc\n");
+                assert_eq!(state.cursor(), Position::new(3, 1));
+                assert_eq!(
+                    state.selection,
+                    Some(Selection::new(Position::new(3, 0), Position::new(3, 1)))
+                );
+
+                state.set_content("a\nb\nc", cx);
+                state.set_cursor_position(2, 1, cx);
+                state.selection = Some(Selection::new(Position::new(2, 0), Position::new(2, 1)));
+                state.search_query = "\n".to_string();
+                state.search_matches = vec![(1, 2)];
+                state.current_match_idx = Some(0);
+
+                state.replace_current("", cx);
+
+                assert_eq!(state.content(), "ab\nc\n");
+                assert_eq!(state.cursor(), Position::new(1, 1));
+                assert_eq!(
+                    state.selection,
+                    Some(Selection::new(Position::new(1, 0), Position::new(1, 1)))
+                );
             });
         });
     }
