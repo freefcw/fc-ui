@@ -381,160 +381,6 @@ impl<T: 'static> DataGridState<T> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[derive(Clone)]
-    struct Row {
-        value: i32,
-    }
-
-    fn value_column() -> GridColumnDef<Row> {
-        GridColumnDef::new(
-            "value",
-            "Value",
-            |row: &Row, _| div().child(row.value.to_string()).into_any_element(),
-            |row: &Row| row.value.to_string(),
-        )
-        .sortable(true)
-        .editable(true)
-        .value_setter(|row, value| {
-            row.value = value.parse().expect("test value should be numeric");
-        })
-    }
-
-    #[::core::prelude::v1::test]
-    fn sorting_commits_edit_before_reordering_rows() {
-        let mut state = DataGridState::new(
-            vec![Row { value: 2 }, Row { value: 1 }],
-            vec![value_column()],
-        );
-        state.start_editing(CellPosition { row: 0, col: 0 });
-        state.edit_value = "0".into();
-
-        state.sort_by_column("value");
-
-        assert!(state.editing_cell.is_none());
-        assert_eq!(
-            state.data.iter().map(|row| row.value).collect::<Vec<_>>(),
-            [0, 1]
-        );
-    }
-
-    #[::core::prelude::v1::test]
-    fn replacing_data_reapplies_the_active_sort() {
-        let mut state = DataGridState::new(
-            vec![Row { value: 2 }, Row { value: 1 }],
-            vec![value_column()],
-        );
-        state.sort_by_column("value");
-        state.set_data(vec![Row { value: 10 }, Row { value: 3 }]);
-
-        assert_eq!(
-            state.data.iter().map(|row| row.value).collect::<Vec<_>>(),
-            [3, 10]
-        );
-    }
-
-    #[::core::prelude::v1::test]
-    fn update_data_reapplies_sort_and_cancels_editing() {
-        let mut state = DataGridState::new(
-            vec![Row { value: 2 }, Row { value: 1 }],
-            vec![value_column()],
-        );
-        state.sort_by_column("value");
-        state.start_editing(CellPosition { row: 0, col: 0 });
-
-        state.update_data(|rows| rows.push(Row { value: 0 }));
-
-        assert!(state.editing_cell.is_none());
-        assert_eq!(
-            state.data.iter().map(|row| row.value).collect::<Vec<_>>(),
-            [0, 1, 2]
-        );
-    }
-
-    #[::core::prelude::v1::test]
-    fn resize_column_respects_consistent_width_bounds() {
-        let column = value_column().min_width(px(120.0)).max_width(px(80.0));
-        let mut state = DataGridState::new(vec![Row { value: 1 }], vec![column]);
-
-        state.resize_column("value", px(20.0));
-        assert_eq!(state.column_widths[&SharedString::from("value")], px(120.0));
-
-        state.resize_column("value", px(240.0));
-        // An invalid max < min is normalized to the minimum rather than
-        // allowing a resize operation to violate its own lower bound.
-        assert_eq!(state.column_widths[&SharedString::from("value")], px(120.0));
-    }
-
-    #[::core::prelude::v1::test]
-    fn number_editor_rejects_invalid_characters() {
-        let column = value_column().editor(CellEditor::Number);
-        let mut state = DataGridState::new(vec![Row { value: 1 }], vec![column]);
-        state.start_editing(CellPosition { row: 0, col: 0 });
-        state.edit_value.clear();
-
-        state.handle_edit_key("", Some("1"));
-        state.handle_edit_key("", Some("."));
-        state.handle_edit_key("", Some("2"));
-        state.handle_edit_key("", Some("."));
-        state.handle_edit_key("", Some("x"));
-
-        assert_eq!(state.edit_value, "1.2");
-    }
-
-    #[::core::prelude::v1::test]
-    fn checkbox_editor_toggles_boolean_value_with_space() {
-        let column = value_column().editor(CellEditor::Checkbox);
-        let mut state = DataGridState::new(vec![Row { value: 1 }], vec![column]);
-        state.start_editing(CellPosition { row: 0, col: 0 });
-        state.edit_value = "false".into();
-
-        state.handle_edit_key("space", None);
-        assert_eq!(state.edit_value, "true");
-
-        state.handle_edit_key("space", None);
-        assert_eq!(state.edit_value, "false");
-    }
-
-    #[::core::prelude::v1::test]
-    fn custom_editor_uses_text_editing_and_commits_value() {
-        let column = value_column().editor(CellEditor::Custom);
-        let mut state = DataGridState::new(vec![Row { value: 1 }], vec![column]);
-        state.start_editing(CellPosition { row: 0, col: 0 });
-
-        state.handle_edit_key("backspace", None);
-        state.handle_edit_key("", Some("4"));
-        state.handle_edit_key("", Some("2"));
-
-        assert_eq!(state.edit_value, "42");
-        state.commit_edit();
-
-        assert_eq!(state.data[0].value, 42);
-        assert!(state.editing_cell.is_none());
-        assert!(state.edit_value.is_empty());
-    }
-
-    #[::core::prelude::v1::test]
-    fn custom_editor_cancels_text_edits_without_mutating_the_row() {
-        let column = value_column().editor(CellEditor::Custom);
-        let mut state = DataGridState::new(vec![Row { value: 1 }], vec![column]);
-        state.start_editing(CellPosition { row: 0, col: 0 });
-
-        state.handle_edit_key("backspace", None);
-        state.handle_edit_key("", Some("9"));
-        assert_eq!(state.edit_value, "9");
-
-        state.cancel_edit();
-
-        assert_eq!(state.data[0].value, 1);
-        assert!(state.editing_cell.is_none());
-        assert!(state.edit_value.is_empty());
-    }
-}
-
 pub struct DataGrid<T: 'static> {
     state: Entity<DataGridState<T>>,
     striped: bool,
@@ -939,5 +785,159 @@ impl<T: 'static> RenderOnce for DataGrid<T> {
                 el.style().refine(&user_style);
                 el
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Clone)]
+    struct Row {
+        value: i32,
+    }
+
+    fn value_column() -> GridColumnDef<Row> {
+        GridColumnDef::new(
+            "value",
+            "Value",
+            |row: &Row, _| div().child(row.value.to_string()).into_any_element(),
+            |row: &Row| row.value.to_string(),
+        )
+        .sortable(true)
+        .editable(true)
+        .value_setter(|row, value| {
+            row.value = value.parse().expect("test value should be numeric");
+        })
+    }
+
+    #[::core::prelude::v1::test]
+    fn sorting_commits_edit_before_reordering_rows() {
+        let mut state = DataGridState::new(
+            vec![Row { value: 2 }, Row { value: 1 }],
+            vec![value_column()],
+        );
+        state.start_editing(CellPosition { row: 0, col: 0 });
+        state.edit_value = "0".into();
+
+        state.sort_by_column("value");
+
+        assert!(state.editing_cell.is_none());
+        assert_eq!(
+            state.data.iter().map(|row| row.value).collect::<Vec<_>>(),
+            [0, 1]
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn replacing_data_reapplies_the_active_sort() {
+        let mut state = DataGridState::new(
+            vec![Row { value: 2 }, Row { value: 1 }],
+            vec![value_column()],
+        );
+        state.sort_by_column("value");
+        state.set_data(vec![Row { value: 10 }, Row { value: 3 }]);
+
+        assert_eq!(
+            state.data.iter().map(|row| row.value).collect::<Vec<_>>(),
+            [3, 10]
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn update_data_reapplies_sort_and_cancels_editing() {
+        let mut state = DataGridState::new(
+            vec![Row { value: 2 }, Row { value: 1 }],
+            vec![value_column()],
+        );
+        state.sort_by_column("value");
+        state.start_editing(CellPosition { row: 0, col: 0 });
+
+        state.update_data(|rows| rows.push(Row { value: 0 }));
+
+        assert!(state.editing_cell.is_none());
+        assert_eq!(
+            state.data.iter().map(|row| row.value).collect::<Vec<_>>(),
+            [0, 1, 2]
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn resize_column_respects_consistent_width_bounds() {
+        let column = value_column().min_width(px(120.0)).max_width(px(80.0));
+        let mut state = DataGridState::new(vec![Row { value: 1 }], vec![column]);
+
+        state.resize_column("value", px(20.0));
+        assert_eq!(state.column_widths[&SharedString::from("value")], px(120.0));
+
+        state.resize_column("value", px(240.0));
+        // An invalid max < min is normalized to the minimum rather than
+        // allowing a resize operation to violate its own lower bound.
+        assert_eq!(state.column_widths[&SharedString::from("value")], px(120.0));
+    }
+
+    #[::core::prelude::v1::test]
+    fn number_editor_rejects_invalid_characters() {
+        let column = value_column().editor(CellEditor::Number);
+        let mut state = DataGridState::new(vec![Row { value: 1 }], vec![column]);
+        state.start_editing(CellPosition { row: 0, col: 0 });
+        state.edit_value.clear();
+
+        state.handle_edit_key("", Some("1"));
+        state.handle_edit_key("", Some("."));
+        state.handle_edit_key("", Some("2"));
+        state.handle_edit_key("", Some("."));
+        state.handle_edit_key("", Some("x"));
+
+        assert_eq!(state.edit_value, "1.2");
+    }
+
+    #[::core::prelude::v1::test]
+    fn checkbox_editor_toggles_boolean_value_with_space() {
+        let column = value_column().editor(CellEditor::Checkbox);
+        let mut state = DataGridState::new(vec![Row { value: 1 }], vec![column]);
+        state.start_editing(CellPosition { row: 0, col: 0 });
+        state.edit_value = "false".into();
+
+        state.handle_edit_key("space", None);
+        assert_eq!(state.edit_value, "true");
+
+        state.handle_edit_key("space", None);
+        assert_eq!(state.edit_value, "false");
+    }
+
+    #[::core::prelude::v1::test]
+    fn custom_editor_uses_text_editing_and_commits_value() {
+        let column = value_column().editor(CellEditor::Custom);
+        let mut state = DataGridState::new(vec![Row { value: 1 }], vec![column]);
+        state.start_editing(CellPosition { row: 0, col: 0 });
+
+        state.handle_edit_key("backspace", None);
+        state.handle_edit_key("", Some("4"));
+        state.handle_edit_key("", Some("2"));
+
+        assert_eq!(state.edit_value, "42");
+        state.commit_edit();
+
+        assert_eq!(state.data[0].value, 42);
+        assert!(state.editing_cell.is_none());
+        assert!(state.edit_value.is_empty());
+    }
+
+    #[::core::prelude::v1::test]
+    fn custom_editor_cancels_text_edits_without_mutating_the_row() {
+        let column = value_column().editor(CellEditor::Custom);
+        let mut state = DataGridState::new(vec![Row { value: 1 }], vec![column]);
+        state.start_editing(CellPosition { row: 0, col: 0 });
+
+        state.handle_edit_key("backspace", None);
+        state.handle_edit_key("", Some("9"));
+        assert_eq!(state.edit_value, "9");
+
+        state.cancel_edit();
+
+        assert_eq!(state.data[0].value, 1);
+        assert!(state.editing_cell.is_none());
+        assert!(state.edit_value.is_empty());
     }
 }
