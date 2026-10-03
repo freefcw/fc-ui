@@ -384,11 +384,7 @@ impl TextareaState {
     // ── Cursor / Selection ──────────────────────────────────────────
 
     fn cursor_offset(&self) -> usize {
-        if self.selection_reversed {
-            self.selected_range.start
-        } else {
-            self.selected_range.end
-        }
+        text_util::cursor_offset(&self.selected_range, self.selection_reversed)
     }
 
     fn move_to(&mut self, offset: usize, cx: &mut Context<Self>) {
@@ -401,15 +397,11 @@ impl TextareaState {
 
     fn select_to(&mut self, offset: usize, cx: &mut Context<Self>) {
         let offset = self.clamp_offset(offset);
-        if self.selection_reversed {
-            self.selected_range.start = offset;
-        } else {
-            self.selected_range.end = offset;
-        }
-        if self.selected_range.end < self.selected_range.start {
-            self.selection_reversed = !self.selection_reversed;
-            self.selected_range = self.selected_range.end..self.selected_range.start;
-        }
+        (self.selected_range, self.selection_reversed) = text_util::extend_selection(
+            self.selected_range.clone(),
+            self.selection_reversed,
+            offset,
+        );
         self.reset_blink(cx);
         cx.notify();
     }

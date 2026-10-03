@@ -45,6 +45,33 @@ pub(crate) fn clamp_offset(text: &str, offset: usize) -> usize {
     offset.min(text.len())
 }
 
+/// Return the active cursor offset for a normalized selection.
+pub(crate) fn cursor_offset(selection: &Range<usize>, selection_reversed: bool) -> usize {
+    if selection_reversed {
+        selection.start
+    } else {
+        selection.end
+    }
+}
+
+/// Extend a selection to `offset` and normalize its bounds and direction.
+pub(crate) fn extend_selection(
+    mut selection: Range<usize>,
+    mut selection_reversed: bool,
+    offset: usize,
+) -> (Range<usize>, bool) {
+    if selection_reversed {
+        selection.start = offset;
+    } else {
+        selection.end = offset;
+    }
+    if selection.end < selection.start {
+        selection_reversed = !selection_reversed;
+        selection = selection.end..selection.start;
+    }
+    (selection, selection_reversed)
+}
+
 /// Return the start byte index of the grapheme cluster strictly before `offset`.
 pub(crate) fn previous_grapheme_boundary(text: &str, offset: usize) -> usize {
     text.grapheme_indices(true)
@@ -174,6 +201,20 @@ mod tests {
         assert_eq!(clamp_offset("abc", 2), 2);
         assert_eq!(clamp_offset("abc", 10), 3);
         assert_eq!(clamp_offset("", 5), 0);
+    }
+
+    #[test]
+    fn cursor_offset_follows_selection_direction() {
+        assert_eq!(cursor_offset(&(2..5), false), 5);
+        assert_eq!(cursor_offset(&(2..5), true), 2);
+    }
+
+    #[test]
+    fn extend_selection_normalizes_crossed_ranges() {
+        assert_eq!(extend_selection(2..5, false, 4), (2..4, false));
+        assert_eq!(extend_selection(2..5, false, 1), (1..2, true));
+        assert_eq!(extend_selection(2..5, true, 3), (3..5, true));
+        assert_eq!(extend_selection(2..5, true, 6), (5..6, false));
     }
 
     #[test]
