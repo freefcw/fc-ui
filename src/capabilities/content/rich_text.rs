@@ -514,30 +514,26 @@ fn render_block(
         }
 
         RichBlock::UnorderedList { items } => {
-            let children = render_list_items(
-                items,
+            let mut render_context = RichBlockRenderContext {
                 base_size,
                 on_link_click,
                 id_prefix,
                 block_idx,
-                false,
-                1,
                 cx,
-            );
+            };
+            let children = render_list_items(items, &mut render_context, false, 1);
             div().mb(px(12.0)).children(children).into_any_element()
         }
 
         RichBlock::OrderedList { start, items } => {
-            let children = render_list_items(
-                items,
+            let mut render_context = RichBlockRenderContext {
                 base_size,
                 on_link_click,
                 id_prefix,
                 block_idx,
-                true,
-                *start,
                 cx,
-            );
+            };
+            let children = render_list_items(items, &mut render_context, true, *start);
             div().mb(px(12.0)).children(children).into_any_element()
         }
 
@@ -545,16 +541,16 @@ fn render_block(
             headers,
             alignments,
             rows,
-        } => render_table(
-            headers,
-            alignments,
-            rows,
-            base_size,
-            on_link_click,
-            id_prefix,
-            block_idx,
-            cx,
-        ),
+        } => {
+            let mut render_context = RichBlockRenderContext {
+                base_size,
+                on_link_click,
+                id_prefix,
+                block_idx,
+                cx,
+            };
+            render_table(headers, alignments, rows, &mut render_context)
+        }
 
         RichBlock::HorizontalRule => div()
             .my(px(16.0))
@@ -620,22 +616,26 @@ fn render_inline_element(
         .into_any_element()
 }
 
+struct RichBlockRenderContext<'a> {
+    base_size: Pixels,
+    on_link_click: &'a Option<LinkClickHandler>,
+    id_prefix: &'a str,
+    block_idx: &'a mut u32,
+    cx: &'a App,
+}
+
 fn render_list_items(
     items: &[ListItem],
-    base_size: Pixels,
-    on_link_click: &Option<LinkClickHandler>,
-    id_prefix: &str,
-    block_idx: &mut u32,
+    context: &mut RichBlockRenderContext<'_>,
     ordered: bool,
     start: u64,
-    cx: &App,
 ) -> Vec<AnyElement> {
-    let theme = use_theme(cx);
+    let theme = use_theme(context.cx);
     let mut elements = Vec::new();
 
     for (i, item) in items.iter().enumerate() {
-        *block_idx += 1;
-        let idx = *block_idx;
+        *context.block_idx += 1;
+        let idx = *context.block_idx;
 
         let bullet = if let Some(checked) = item.checked {
             if checked {
@@ -649,9 +649,14 @@ fn render_list_items(
             SharedString::from("\u{2022} ")
         };
 
-        let id = ElementId::Name(format!("{}-li-{}", id_prefix, idx).into());
-        let content_el =
-            render_inline_element(&item.content, base_size, on_link_click, Some(id), cx);
+        let id = ElementId::Name(format!("{}-li-{}", context.id_prefix, idx).into());
+        let content_el = render_inline_element(
+            &item.content,
+            context.base_size,
+            context.on_link_click,
+            Some(id),
+            context.cx,
+        );
 
         let row = div()
             .flex()
@@ -662,7 +667,7 @@ fn render_list_items(
                 div()
                     .flex_shrink_0()
                     .w(px(24.0))
-                    .text_size(base_size)
+                    .text_size(context.base_size)
                     .text_color(theme.tokens.muted_foreground)
                     .child(bullet),
             )
@@ -671,16 +676,7 @@ fn render_list_items(
         elements.push(row.into_any_element());
 
         if !item.children.is_empty() {
-            let children = render_list_items(
-                &item.children,
-                base_size,
-                on_link_click,
-                id_prefix,
-                block_idx,
-                false,
-                1,
-                cx,
-            );
+            let children = render_list_items(&item.children, context, false, 1);
             elements.push(div().pl(px(20.0)).children(children).into_any_element());
         }
     }
@@ -692,13 +688,9 @@ fn render_table(
     headers: &[Vec<RichInline>],
     alignments: &[TableAlignment],
     rows: &[Vec<Vec<RichInline>>],
-    base_size: Pixels,
-    on_link_click: &Option<LinkClickHandler>,
-    id_prefix: &str,
-    block_idx: &mut u32,
-    cx: &App,
+    context: &mut RichBlockRenderContext<'_>,
 ) -> AnyElement {
-    let theme = use_theme(cx);
+    let theme = use_theme(context.cx);
     let col_count = headers.len();
     if col_count == 0 {
         return div().into_any_element();
@@ -712,7 +704,7 @@ fn render_table(
         .border_color(theme.tokens.border)
         .overflow_hidden();
 
-    *block_idx += 1;
+    *context.block_idx += 1;
     let header_row = {
         let mut row = div()
             .flex()
@@ -722,15 +714,22 @@ fn render_table(
             .border_color(theme.tokens.border);
 
         for (ci, header) in headers.iter().enumerate() {
-            *block_idx += 1;
-            let id = ElementId::Name(format!("{}-th-{}", id_prefix, *block_idx).into());
-            let el = render_inline_element(header, base_size, on_link_click, Some(id), cx);
+            *context.block_idx += 1;
+            let id =
+                ElementId::Name(format!("{}-th-{}", context.id_prefix, *context.block_idx).into());
+            let el = render_inline_element(
+                header,
+                context.base_size,
+                context.on_link_click,
+                Some(id),
+                context.cx,
+            );
             let mut cell = div()
                 .flex_1()
                 .px(px(12.0))
                 .py(px(8.0))
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_size(base_size)
+                .text_size(context.base_size)
                 .child(el);
 
             if ci < alignments.len() {
@@ -748,7 +747,7 @@ fn render_table(
     table = table.child(header_row);
 
     for (ri, row_data) in rows.iter().enumerate() {
-        *block_idx += 1;
+        *context.block_idx += 1;
         let mut row = div()
             .flex()
             .flex_row()
@@ -758,14 +757,21 @@ fn render_table(
             .when(ri % 2 == 1, |this| this.bg(theme.tokens.muted.opacity(0.1)));
 
         for (ci, cell_data) in row_data.iter().enumerate() {
-            *block_idx += 1;
-            let id = ElementId::Name(format!("{}-td-{}", id_prefix, *block_idx).into());
-            let el = render_inline_element(cell_data, base_size, on_link_click, Some(id), cx);
+            *context.block_idx += 1;
+            let id =
+                ElementId::Name(format!("{}-td-{}", context.id_prefix, *context.block_idx).into());
+            let el = render_inline_element(
+                cell_data,
+                context.base_size,
+                context.on_link_click,
+                Some(id),
+                context.cx,
+            );
             let mut cell = div()
                 .flex_1()
                 .px(px(12.0))
                 .py(px(6.0))
-                .text_size(base_size)
+                .text_size(context.base_size)
                 .child(el);
 
             if ci < alignments.len() {
