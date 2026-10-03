@@ -10,13 +10,24 @@ use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::rc::Rc;
 
+pub type RowActionCallback = Rc<dyn Fn(usize, &mut Window, &mut App)>;
+type LoadMoreCallback<T> = Box<dyn Fn(&mut Window, &mut Context<T>) + 'static>;
+type CellEditCallback<T> =
+    Box<dyn Fn(usize, SharedString, SharedString, SharedString, &mut Context<T>) + 'static>;
+type CellDoubleClickCallback<T> =
+    Box<dyn Fn(&T, SharedString, SharedString, &mut Window, &mut Context<DataTable<T>>) + 'static>;
+type FetchPageCallback<T> = Box<dyn Fn(usize, usize, &mut Window, &mut Context<T>) + 'static>;
+type RowClickCallback<T> =
+    Box<dyn Fn(usize, &T, &mut Window, &mut Context<DataTable<T>>) + 'static>;
+type SelectionChangeCallback<T> = Box<dyn Fn(&[usize], &mut Window, &mut Context<T>) + 'static>;
+
 #[derive(Clone)]
 pub struct RowAction {
     pub id: SharedString,
     pub label: SharedString,
     pub icon: Option<IconSource>,
     pub destructive: bool,
-    pub on_click: Rc<dyn Fn(usize, &mut Window, &mut App)>,
+    pub on_click: RowActionCallback,
 }
 
 impl RowAction {
@@ -166,7 +177,10 @@ pub struct DataTableState<T: Clone + 'static> {
 
 impl<T: Clone + 'static> DataTableState<T> {
     pub fn new(data: Vec<T>, columns: Vec<ColumnDef<T>>) -> Self {
-        let column_widths = columns.iter().map(|col| col.width).collect();
+        let column_widths = columns
+            .iter()
+            .map(|col| col.width.max(col.min_width))
+            .collect();
         let total_items = data.len();
         let viewport = ViewportState::new(48.0, 600.0);
 
@@ -204,9 +218,75 @@ impl<T: Clone + 'static> DataTableState<T> {
     }
 
     fn replace_in_memory_data(&mut self, data: Vec<T>) {
+        let mut data = data;
+        self.sort_in_memory_data(&mut data);
         let count = data.len();
         self.backing = DataBacking::InMemory { data };
         self.scroller.set_total_items(count);
+    }
+
+    fn sort_in_memory_data(&self, data: &mut Vec<T>) {
+        let Some(column_index) = self.sort_column else {
+            return;
+        };
+        let Some(column) = self.columns.get(column_index) else {
+            return;
+        };
+        Self::sort_rows(data, column.accessor.clone(), self.sort_direction);
+    }
+
+    fn resort_current_in_memory_data(&mut self) {
+        let Some(column_index) = self.sort_column else {
+            return;
+        };
+        let Some(column) = self.columns.get(column_index) else {
+            return;
+        };
+        let accessor = column.accessor.clone();
+        let direction = self.sort_direction;
+        if let DataBacking::InMemory { data } = &mut self.backing {
+            Self::sort_rows(data, accessor, direction);
+        }
+    }
+
+    fn append_in_memory_data(&mut self, mut new_data: Vec<T>) -> bool {
+        if let DataBacking::InMemory { data } = &mut self.backing {
+            data.append(&mut new_data);
+        } else {
+            return false;
+        }
+        self.resort_current_in_memory_data();
+        true
+    }
+
+    fn sort_rows(
+        data: &mut Vec<T>,
+        accessor: Rc<dyn Fn(&T) -> SharedString>,
+        direction: SortDirection,
+    ) {
+        let mut indexed_values: Vec<(usize, String)> = data
+            .iter()
+            .enumerate()
+            .map(|(idx, row)| (idx, accessor(row).to_string()))
+            .collect();
+
+        indexed_values.sort_by(|(_, a), (_, b)| {
+            let ordering = match (a.parse::<f64>(), b.parse::<f64>()) {
+                (Ok(number_a), Ok(number_b)) => number_a
+                    .partial_cmp(&number_b)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+                _ => a.cmp(b),
+            };
+            match direction {
+                SortDirection::Ascending => ordering,
+                SortDirection::Descending => ordering.reverse(),
+            }
+        });
+
+        *data = indexed_values
+            .into_iter()
+            .filter_map(|(idx, _)| data.get(idx).cloned())
+            .collect();
     }
 
     fn virtual_reset(&mut self, total_items: usize, page_size: Option<usize>) {
@@ -233,57 +313,58 @@ impl<T: Clone + 'static> DataTableState<T> {
                 };
             }
         }
+        // Virtual pages arrive in source order and cannot be reordered locally.
+        // Clear the indicator so it never claims an order that the cache does
+        // not actually provide.
+        self.sort_column = None;
+        self.sort_direction = SortDirection::Ascending;
         self.scroller.set_total_items(total_items);
         self.selected_rows.clear();
     }
 
     fn virtual_set_page(&mut self, page_start: usize, rows: Vec<T>) {
         if let DataBacking::Virtual {
+            total_items,
             cache,
             in_flight_pages,
             ..
         } = &mut self.backing
         {
             for (i, row) in rows.into_iter().enumerate() {
-                cache.insert(page_start + i, row);
+                let Some(index) = page_start.checked_add(i) else {
+                    break;
+                };
+                if index >= *total_items {
+                    break;
+                }
+                cache.insert(index, row);
             }
             in_flight_pages.remove(&page_start);
         }
     }
 
     pub fn sort_by_column(&mut self, column_index: usize, direction: SortDirection) {
+        let Some(column) = self.columns.get(column_index) else {
+            return;
+        };
+        if !column.sortable {
+            return;
+        }
+
+        // Sorting is only implemented for in-memory rows. A virtual table's
+        // pages are owned by its fetch callback, which currently receives no
+        // sort parameters, so advertising a local sort would make the header
+        // disagree with the rendered order.
+        if !matches!(&self.backing, DataBacking::InMemory { .. }) {
+            return;
+        }
+
         self.sort_column = Some(column_index);
         self.sort_direction = direction;
 
         if let DataBacking::InMemory { data } = &mut self.backing {
-            if let Some(column) = self.columns.get(column_index) {
-                let mut indexed_values: Vec<(usize, String)> = data
-                    .iter()
-                    .enumerate()
-                    .map(|(idx, row)| (idx, (column.accessor)(row).to_string()))
-                    .collect();
-
-                indexed_values.sort_by(|(_, a), (_, b)| {
-                    let ordering = match (a.parse::<f64>(), b.parse::<f64>()) {
-                        (Ok(number_a), Ok(number_b)) => number_a
-                            .partial_cmp(&number_b)
-                            .unwrap_or(std::cmp::Ordering::Equal),
-                        _ => a.cmp(b),
-                    };
-                    match direction {
-                        SortDirection::Ascending => ordering,
-                        SortDirection::Descending => ordering.reverse(),
-                    }
-                });
-
-                let sorted_data: Vec<T> = indexed_values
-                    .into_iter()
-                    .filter_map(|(idx, _)| data.get(idx).cloned())
-                    .collect();
-
-                *data = sorted_data;
-                self.selected_rows.clear();
-            }
+            Self::sort_rows(data, column.accessor.clone(), direction);
+            self.selected_rows.clear();
         }
     }
 
@@ -304,8 +385,11 @@ impl<T: Clone + 'static> DataTableState<T> {
     }
 
     pub fn resize_column(&mut self, column_index: usize, new_width: Pixels) {
-        if let Some(width) = self.column_widths.get_mut(column_index) {
-            *width = new_width;
+        if let (Some(width), Some(column)) = (
+            self.column_widths.get_mut(column_index),
+            self.columns.get(column_index),
+        ) {
+            *width = new_width.max(column.min_width);
         }
     }
 }
@@ -315,8 +399,7 @@ pub struct DataTable<T: Clone + 'static> {
     resizing_column: Option<usize>,
     resize_start_x: f32,
     resize_start_width: Pixels,
-    sticky_header: bool,
-    on_load_more: Option<Box<dyn Fn(&mut Window, &mut Context<Self>) + 'static>>,
+    on_load_more: Option<LoadMoreCallback<Self>>,
     load_more_threshold: f32,
     load_more_triggered: bool,
     scroll_handle: ScrollHandle,
@@ -325,21 +408,17 @@ pub struct DataTable<T: Clone + 'static> {
     edit_column_id: SharedString,
     edit_old_value: SharedString,
     use_edit_dialog: bool,
-    on_cell_edit: Option<
-        Box<dyn Fn(usize, SharedString, SharedString, SharedString, &mut Context<Self>) + 'static>,
-    >,
-    on_cell_double_click: Option<
-        Box<dyn Fn(&T, SharedString, SharedString, &mut Window, &mut Context<Self>) + 'static>,
-    >,
-    on_fetch_page: Option<Box<dyn Fn(usize, usize, &mut Window, &mut Context<Self>) + 'static>>,
-    on_row_click: Option<Box<dyn Fn(usize, &T, &mut Window, &mut Context<Self>) + 'static>>,
+    on_cell_edit: Option<CellEditCallback<Self>>,
+    on_cell_double_click: Option<CellDoubleClickCallback<T>>,
+    on_fetch_page: Option<FetchPageCallback<Self>>,
+    on_row_click: Option<RowClickCallback<T>>,
     search_query: String,
     search_column: Option<usize>,
     show_search: bool,
     search_column_select: Entity<Select<usize>>,
     search_input: Entity<InputState>,
     show_selection: bool,
-    on_selection_change: Option<Box<dyn Fn(&[usize], &mut Window, &mut Context<Self>) + 'static>>,
+    on_selection_change: Option<SelectionChangeCallback<Self>>,
     row_actions: Vec<RowAction>,
     context_menu: Option<(usize, Point<Pixels>)>,
     style: StyleRefinement,
@@ -347,42 +426,17 @@ pub struct DataTable<T: Clone + 'static> {
 
 impl<T: Clone + 'static> DataTable<T> {
     pub fn new(data: Vec<T>, columns: Vec<ColumnDef<T>>, cx: &mut Context<Self>) -> Self {
-        let mut select_options = vec![SelectOption::new(usize::MAX, "All Columns")];
-        for (idx, column) in columns.iter().enumerate() {
-            select_options.push(SelectOption::new(idx, column.header.clone()));
-        }
+        Self::from_state(DataTableState::new(data, columns), cx)
+    }
 
-        let search_column_select = cx.new(|cx| {
-            Select::new(cx)
-                .options(select_options)
-                .selected_index(Some(0))
-                .placeholder("Select column...")
-        });
-
-        cx.subscribe(
-            &search_column_select,
-            |this, _select, event: &SelectEvent, cx| match event {
-                SelectEvent::Change => {
-                    let selected = this.search_column_select.read(cx).selected_value().copied();
-                    this.search_column = if selected == Some(usize::MAX) {
-                        None
-                    } else {
-                        selected
-                    };
-                    cx.notify();
-                }
-            },
-        )
-        .detach();
-
-        let search_input = cx.new(InputState::new);
+    fn from_state(state: DataTableState<T>, cx: &mut Context<Self>) -> Self {
+        let (search_column_select, search_input) = Self::create_search_controls(&state.columns, cx);
 
         Self {
-            state: DataTableState::new(data, columns),
+            state,
             resizing_column: None,
             resize_start_x: 0.0,
             resize_start_width: px(0.0),
-            sticky_header: true,
             on_load_more: None,
             load_more_threshold: 0.7,
             load_more_triggered: false,
@@ -409,8 +463,43 @@ impl<T: Clone + 'static> DataTable<T> {
         }
     }
 
-    pub fn sticky_header(mut self, sticky: bool) -> Self {
-        self.sticky_header = sticky;
+    fn create_search_controls(
+        columns: &[ColumnDef<T>],
+        cx: &mut Context<Self>,
+    ) -> (Entity<Select<usize>>, Entity<InputState>) {
+        let mut select_options = vec![SelectOption::new(usize::MAX, "All Columns")];
+        select_options.extend(
+            columns
+                .iter()
+                .enumerate()
+                .map(|(idx, column)| SelectOption::new(idx, column.header.clone())),
+        );
+
+        let search_column_select = cx.new(|cx| {
+            Select::new(cx)
+                .options(select_options)
+                .selected_index(Some(0))
+                .placeholder("Select column...")
+        });
+
+        cx.subscribe(
+            &search_column_select,
+            |this, _select, event: &SelectEvent, cx| match event {
+                SelectEvent::Change => {
+                    let selected = this.search_column_select.read(cx).selected_value().copied();
+                    this.search_column =
+                        (selected != Some(usize::MAX)).then_some(selected).flatten();
+                    cx.notify();
+                }
+            },
+        )
+        .detach();
+
+        (search_column_select, cx.new(InputState::new))
+    }
+
+    #[deprecated(note = "DataTable keeps its header outside the virtualized body; use the default")]
+    pub fn sticky_header(self, _sticky: bool) -> Self {
         self
     }
 
@@ -433,72 +522,9 @@ impl<T: Clone + 'static> DataTable<T> {
         page_size: usize,
         cx: &mut Context<Self>,
     ) -> Self {
-        let mut select_options = vec![SelectOption::new(usize::MAX, "All Columns")];
-        for (idx, column) in columns.iter().enumerate() {
-            select_options.push(SelectOption::new(idx, column.header.clone()));
-        }
-
-        let search_column_select = cx.new(|cx| {
-            Select::new(cx)
-                .options(select_options)
-                .selected_index(Some(0))
-                .placeholder("Select column...")
-        });
-
-        cx.subscribe(
-            &search_column_select,
-            |this, _select, event: &SelectEvent, cx| match event {
-                SelectEvent::Change => {
-                    let selected = this.search_column_select.read(cx).selected_value().copied();
-                    this.search_column = if selected == Some(usize::MAX) {
-                        None
-                    } else {
-                        selected
-                    };
-                    cx.notify();
-                }
-            },
-        )
-        .detach();
-
-        let search_input = cx.new(InputState::new);
-
-        Self {
-            state: DataTableState::new(Vec::new(), columns),
-            resizing_column: None,
-            resize_start_x: 0.0,
-            resize_start_width: px(0.0),
-            sticky_header: true,
-            on_load_more: None,
-            load_more_threshold: 0.7,
-            load_more_triggered: false,
-            scroll_handle: ScrollHandle::new(),
-            editing_cell: None,
-            edit_input: None,
-            edit_column_id: SharedString::from(""),
-            edit_old_value: SharedString::from(""),
-            use_edit_dialog: false,
-            on_cell_edit: None,
-            on_cell_double_click: None,
-            on_fetch_page: None,
-            on_row_click: None,
-            search_query: String::new(),
-            search_column: None,
-            show_search: true,
-            search_column_select,
-            search_input,
-            show_selection: false,
-            on_selection_change: None,
-            row_actions: Vec::new(),
-            context_menu: None,
-            style: StyleRefinement::default(),
-        }
-        .with_virtual_backing(total_items, page_size)
-    }
-
-    fn with_virtual_backing(mut self, total_items: usize, page_size: usize) -> Self {
-        self.state.virtual_reset(total_items, Some(page_size));
-        self
+        let mut state = DataTableState::new(Vec::new(), columns);
+        state.virtual_reset(total_items, Some(page_size));
+        Self::from_state(state, cx)
     }
 
     /// Set callback for when user scrolls near the end
@@ -622,6 +648,9 @@ impl<T: Clone + 'static> DataTable<T> {
     }
 
     pub fn set_data(&mut self, data: Vec<T>, cx: &mut Context<Self>) {
+        // Replacing rows invalidates the editing index (and the input entity)
+        // even when the new data has the same length.
+        self.cancel_edit(cx);
         self.state.replace_in_memory_data(data);
         self.state.clear_selection();
         self.load_more_triggered = false;
@@ -638,6 +667,7 @@ impl<T: Clone + 'static> DataTable<T> {
         cx: &mut Context<Self>,
     ) {
         let had_selection = !self.state.selected_rows.is_empty();
+        self.cancel_edit(cx);
         self.state.replace_in_memory_data(data);
         self.state.clear_selection();
         self.load_more_triggered = false;
@@ -649,14 +679,23 @@ impl<T: Clone + 'static> DataTable<T> {
         cx.notify();
     }
 
-    pub fn append_data(&mut self, mut new_data: Vec<T>, cx: &mut Context<Self>) {
-        if let DataBacking::InMemory { data } = &mut self.state.backing {
-            data.append(&mut new_data);
-            let new_count = data.len();
-            self.state.scroller.set_total_items(new_count);
-            self.load_more_triggered = false;
-            cx.notify();
+    pub fn append_data(&mut self, new_data: Vec<T>, cx: &mut Context<Self>) {
+        // Appending under an active sort can reorder existing rows, so discard
+        // the positional edit before changing the backing data.
+        self.cancel_edit(cx);
+        let was_sorted = self.state.sort_column.is_some();
+        if !self.state.append_in_memory_data(new_data) {
+            return;
         }
+        if was_sorted {
+            // Selection is represented by row indices. Reordering can make an
+            // existing index refer to a different row, so clear it explicitly.
+            self.state.clear_selection();
+        }
+        let new_count = self.state.total_items();
+        self.state.scroller.set_total_items(new_count);
+        self.load_more_triggered = false;
+        cx.notify();
     }
 
     pub fn virtual_reset(
@@ -665,6 +704,7 @@ impl<T: Clone + 'static> DataTable<T> {
         page_size: Option<usize>,
         cx: &mut Context<Self>,
     ) {
+        self.cancel_edit(cx);
         self.state.virtual_reset(total_items, page_size);
         self.state.clear_selection();
         self.load_more_triggered = false;
@@ -681,6 +721,7 @@ impl<T: Clone + 'static> DataTable<T> {
         cx: &mut Context<Self>,
     ) {
         let had_selection = !self.state.selected_rows.is_empty();
+        self.cancel_edit(cx);
         self.state.virtual_reset(total_items, page_size);
         self.load_more_triggered = false;
         if had_selection {
@@ -692,6 +733,10 @@ impl<T: Clone + 'static> DataTable<T> {
     }
 
     pub fn set_page_data(&mut self, page_start: usize, rows: Vec<T>, cx: &mut Context<Self>) {
+        // A page refresh may replace the row currently being edited. The
+        // virtual backing has no stable row identity, so drop the positional
+        // editor before installing new cache entries.
+        self.cancel_edit(cx);
         self.state.virtual_set_page(page_start, rows);
         self.load_more_triggered = false;
         cx.notify();
@@ -973,6 +1018,13 @@ impl<T: Clone + 'static> DataTable<T> {
                                 SortDirection::Ascending
                             };
 
+                            if this.editing_cell.is_some() {
+                                if this.use_edit_dialog {
+                                    this.cancel_edit(cx);
+                                } else {
+                                    this.save_edit(cx);
+                                }
+                            }
                             let had_selection = !this.state.selected_rows.is_empty();
                             this.state.sort_by_column(col_idx, new_direction);
                             if had_selection {
@@ -1062,6 +1114,55 @@ mod tests {
             vec!["1", "2", "10"]
         );
         assert!(state.selected_rows.is_empty());
+    }
+
+    #[::core::prelude::v1::test]
+    fn replacing_data_reapplies_the_active_sort() {
+        let mut state = DataTableState::new(
+            vec![Row { value: "2".into() }, Row { value: "1".into() }],
+            columns(),
+        );
+        state.sort_by_column(0, SortDirection::Ascending);
+        state.replace_in_memory_data(vec![Row { value: "10".into() }, Row { value: "3".into() }]);
+
+        let DataBacking::InMemory { data } = &state.backing else {
+            panic!("expected in-memory data");
+        };
+        assert_eq!(
+            data.iter()
+                .map(|row| row.value.as_str())
+                .collect::<Vec<_>>(),
+            vec!["3", "10"]
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn appending_data_reapplies_the_active_sort() {
+        let mut state = DataTableState::new(
+            vec![Row { value: "1".into() }, Row { value: "3".into() }],
+            columns(),
+        );
+        state.sort_by_column(0, SortDirection::Descending);
+        assert!(state.append_in_memory_data(vec![Row { value: "10".into() }]));
+
+        let DataBacking::InMemory { data } = &state.backing else {
+            panic!("expected in-memory data");
+        };
+        assert_eq!(
+            data.iter()
+                .map(|row| row.value.as_str())
+                .collect::<Vec<_>>(),
+            vec!["10", "3", "1"]
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn virtual_sort_does_not_claim_a_local_order() {
+        let mut state = DataTableState::new(Vec::<Row>::new(), columns());
+        state.virtual_reset(10, Some(2));
+        state.sort_by_column(0, SortDirection::Ascending);
+
+        assert!(state.sort_column.is_none());
     }
 
     #[::core::prelude::v1::test]
@@ -1437,7 +1538,11 @@ impl<T: Clone + 'static> Render for DataTable<T> {
                         let mut page = first_page_start;
                         while page <= last_page_start {
                             let mut needs_fetch = false;
-                            for i in page..(page + *page_size).min(total_items) {
+                            let page_end = page
+                                .checked_add(*page_size)
+                                .unwrap_or(usize::MAX)
+                                .min(total_items);
+                            for i in page..page_end {
                                 if !cache.contains_key(&i) {
                                     needs_fetch = true;
                                     break;
@@ -1447,7 +1552,10 @@ impl<T: Clone + 'static> Render for DataTable<T> {
                                 in_flight_pages.insert(page);
                                 fetch_cb(page, *page_size, window, cx);
                             }
-                            page += *page_size;
+                            let Some(next_page) = page.checked_add(*page_size) else {
+                                break;
+                            };
+                            page = next_page;
                         }
                     }
                 }
@@ -1492,45 +1600,24 @@ impl<T: Clone + 'static> Render for DataTable<T> {
                     .child(body_container),
             );
 
-        let table_div = if self.sticky_header {
-            div()
-                .flex()
-                .flex_col()
-                .w_full()
-                .border_1()
-                .border_color(theme.tokens.border)
-                .rounded(theme.tokens.radius_lg)
-                .overflow_hidden()
-                .bg(theme.tokens.card)
-                .shadow_sm()
-                .when(self.show_search, |div| {
-                    div.child(self.render_search_bar(cx))
-                })
-                .child(scrollable_content)
-                .map(|mut this| {
-                    this.style().refine(&user_style);
-                    this
-                })
-        } else {
-            div()
-                .flex()
-                .flex_col()
-                .w_full()
-                .border_1()
-                .border_color(theme.tokens.border)
-                .rounded(theme.tokens.radius_lg)
-                .overflow_hidden()
-                .bg(theme.tokens.card)
-                .shadow_sm()
-                .when(self.show_search, |div| {
-                    div.child(self.render_search_bar(cx))
-                })
-                .child(scrollable_content)
-                .map(|mut this| {
-                    this.style().refine(&user_style);
-                    this
-                })
-        };
+        let table_div = div()
+            .flex()
+            .flex_col()
+            .w_full()
+            .border_1()
+            .border_color(theme.tokens.border)
+            .rounded(theme.tokens.radius_lg)
+            .overflow_hidden()
+            .bg(theme.tokens.card)
+            .shadow_sm()
+            .when(self.show_search, |div| {
+                div.child(self.render_search_bar(cx))
+            })
+            .child(scrollable_content)
+            .map(|mut this| {
+                this.style().refine(&user_style);
+                this
+            });
 
         let context_menu_elem = self
             .context_menu
