@@ -162,8 +162,18 @@ impl Selection {
 
 #[derive(Debug, Clone)]
 enum EditOp {
-    Insert { byte_offset: usize, text: String },
-    Delete { byte_offset: usize, text: String },
+    Insert {
+        byte_offset: usize,
+        text: String,
+    },
+    Delete {
+        byte_offset: usize,
+        text: String,
+    },
+    /// A single user action made up of several primitive edits, such as
+    /// replacing a selection or replacing all search matches. Keeping the
+    /// primitives together makes one undo restore the complete prior value.
+    Batch(Vec<EditOp>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -569,6 +579,7 @@ pub struct EditorState {
 
     reparse_task: Option<Task<()>>,
     search_task: Option<Task<()>>,
+    search_generation: u64,
 
     search_query: String,
     search_matches: Vec<(usize, usize)>,
@@ -599,6 +610,74 @@ pub struct EditorState {
     cached_display_lines: Option<Rc<Vec<usize>>>,
 
     diagnostics: Vec<EditorDiagnostic>,
+}
+
+/// Finds case-insensitive matches while keeping ranges in the original text.
+///
+/// Lowercasing a Unicode scalar can produce more than one scalar (for example,
+/// `İ` becomes `i` followed by a combining dot). Searching the lowercased
+/// string directly therefore produces offsets that do not belong to the
+/// original string. Each normalized segment below keeps the original byte
+/// range that produced it, so a match that touches any part of an expansion is
+/// mapped back to the complete source character.
+fn find_case_insensitive_matches(content: &str, query: &str) -> Vec<(usize, usize)> {
+    if query.is_empty() {
+        return Vec::new();
+    }
+
+    let mut normalized_content = String::with_capacity(content.len());
+    let mut source_ranges = Vec::new();
+
+    for (source_start, character) in content.char_indices() {
+        let source_end = source_start + character.len_utf8();
+        let normalized_start = normalized_content.len();
+        normalized_content.extend(character.to_lowercase());
+        let normalized_end = normalized_content.len();
+
+        if normalized_start != normalized_end {
+            source_ranges.push((normalized_start, normalized_end, source_start, source_end));
+        }
+    }
+
+    let normalized_query = query.to_lowercase();
+    if normalized_query.is_empty() || normalized_content.is_empty() {
+        return Vec::new();
+    }
+
+    let mut matches = Vec::new();
+    let mut search_from = 0;
+    while let Some(relative_start) = normalized_content[search_from..].find(&normalized_query) {
+        let match_start = search_from + relative_start;
+        let match_end = match_start + normalized_query.len();
+
+        if let Some((source_start, source_end)) =
+            source_range_for_normalized_range(&source_ranges, match_start, match_end)
+        {
+            matches.push((source_start, source_end));
+        }
+
+        // Preserve overlapping matches, but advance by a complete normalized
+        // character so the next slice always starts on a UTF-8 boundary.
+        let next_char_len = normalized_content[match_start..]
+            .chars()
+            .next()
+            .map(|character| character.len_utf8())
+            .unwrap_or(1);
+        search_from = match_start + next_char_len;
+    }
+
+    matches
+}
+
+fn source_range_for_normalized_range(
+    source_ranges: &[(usize, usize, usize, usize)],
+    normalized_start: usize,
+    normalized_end: usize,
+) -> Option<(usize, usize)> {
+    let first = source_ranges.partition_point(|segment| segment.1 <= normalized_start);
+    let last = source_ranges.partition_point(|segment| segment.0 < normalized_end);
+
+    (first < last).then(|| (source_ranges[first].2, source_ranges[last - 1].3))
 }
 
 #[derive(Debug, Clone)]
@@ -668,6 +747,7 @@ impl EditorState {
             overlay_active_check: None,
             reparse_task: None,
             search_task: None,
+            search_generation: 0,
             search_query: String::new(),
             search_matches: Vec::new(),
             current_match_idx: None,
@@ -700,8 +780,8 @@ impl EditorState {
     pub fn set_cursor_position(&mut self, line: usize, col: usize, cx: &mut Context<Self>) {
         let max_line = self.total_lines().saturating_sub(1);
         self.cursor.line = line.min(max_line);
-        let line_len = self.line_len(self.cursor.line);
-        self.cursor.col = col.min(line_len);
+        let line_text = self.line_text(self.cursor.line);
+        self.cursor.col = floor_char_boundary(&line_text, col.min(line_text.len()));
         self.selection = None;
         self.reset_cursor_blink(cx);
         self.ensure_cursor_visible(cx);
@@ -712,6 +792,7 @@ impl EditorState {
         self.line_height = px((size * 1.5).round());
         self.line_layouts.clear();
         self.line_content_hashes.clear();
+        self.max_line_width = px(0.0);
         cx.notify();
     }
 
@@ -719,6 +800,7 @@ impl EditorState {
         self.font_family_override = Some(family.into());
         self.line_layouts.clear();
         self.line_content_hashes.clear();
+        self.max_line_width = px(0.0);
         cx.notify();
     }
 
@@ -941,7 +1023,7 @@ impl EditorState {
         let tree = match &self.syntax_tree {
             Some(t) => t,
             None => {
-                self.fold_ranges.clear();
+                self.clear_fold_state();
                 return;
             }
         };
@@ -1388,6 +1470,8 @@ impl EditorState {
 
     pub fn set_content(&mut self, content: &str, cx: &mut Context<Self>) {
         self.advance_parse_revision();
+        self.advance_search_generation();
+        self.content_version = self.content_version.wrapping_add(1);
         self.rope = if content.is_empty() {
             Rope::from_str("\n")
         } else if content.ends_with('\n') {
@@ -1402,6 +1486,8 @@ impl EditorState {
         self.undo_stack.clear();
         self.redo_stack.clear();
         self.is_modified = false;
+        self.clear_search_results();
+        self.clear_fold_state();
         self.invalidate_all_caches();
         if self.rope.len_bytes() > 50_000 {
             self.parse_async(cx);
@@ -1415,6 +1501,7 @@ impl EditorState {
         if self.language != lang {
             self.advance_parse_revision();
         }
+        self.clear_fold_state();
         self.language = lang;
         if let Some(ts_lang) = lang.tree_sitter_language() {
             let _ = self.parser.set_language(&ts_lang);
@@ -1425,6 +1512,7 @@ impl EditorState {
         } else {
             self.highlight_query = None;
         }
+        self.invalidate_all_caches();
         self.update_syntax_tree();
     }
 
@@ -1459,6 +1547,8 @@ impl EditorState {
                 match Rope::from_reader(reader) {
                     Ok(rope) => {
                         self.advance_parse_revision();
+                        self.advance_search_generation();
+                        self.content_version = self.content_version.wrapping_add(1);
                         self.file_path = Some(path);
                         self.rope = rope;
                         self.cursor = Position::zero();
@@ -1466,6 +1556,8 @@ impl EditorState {
                         self.undo_stack.clear();
                         self.redo_stack.clear();
                         self.is_modified = false;
+                        self.clear_search_results();
+                        self.clear_fold_state();
                         self.invalidate_all_caches();
                         if self.rope.len_bytes() > 50_000 {
                             self.parse_async(cx);
@@ -1535,6 +1627,7 @@ impl EditorState {
             None,
         );
         self.replace_syntax_tree(tree);
+        self.compute_fold_ranges();
     }
 
     fn byte_to_ts_point(&self, byte_offset: usize) -> TSPoint {
@@ -1648,8 +1741,8 @@ impl EditorState {
             return self.rope.len_bytes();
         }
         let line_start = self.rope.line_to_byte(pos.line);
-        let line_len = self.line_len(pos.line);
-        line_start + min(pos.col, line_len)
+        let line_text = self.line_text(pos.line);
+        line_start + floor_char_boundary(&line_text, min(pos.col, line_text.len()))
     }
 
     fn byte_offset_to_pos(&self, offset: usize) -> Position {
@@ -1663,8 +1756,8 @@ impl EditorState {
     fn clamp_cursor(&mut self) {
         let max_line = self.total_lines().saturating_sub(1);
         self.cursor.line = min(self.cursor.line, max_line);
-        let line_len = self.line_len(self.cursor.line);
-        self.cursor.col = min(self.cursor.col, line_len);
+        let line_text = self.line_text(self.cursor.line);
+        self.cursor.col = floor_char_boundary(&line_text, min(self.cursor.col, line_text.len()));
     }
 
     fn is_parse_result_current(&self, revision: u64) -> bool {
@@ -1683,10 +1776,14 @@ impl EditorState {
     fn replace_syntax_tree(&mut self, tree: Option<Tree>) {
         self.syntax_tree = tree;
         if self.syntax_tree.is_none() {
-            self.fold_ranges.clear();
-            self.folded.clear();
-            self.cached_display_lines = None;
+            self.clear_fold_state();
         }
+    }
+
+    fn clear_fold_state(&mut self) {
+        self.fold_ranges.clear();
+        self.folded.clear();
+        self.cached_display_lines = None;
     }
 
     fn advance_parse_revision(&mut self) {
@@ -1697,8 +1794,62 @@ impl EditorState {
         self.is_modified = true;
         self.content_version = self.content_version.wrapping_add(1);
         self.advance_parse_revision();
+        self.advance_search_generation();
         self.cursor_visible = true;
         self.last_cursor_move = std::time::Instant::now();
+    }
+
+    fn advance_search_generation(&mut self) -> u64 {
+        self.search_generation = self.search_generation.wrapping_add(1);
+        self.search_generation
+    }
+
+    fn clear_search_results(&mut self) {
+        self.search_matches.clear();
+        self.current_match_idx = None;
+    }
+
+    fn group_last_edits(&mut self, count: usize) {
+        if count == 0 || self.undo_stack.len() < count {
+            return;
+        }
+        let start = self.undo_stack.len() - count;
+        let edits = self.undo_stack.drain(start..).collect();
+        self.undo_stack.push(EditOp::Batch(edits));
+    }
+
+    fn apply_edit_op(&mut self, op: &EditOp, undo: bool) {
+        match op {
+            EditOp::Insert { byte_offset, text } => {
+                if undo {
+                    self.rope_remove(*byte_offset, byte_offset.saturating_add(text.len()));
+                    self.cursor = self.byte_offset_to_pos(*byte_offset);
+                } else {
+                    self.rope_insert(*byte_offset, text);
+                    self.cursor = self.byte_offset_to_pos(byte_offset.saturating_add(text.len()));
+                }
+            }
+            EditOp::Delete { byte_offset, text } => {
+                if undo {
+                    self.rope_insert(*byte_offset, text);
+                    self.cursor = self.byte_offset_to_pos(byte_offset.saturating_add(text.len()));
+                } else {
+                    self.rope_remove(*byte_offset, byte_offset.saturating_add(text.len()));
+                    self.cursor = self.byte_offset_to_pos(*byte_offset);
+                }
+            }
+            EditOp::Batch(edits) => {
+                if undo {
+                    for edit in edits.iter().rev() {
+                        self.apply_edit_op(edit, true);
+                    }
+                } else {
+                    for edit in edits {
+                        self.apply_edit_op(edit, false);
+                    }
+                }
+            }
+        }
     }
 
     pub fn content_version(&self) -> u64 {
@@ -1706,6 +1857,10 @@ impl EditorState {
     }
 
     fn insert_text_at_cursor(&mut self, text: &str, cx: &mut Context<Self>) {
+        let replaces_selection = self.selection.as_ref().is_some_and(|selection| {
+            let (start, end) = selection.range();
+            self.pos_to_byte_offset(start) < self.pos_to_byte_offset(end)
+        });
         if let Some(selection) = self.selection.take() {
             self.delete_selection_internal(selection, cx);
         }
@@ -1731,6 +1886,9 @@ impl EditorState {
             cx,
         );
         self.invalidate_after_edit();
+        if replaces_selection {
+            self.group_last_edits(2);
+        }
     }
 
     fn delete_selection_internal(&mut self, selection: Selection, cx: &mut Context<Self>) {
@@ -1783,18 +1941,41 @@ impl EditorState {
             return Position::new(pos.line - 1, self.line_len(pos.line - 1));
         }
         let line_text = self.line_text(pos.line);
-        let bytes = line_text.as_bytes();
-        let mut col = pos.col;
-        while col > 0 && bytes[col - 1].is_ascii_whitespace() {
-            col -= 1;
+        let boundaries: Vec<usize> = line_text
+            .char_indices()
+            .map(|(index, _)| index)
+            .chain(std::iter::once(line_text.len()))
+            .collect();
+        let mut char_index = boundaries
+            .partition_point(|&boundary| boundary < floor_char_boundary(&line_text, pos.col));
+
+        while char_index > 0 {
+            let char_start = boundaries[char_index - 1];
+            let ch = line_text[char_start..boundaries[char_index]].chars().next();
+            if !ch.is_some_and(char::is_whitespace) {
+                break;
+            }
+            char_index -= 1;
         }
-        while col > 0
-            && !bytes[col - 1].is_ascii_whitespace()
-            && bytes[col - 1].is_ascii_alphanumeric()
-        {
-            col -= 1;
+
+        if char_index > 0 {
+            let char_start = boundaries[char_index - 1];
+            let ch = line_text[char_start..boundaries[char_index]].chars().next();
+            if ch.is_some_and(Self::is_word_char) {
+                while char_index > 0 {
+                    let char_start = boundaries[char_index - 1];
+                    let ch = line_text[char_start..boundaries[char_index]].chars().next();
+                    if !ch.is_some_and(Self::is_word_char) {
+                        break;
+                    }
+                    char_index -= 1;
+                }
+            } else {
+                char_index -= 1;
+            }
         }
-        Position::new(pos.line, col)
+
+        Position::new(pos.line, boundaries[char_index])
     }
 
     fn find_word_boundary_right(&self, pos: Position) -> Position {
@@ -1806,18 +1987,52 @@ impl EditorState {
             return Position::new(pos.line + 1, 0);
         }
         let line_text = self.line_text(pos.line);
-        let bytes = line_text.as_bytes();
-        let mut col = pos.col;
-        while col < line_len && bytes[col].is_ascii_alphanumeric() {
-            col += 1;
+        let boundaries: Vec<usize> = line_text
+            .char_indices()
+            .map(|(index, _)| index)
+            .chain(std::iter::once(line_text.len()))
+            .collect();
+        let start_index = boundaries
+            .partition_point(|&boundary| boundary < floor_char_boundary(&line_text, pos.col));
+        let mut char_index = start_index;
+
+        if char_index < boundaries.len() - 1 {
+            let char_start = boundaries[char_index];
+            let ch = line_text[char_start..boundaries[char_index + 1]]
+                .chars()
+                .next();
+            if ch.is_some_and(Self::is_word_char) {
+                while char_index < boundaries.len() - 1 {
+                    let char_start = boundaries[char_index];
+                    let ch = line_text[char_start..boundaries[char_index + 1]]
+                        .chars()
+                        .next();
+                    if !ch.is_some_and(Self::is_word_char) {
+                        break;
+                    }
+                    char_index += 1;
+                }
+            }
+            while char_index < boundaries.len() - 1 {
+                let char_start = boundaries[char_index];
+                let ch = line_text[char_start..boundaries[char_index + 1]]
+                    .chars()
+                    .next();
+                if !ch.is_some_and(char::is_whitespace) {
+                    break;
+                }
+                char_index += 1;
+            }
+            if char_index == start_index {
+                char_index += 1;
+            }
         }
-        while col < line_len && bytes[col].is_ascii_whitespace() {
-            col += 1;
-        }
-        if col == pos.col {
-            col += 1;
-        }
-        Position::new(pos.line, min(col, line_len))
+
+        Position::new(pos.line, boundaries[char_index.min(boundaries.len() - 1)])
+    }
+
+    fn is_word_char(ch: char) -> bool {
+        ch.is_alphanumeric() || ch == '_'
     }
 
     // UTF-16 conversion helpers for IME support
@@ -1856,19 +2071,8 @@ impl EditorState {
 
     pub fn undo(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {
         if let Some(op) = self.undo_stack.pop() {
-            match &op {
-                EditOp::Insert { byte_offset, text } => {
-                    let end = byte_offset + text.len();
-                    self.rope_remove(*byte_offset, end);
-                    self.cursor = self.byte_offset_to_pos(*byte_offset);
-                    self.redo_stack.push(op);
-                }
-                EditOp::Delete { byte_offset, text } => {
-                    self.rope_insert(*byte_offset, text);
-                    self.cursor = self.byte_offset_to_pos(*byte_offset + text.len());
-                    self.redo_stack.push(op);
-                }
-            }
+            self.apply_edit_op(&op, true);
+            self.redo_stack.push(op);
             self.selection = None;
             self.mark_modified();
             self.update_syntax_tree();
@@ -1879,19 +2083,8 @@ impl EditorState {
 
     pub fn redo(&mut self, _: &Redo, _: &mut Window, cx: &mut Context<Self>) {
         if let Some(op) = self.redo_stack.pop() {
-            match &op {
-                EditOp::Insert { byte_offset, text } => {
-                    self.rope_insert(*byte_offset, text);
-                    self.cursor = self.byte_offset_to_pos(*byte_offset + text.len());
-                    self.undo_stack.push(op);
-                }
-                EditOp::Delete { byte_offset, text } => {
-                    let end = byte_offset + text.len();
-                    self.rope_remove(*byte_offset, end);
-                    self.cursor = self.byte_offset_to_pos(*byte_offset);
-                    self.undo_stack.push(op);
-                }
-            }
+            self.apply_edit_op(&op, false);
+            self.undo_stack.push(op);
             self.selection = None;
             self.mark_modified();
             self.update_syntax_tree();
@@ -2050,11 +2243,19 @@ impl EditorState {
 
     pub fn select_left(&mut self, _: &SelectLeft, _: &mut Window, cx: &mut Context<Self>) {
         self.start_selection_if_needed();
-        if self.cursor.col > 0 {
-            self.cursor.col -= 1;
+        let line_text = self.line_text(self.cursor.line);
+        let col = floor_char_boundary(&line_text, self.cursor.col);
+        if col > 0 {
+            self.cursor.col = line_text[..col]
+                .chars()
+                .next_back()
+                .map(|character| col - character.len_utf8())
+                .unwrap_or(0);
         } else if self.cursor.line > 0 {
             self.cursor.line -= 1;
             self.cursor.col = self.line_len(self.cursor.line);
+        } else {
+            self.cursor.col = 0;
         }
         if let Some(ref mut sel) = self.selection {
             sel.cursor = self.cursor;
@@ -2064,12 +2265,15 @@ impl EditorState {
 
     pub fn select_right(&mut self, _: &SelectRight, _: &mut Window, cx: &mut Context<Self>) {
         self.start_selection_if_needed();
-        let line_len = self.line_len(self.cursor.line);
-        if self.cursor.col < line_len {
-            self.cursor.col += 1;
+        let line_text = self.line_text(self.cursor.line);
+        let col = floor_char_boundary(&line_text, self.cursor.col);
+        if let Some(character) = line_text[col..].chars().next() {
+            self.cursor.col = col + character.len_utf8();
         } else if self.cursor.line < self.total_lines() - 1 {
             self.cursor.line += 1;
             self.cursor.col = 0;
+        } else {
+            self.cursor.col = line_text.len();
         }
         if let Some(ref mut sel) = self.selection {
             sel.cursor = self.cursor;
@@ -2342,8 +2546,8 @@ impl EditorState {
         self.search_query = query.to_string();
 
         if query.is_empty() {
-            self.search_matches.clear();
-            self.current_match_idx = None;
+            self.advance_search_generation();
+            self.clear_search_results();
             self.search_task = None;
             cx.notify();
             return;
@@ -2356,6 +2560,7 @@ impl EditorState {
     }
 
     fn schedule_search(&mut self, cx: &mut Context<Self>) {
+        let search_generation = self.advance_search_generation();
         let query_owned = self.search_query.clone();
         let use_regex = self.search_use_regex;
         let case_sensitive = self.search_case_sensitive;
@@ -2371,13 +2576,14 @@ impl EditorState {
                 let state = entity.read(cx);
                 let content = state.rope.to_string();
                 let cursor_byte = state.pos_to_byte_offset(state.cursor);
-                (content, cursor_byte)
+                (content, cursor_byte, state.content_version)
             });
 
-            let Ok((content, cursor_byte)) = search_input else {
+            let Ok((content, cursor_byte, content_version)) = search_input else {
                 return;
             };
 
+            let query_for_commit = query_owned.clone();
             let matches = smol::unblock(move || {
                 let mut results = Vec::new();
                 if use_regex {
@@ -2392,18 +2598,26 @@ impl EditorState {
                         }
                     }
                 } else {
-                    let (haystack, needle): (String, String) = if case_sensitive {
-                        (content.to_string(), query_owned.to_string())
+                    if case_sensitive {
+                        let needle_len = query_owned.len();
+                        let mut start = 0;
+                        while let Some(pos) = content[start..].find(&query_owned) {
+                            let match_start = start + pos;
+                            let match_end = match_start + needle_len;
+                            results.push((match_start, match_end));
+                            // Keep overlapping matches while advancing on a
+                            // UTF-8 boundary. `match_start + 1` can point
+                            // into a multi-byte character and panic on the
+                            // next slice.
+                            let next_char_len = content[match_start..]
+                                .chars()
+                                .next()
+                                .map(|character| character.len_utf8())
+                                .unwrap_or(1);
+                            start = match_start + next_char_len;
+                        }
                     } else {
-                        (content.to_lowercase(), query_owned.to_lowercase())
-                    };
-                    let needle_len = needle.len();
-                    let mut start = 0;
-                    while let Some(pos) = haystack[start..].find(&needle) {
-                        let match_start = start + pos;
-                        let match_end = match_start + needle_len;
-                        results.push((match_start, match_end));
-                        start = match_start + 1;
+                        results = find_case_insensitive_matches(&content, &query_owned);
                     }
                 }
                 results
@@ -2412,22 +2626,54 @@ impl EditorState {
 
             let _ = cx.update(|cx| {
                 entity.update(cx, |state, cx| {
-                    state.search_matches = matches;
-                    if !state.search_matches.is_empty() {
-                        let idx = state
-                            .search_matches
-                            .iter()
-                            .position(|(s, _)| *s >= cursor_byte)
-                            .unwrap_or(0);
-                        state.current_match_idx = Some(idx);
-                        state.scroll_to_match(idx);
-                    } else {
-                        state.current_match_idx = None;
+                    if state.commit_search_result(
+                        search_generation,
+                        content_version,
+                        &query_for_commit,
+                        use_regex,
+                        case_sensitive,
+                        cursor_byte,
+                        matches,
+                    ) {
+                        cx.notify();
                     }
-                    cx.notify();
                 });
             });
         }));
+    }
+
+    fn commit_search_result(
+        &mut self,
+        generation: u64,
+        content_version: u64,
+        query: &str,
+        use_regex: bool,
+        case_sensitive: bool,
+        cursor_byte: usize,
+        matches: Vec<(usize, usize)>,
+    ) -> bool {
+        if generation != self.search_generation
+            || content_version != self.content_version
+            || query != self.search_query
+            || use_regex != self.search_use_regex
+            || case_sensitive != self.search_case_sensitive
+        {
+            return false;
+        }
+
+        self.search_matches = matches;
+        if !self.search_matches.is_empty() {
+            let idx = self
+                .search_matches
+                .iter()
+                .position(|(start, _)| *start >= cursor_byte)
+                .unwrap_or(0);
+            self.current_match_idx = Some(idx);
+            self.scroll_to_match(idx);
+        } else {
+            self.current_match_idx = None;
+        }
+        true
     }
 
     pub fn find_next(&mut self, cx: &mut Context<Self>) {
@@ -2497,6 +2743,7 @@ impl EditorState {
         });
         self.rope_insert(start, replacement);
         self.redo_stack.clear();
+        self.group_last_edits(2);
         self.mark_modified();
         let new_end = start + replacement.len();
         self.update_syntax_tree_incremental(start, end, new_end, old_end_position, cx);
@@ -2532,6 +2779,7 @@ impl EditorState {
             self.rope_insert(start, replacement);
         }
         self.redo_stack.clear();
+        self.group_last_edits(self.search_matches.len().saturating_mul(2));
         self.mark_modified();
         self.update_syntax_tree();
         self.invalidate_after_edit();
@@ -2545,6 +2793,7 @@ impl EditorState {
         self.line_layouts.clear();
         self.line_content_hashes.clear();
         self.highlight_cache_version = u64::MAX;
+        self.max_line_width = px(0.0);
     }
 
     /// Invalidation for text edits. Clears all caches since line indices
@@ -2554,8 +2803,8 @@ impl EditorState {
         self.line_layouts.clear();
         self.line_content_hashes.clear();
         self.highlight_cache_version = u64::MAX;
-        self.search_matches.clear();
-        self.current_match_idx = None;
+        self.max_line_width = px(0.0);
+        self.clear_search_results();
     }
 
     pub fn invalidate_line_layouts(&mut self, cx: &mut Context<Self>) {
@@ -2565,8 +2814,9 @@ impl EditorState {
 
     pub fn clear_search(&mut self, cx: &mut Context<Self>) {
         self.search_query.clear();
-        self.search_matches.clear();
-        self.current_match_idx = None;
+        self.advance_search_generation();
+        self.clear_search_results();
+        self.search_task = None;
         cx.notify();
     }
 
@@ -3476,6 +3726,9 @@ impl Element for EditorElement {
             if max_line_width > state.max_line_width {
                 state.max_line_width = max_line_width;
             }
+            let content_width = bounds.size.width - gutter_width;
+            let max_scroll = (state.max_line_width - content_width + px(40.0)).max(px(0.0));
+            state.scroll_offset_x = state.scroll_offset_x.max(px(0.0)).min(max_scroll);
         });
 
         if show_line_numbers {
@@ -3880,7 +4133,12 @@ impl EditorElement {
                 if before_ok && after_ok {
                     results.push((line_idx, abs_start, abs_end));
                 }
-                search_from = abs_start + 1;
+                let next_char_len = line_text[abs_start..]
+                    .chars()
+                    .next()
+                    .map(|character| character.len_utf8())
+                    .unwrap_or(1);
+                search_from = abs_start + next_char_len;
             }
         }
         results
@@ -4759,6 +5017,39 @@ mod tests {
     }
 
     #[gpui::test]
+    fn selecting_and_clamping_cursor_stay_on_unicode_boundaries() {
+        let mut app = TestApp::new();
+        let editor = app.update(|cx| cx.new(EditorState::new));
+        let mut window = app.open_window(|_, _| EditorTestView {
+            state: editor.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.set_content("读", cx);
+                state.set_cursor_position(0, 2, cx);
+                assert_eq!(state.cursor(), Position::zero());
+
+                state.set_cursor_position(0, "读".len(), cx);
+                state.select_left(&SelectLeft, window, cx);
+                assert_eq!(state.cursor(), Position::zero());
+                assert_eq!(state.selection_text().as_deref(), Some("读"));
+                assert!(state.line_text(0).is_char_boundary(state.cursor().col));
+
+                state.select_right(&SelectRight, window, cx);
+                assert_eq!(state.cursor(), Position::new(0, "读".len()));
+                assert!(state.line_text(0).is_char_boundary(state.cursor().col));
+
+                state.set_content("a\n界", cx);
+                state.set_cursor_position(0, 1, cx);
+                state.move_down(&MoveDown, window, cx);
+                assert_eq!(state.cursor(), Position::new(1, 0));
+                assert!(state.line_text(1).is_char_boundary(state.cursor().col));
+            });
+        });
+    }
+
+    #[gpui::test]
     fn mixed_cjk_cursor_crosses_lines_and_enter_splits_on_boundaries() {
         let mut app = TestApp::new();
         let editor = app.update(|cx| cx.new(EditorState::new));
@@ -4803,6 +5094,34 @@ mod tests {
     }
 
     #[gpui::test]
+    fn word_cursor_movement_stays_on_unicode_boundaries() {
+        let mut app = TestApp::new();
+        let editor = app.update(|cx| cx.new(EditorState::new));
+        let mut window = app.open_window(|_, _| EditorTestView {
+            state: editor.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.set_content("中文 abc", cx);
+                state.set_cursor_position(0, "中文 abc".len(), cx);
+
+                state.move_word_left(&MoveWordLeft, window, cx);
+                assert_eq!(state.cursor(), Position::new(0, "中文 ".len()));
+                assert!(state.line_text(0).is_char_boundary(state.cursor().col));
+
+                state.move_word_left(&MoveWordLeft, window, cx);
+                assert_eq!(state.cursor(), Position::zero());
+                assert!(state.line_text(0).is_char_boundary(state.cursor().col));
+
+                state.move_word_right(&MoveWordRight, window, cx);
+                assert_eq!(state.cursor(), Position::new(0, "中文 ".len()));
+                assert!(state.line_text(0).is_char_boundary(state.cursor().col));
+            });
+        });
+    }
+
+    #[gpui::test]
     fn stale_search_matches_after_shrinking_document_do_not_panic() {
         let mut app = TestApp::new();
         let editor = app.update(|cx| cx.new(EditorState::new));
@@ -4829,6 +5148,189 @@ mod tests {
                 assert_eq!(state.content(), "hi\n");
             });
         });
+    }
+
+    #[gpui::test]
+    fn stale_async_search_results_are_rejected_after_content_changes() {
+        let mut app = TestApp::new();
+        let editor = app.update(|cx| cx.new(EditorState::new));
+
+        app.update(|cx| {
+            editor.update(cx, |state, cx| {
+                state.set_content("old document", cx);
+                state.search_query = "old".to_string();
+                let generation = state.search_generation;
+                let content_version = state.content_version;
+
+                state.set_content("new document", cx);
+
+                assert!(!state.commit_search_result(
+                    generation,
+                    content_version,
+                    "old",
+                    false,
+                    false,
+                    0,
+                    vec![(0, 3)],
+                ));
+                assert!(state.search_matches.is_empty());
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn case_insensitive_search_maps_unicode_lowercase_expansions() {
+        // `İ` lowercases to `i` plus a combining dot (three normalized bytes,
+        // but only two bytes in the original source). Every returned range
+        // must remain a valid range in the original string.
+        let content = "İxİ";
+        assert_eq!(
+            find_case_insensitive_matches(content, "i"),
+            vec![(0, "İ".len()), ("İx".len(), content.len())]
+        );
+        assert_eq!(
+            find_case_insensitive_matches(content, "i\u{307}"),
+            vec![(0, "İ".len()), ("İx".len(), content.len())]
+        );
+
+        // A regular multi-byte case conversion must also map to source byte
+        // offsets, while overlapping matches continue to work.
+        assert_eq!(
+            find_case_insensitive_matches("Éé", "é"),
+            vec![(0, "É".len()), ("É".len(), "Éé".len())]
+        );
+    }
+
+    #[gpui::test]
+    fn case_insensitive_search_keeps_unicode_casefold_scope_explicit() {
+        // The editor uses Rust's lowercase mapping, rather than full Unicode
+        // case folding. Thus `ẞ`/`ß` work, while the multi-character uppercase
+        // form `SS` is intentionally not treated as equivalent to `ß`.
+        assert_eq!(find_case_insensitive_matches("Straße", "ß"), vec![(4, 6)]);
+        assert_eq!(find_case_insensitive_matches("ẞ", "ß"), vec![(0, 3)]);
+        assert!(find_case_insensitive_matches("Straße", "SS").is_empty());
+    }
+
+    #[gpui::test]
+    fn replacing_content_resets_cached_max_line_width() {
+        let mut app = TestApp::new();
+        let editor = app.update(|cx| cx.new(EditorState::new));
+
+        app.update(|cx| {
+            editor.update(cx, |state, cx| {
+                state.max_line_width = px(900.0);
+                state.set_content("short", cx);
+                assert_eq!(state.max_line_width, px(0.0));
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn undo_and_redo_round_trip_a_text_edit() {
+        let mut app = TestApp::new();
+        let editor = app.update(|cx| cx.new(EditorState::new));
+        let mut window = app.open_window(|_, _| EditorTestView {
+            state: editor.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.set_content("hello", cx);
+                state.set_cursor_position(0, 5, cx);
+                state.insert_text_at_cursor("!", cx);
+                assert_eq!(state.content(), "hello!\n");
+
+                state.undo(&Undo, window, cx);
+                assert_eq!(state.content(), "hello\n");
+
+                state.redo(&Redo, window, cx);
+                assert_eq!(state.content(), "hello!\n");
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn replacing_a_selection_is_undone_as_one_edit() {
+        let mut app = TestApp::new();
+        let editor = app.update(|cx| cx.new(EditorState::new));
+        let mut window = app.open_window(|_, _| EditorTestView {
+            state: editor.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.set_content("hello world", cx);
+                state.selection = Some(Selection::new(Position::zero(), Position::new(0, 5)));
+                state.cursor = Position::new(0, 5);
+                state.insert_text_at_cursor("hi", cx);
+                assert_eq!(state.content(), "hi world\n");
+
+                state.undo(&Undo, window, cx);
+                assert_eq!(state.content(), "hello world\n");
+
+                state.redo(&Redo, window, cx);
+                assert_eq!(state.content(), "hi world\n");
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn replace_all_is_undone_as_one_edit() {
+        let mut app = TestApp::new();
+        let editor = app.update(|cx| cx.new(EditorState::new));
+        let mut window = app.open_window(|_, _| EditorTestView {
+            state: editor.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.set_content("a a a", cx);
+                state.search_query = "a".to_string();
+                state.search_matches = vec![(0, 1), (2, 3), (4, 5)];
+                state.replace_all("b", cx);
+                assert_eq!(state.content(), "b b b\n");
+
+                state.undo(&Undo, window, cx);
+                assert_eq!(state.content(), "a a a\n");
+
+                state.redo(&Redo, window, cx);
+                assert_eq!(state.content(), "b b b\n");
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn editing_after_load_and_save_updates_modified_state() {
+        let path = std::env::temp_dir().join(format!(
+            "adabraka-editor-save-state-{}.txt",
+            std::process::id()
+        ));
+        std::fs::write(&path, "saved").expect("write editor test file");
+
+        let mut app = TestApp::new();
+        let editor = app.update(|cx| cx.new(EditorState::new));
+        let mut window = app.open_window(|_, _| EditorTestView {
+            state: editor.clone(),
+        });
+
+        window.update(|view, _window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.load_file(&path, cx);
+                assert!(!state.is_modified());
+
+                state.set_cursor_position(0, 5, cx);
+                state.insert_text_at_cursor("!", cx);
+                assert!(state.is_modified());
+                assert!(state.save(cx));
+                assert!(!state.is_modified());
+            });
+        });
+
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read saved file"),
+            "saved!"
+        );
+        std::fs::remove_file(path).expect("remove editor test file");
     }
 
     #[gpui::test]
@@ -4873,6 +5375,35 @@ mod tests {
                 state.set_language(Language::Plain);
 
                 assert!(state.syntax_tree.is_none());
+                assert!(state.fold_ranges.is_empty());
+                assert!(state.folded.is_empty());
+                assert!(state.cached_display_lines.is_none());
+            });
+        });
+    }
+
+    #[cfg(feature = "tree-sitter-rust")]
+    #[gpui::test]
+    fn replacing_content_clears_stale_fold_state() {
+        let mut app = TestApp::new();
+        let editor = app.update(|cx| cx.new(EditorState::new));
+
+        app.update(|cx| {
+            editor.update(cx, |state, cx| {
+                state.set_language(Language::Rust);
+                state.set_content("fn main() {\n    let value = 1;\n}\n", cx);
+                state.fold_ranges.push(FoldRange {
+                    start_line: 0,
+                    end_line: 2,
+                });
+                state.folded.push(FoldRange {
+                    start_line: 0,
+                    end_line: 2,
+                });
+                state.cached_display_lines = Some(Rc::new(vec![0]));
+
+                state.set_content("fn main() {}", cx);
+
                 assert!(state.fold_ranges.is_empty());
                 assert!(state.folded.is_empty());
                 assert!(state.cached_display_lines.is_none());

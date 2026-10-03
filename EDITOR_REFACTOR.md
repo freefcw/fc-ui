@@ -26,7 +26,7 @@ Public APIs and legacy import paths must remain compatible throughout the work.
 
 `src/capabilities/editor/editor.rs` keeps most editor state and behavior in `EditorState`. Text mutation paths must coordinate several related updates. A missed update can produce user-visible failures such as incorrect undo results, stale highlighting, an outdated layout, or a misplaced cursor.
 
-The existing in-file tests mainly protect parsing revisions and stale parse results. They do not yet provide a broad safety net for the core editing workflows above.
+The in-file tests now cover parse revisions, stale parse results, UTF-8 cursor movement and selection (including word movement), stale search replacement ranges, stale asynchronous search results, stale fold-state reset after content replacement, undo/redo grouping for selection and multi-match replacement, and load/save modified-state transitions. They still do not provide a broad safety net for selection restoration or folding after line edits.
 
 ## Staged Approach
 
