@@ -1126,6 +1126,40 @@ pub fn hlist_variable<R: IntoElement + 'static, P: ItemExtentProvider + 'static>
     VariableVirtualList::new(id, Axis::Horizontal, item_count, provider, renderer)
 }
 
+pub fn vlist_uniform_view<R, V>(
+    view: Entity<V>,
+    id: impl Into<ElementId>,
+    item_count: usize,
+    item_extent: Pixels,
+    f: impl 'static + Fn(&mut V, Range<usize>, &mut Window, &mut Context<V>) -> Vec<R>,
+) -> UniformVirtualList
+where
+    R: IntoElement,
+    V: Render,
+{
+    let id: ElementId = id.into();
+    let render_range = move |visible_range: Range<usize>, window: &mut Window, cx: &mut App| {
+        view.update(cx, |this, cx| {
+            f(this, visible_range, window, cx)
+                .into_iter()
+                .map(|component| component.into_any_element())
+                .collect::<SmallVec<[AnyElement; 64]>>()
+        })
+    };
+
+    UniformVirtualList::new(
+        id,
+        Axis::Vertical,
+        item_count,
+        item_extent,
+        move |range, window, cx| {
+            render_range(range, window, cx)
+                .into_iter()
+                .collect::<Vec<_>>()
+        },
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::{scroll_target_for_strategy, ChunkedExtents, ItemExtentProvider};
@@ -1216,38 +1250,4 @@ mod tests {
             px(300.)
         );
     }
-}
-
-pub fn vlist_uniform_view<R, V>(
-    view: Entity<V>,
-    id: impl Into<ElementId>,
-    item_count: usize,
-    item_extent: Pixels,
-    f: impl 'static + Fn(&mut V, Range<usize>, &mut Window, &mut Context<V>) -> Vec<R>,
-) -> UniformVirtualList
-where
-    R: IntoElement,
-    V: Render,
-{
-    let id: ElementId = id.into();
-    let render_range = move |visible_range: Range<usize>, window: &mut Window, cx: &mut App| {
-        view.update(cx, |this, cx| {
-            f(this, visible_range, window, cx)
-                .into_iter()
-                .map(|component| component.into_any_element())
-                .collect::<SmallVec<[AnyElement; 64]>>()
-        })
-    };
-
-    UniformVirtualList::new(
-        id,
-        Axis::Vertical,
-        item_count,
-        item_extent,
-        move |range, window, cx| {
-            render_range(range, window, cx)
-                .into_iter()
-                .collect::<Vec<_>>()
-        },
-    )
 }
