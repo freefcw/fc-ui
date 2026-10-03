@@ -3,6 +3,9 @@ use gpui::{prelude::FluentBuilder as _, *};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+type WindowCallback = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
+type ValueCallback<T> = Rc<dyn Fn(T, &mut Window, &mut App) + 'static>;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum VideoPlaybackState {
     Stopped,
@@ -476,12 +479,12 @@ pub struct VideoPlayer {
     poster: Option<SharedString>,
     show_poster: bool,
     overlay_only: bool,
-    on_play: Option<Rc<dyn Fn(&mut Window, &mut App)>>,
-    on_pause: Option<Rc<dyn Fn(&mut Window, &mut App)>>,
-    on_seek: Option<Rc<dyn Fn(f64, &mut Window, &mut App)>>,
-    on_volume_change: Option<Rc<dyn Fn(f32, &mut Window, &mut App)>>,
-    on_fullscreen: Option<Rc<dyn Fn(bool, &mut Window, &mut App)>>,
-    on_playback_speed_change: Option<Rc<dyn Fn(VideoPlaybackSpeed, &mut Window, &mut App)>>,
+    on_play: Option<WindowCallback>,
+    on_pause: Option<WindowCallback>,
+    on_seek: Option<ValueCallback<f64>>,
+    on_volume_change: Option<ValueCallback<f32>>,
+    on_fullscreen: Option<ValueCallback<bool>>,
+    on_playback_speed_change: Option<ValueCallback<VideoPlaybackSpeed>>,
     style: StyleRefinement,
 }
 

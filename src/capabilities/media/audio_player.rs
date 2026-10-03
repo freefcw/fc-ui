@@ -7,6 +7,9 @@ use std::rc::Rc;
 #[cfg(feature = "audio")]
 use std::sync::{Arc, Mutex};
 
+type WindowCallback = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
+type ValueCallback<T> = Rc<dyn Fn(T, &mut Window, &mut App) + 'static>;
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub enum AudioPlayerSize {
     Compact,
@@ -433,11 +436,11 @@ pub struct AudioPlayer {
     size: AudioPlayerSize,
     disabled: bool,
     title: Option<SharedString>,
-    on_play: Option<Rc<dyn Fn(&mut Window, &mut App) + 'static>>,
-    on_pause: Option<Rc<dyn Fn(&mut Window, &mut App) + 'static>>,
-    on_seek: Option<Rc<dyn Fn(f32, &mut Window, &mut App) + 'static>>,
-    on_volume_change: Option<Rc<dyn Fn(f32, &mut Window, &mut App) + 'static>>,
-    on_speed_change: Option<Rc<dyn Fn(PlaybackSpeed, &mut Window, &mut App) + 'static>>,
+    on_play: Option<WindowCallback>,
+    on_pause: Option<WindowCallback>,
+    on_seek: Option<ValueCallback<f32>>,
+    on_volume_change: Option<ValueCallback<f32>>,
+    on_speed_change: Option<ValueCallback<PlaybackSpeed>>,
     style: StyleRefinement,
 }
 
