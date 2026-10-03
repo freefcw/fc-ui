@@ -1116,176 +1116,6 @@ impl<T: Clone + 'static> Styled for DataTable<T> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::cell::{Cell, RefCell};
-    use std::rc::Rc;
-
-    #[derive(Clone)]
-    struct Row {
-        value: String,
-    }
-
-    fn columns() -> Vec<ColumnDef<Row>> {
-        vec![ColumnDef::new("value", "Value", |row: &Row| {
-            row.value.clone().into()
-        })]
-    }
-
-    #[::core::prelude::v1::test]
-    fn numeric_sort_uses_numeric_order_and_clears_selection() {
-        let mut state = DataTableState::new(
-            vec![
-                Row { value: "10".into() },
-                Row { value: "2".into() },
-                Row { value: "1".into() },
-            ],
-            columns(),
-        );
-        state.toggle_row(1);
-        state.sort_by_column(0, SortDirection::Ascending);
-
-        let DataBacking::InMemory { data } = &state.backing else {
-            panic!("expected in-memory data");
-        };
-        assert_eq!(
-            data.iter()
-                .map(|row| row.value.as_str())
-                .collect::<Vec<_>>(),
-            vec!["1", "2", "10"]
-        );
-        assert!(state.selected_rows.is_empty());
-    }
-
-    #[::core::prelude::v1::test]
-    fn replacing_data_reapplies_the_active_sort() {
-        let mut state = DataTableState::new(
-            vec![Row { value: "2".into() }, Row { value: "1".into() }],
-            columns(),
-        );
-        state.sort_by_column(0, SortDirection::Ascending);
-        state.replace_in_memory_data(vec![Row { value: "10".into() }, Row { value: "3".into() }]);
-
-        let DataBacking::InMemory { data } = &state.backing else {
-            panic!("expected in-memory data");
-        };
-        assert_eq!(
-            data.iter()
-                .map(|row| row.value.as_str())
-                .collect::<Vec<_>>(),
-            vec!["3", "10"]
-        );
-    }
-
-    #[::core::prelude::v1::test]
-    fn appending_data_reapplies_the_active_sort() {
-        let mut state = DataTableState::new(
-            vec![Row { value: "1".into() }, Row { value: "3".into() }],
-            columns(),
-        );
-        state.sort_by_column(0, SortDirection::Descending);
-        assert!(state.append_in_memory_data(vec![Row { value: "10".into() }]));
-
-        let DataBacking::InMemory { data } = &state.backing else {
-            panic!("expected in-memory data");
-        };
-        assert_eq!(
-            data.iter()
-                .map(|row| row.value.as_str())
-                .collect::<Vec<_>>(),
-            vec!["10", "3", "1"]
-        );
-    }
-
-    #[::core::prelude::v1::test]
-    fn virtual_sort_does_not_claim_a_local_order() {
-        let mut state = DataTableState::new(Vec::<Row>::new(), columns());
-        state.virtual_reset(10, Some(2));
-        state.sort_by_column(0, SortDirection::Ascending);
-
-        assert!(state.sort_column.is_none());
-    }
-
-    #[gpui::test]
-    fn virtual_sort_dispatches_remote_sort_request() {
-        let mut app = TestApp::new();
-        let requests = Rc::new(RefCell::new(Vec::new()));
-        let requests_for_callback = requests.clone();
-        let table = app.update(|cx| {
-            cx.new(|cx| {
-                DataTable::new_virtual(10, columns(), 2, cx).on_sort_change(
-                    move |column, direction, _, _| {
-                        requests_for_callback
-                            .borrow_mut()
-                            .push((column.to_string(), direction));
-                    },
-                )
-            })
-        });
-        let mut window = app.open_window(|_, _| gpui::Empty);
-
-        window.update(|_, window, cx| {
-            table.update(cx, |table, cx| {
-                table.sort_from_header(0, SortDirection::Descending, window, cx);
-            });
-        });
-
-        assert_eq!(
-            requests.borrow().as_slice(),
-            &[("value".to_string(), SortDirection::Descending)]
-        );
-    }
-
-    #[::core::prelude::v1::test]
-    fn virtual_reset_clears_index_based_selection() {
-        let mut state = DataTableState::new(Vec::<Row>::new(), columns());
-        state.virtual_reset(10, Some(2));
-        state.toggle_row(7);
-        state.virtual_reset(3, Some(2));
-        assert!(state.selected_rows.is_empty());
-    }
-
-    #[gpui::test]
-    fn window_aware_data_reset_notifies_selection_observers() {
-        let mut app = TestApp::new();
-        let calls = Rc::new(Cell::new(0));
-        let calls_for_callback = calls.clone();
-        let table = app.update(|cx| {
-            cx.new(|cx| {
-                DataTable::new(
-                    vec![Row {
-                        value: "one".into(),
-                    }],
-                    columns(),
-                    cx,
-                )
-                .on_selection_change(move |selected, _, _| {
-                    if selected.is_empty() {
-                        calls_for_callback.set(calls_for_callback.get() + 1);
-                    }
-                })
-            })
-        });
-        let mut window = app.open_window(|_, _| gpui::Empty);
-
-        window.update(|_, window, cx| {
-            table.update(cx, |table, _cx| table.state.toggle_row(0));
-            table.update(cx, |table, cx| {
-                table.set_data_with_window(
-                    vec![Row {
-                        value: "two".into(),
-                    }],
-                    window,
-                    cx,
-                );
-            });
-        });
-
-        assert_eq!(calls.get(), 1);
-    }
-}
-
 impl<T: Clone + 'static> Render for DataTable<T> {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = use_theme(cx);
@@ -1796,5 +1626,175 @@ impl<T: Clone + 'static> DataTable<T> {
                         })),
                 ),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::{Cell, RefCell};
+    use std::rc::Rc;
+
+    #[derive(Clone)]
+    struct Row {
+        value: String,
+    }
+
+    fn columns() -> Vec<ColumnDef<Row>> {
+        vec![ColumnDef::new("value", "Value", |row: &Row| {
+            row.value.clone().into()
+        })]
+    }
+
+    #[::core::prelude::v1::test]
+    fn numeric_sort_uses_numeric_order_and_clears_selection() {
+        let mut state = DataTableState::new(
+            vec![
+                Row { value: "10".into() },
+                Row { value: "2".into() },
+                Row { value: "1".into() },
+            ],
+            columns(),
+        );
+        state.toggle_row(1);
+        state.sort_by_column(0, SortDirection::Ascending);
+
+        let DataBacking::InMemory { data } = &state.backing else {
+            panic!("expected in-memory data");
+        };
+        assert_eq!(
+            data.iter()
+                .map(|row| row.value.as_str())
+                .collect::<Vec<_>>(),
+            vec!["1", "2", "10"]
+        );
+        assert!(state.selected_rows.is_empty());
+    }
+
+    #[::core::prelude::v1::test]
+    fn replacing_data_reapplies_the_active_sort() {
+        let mut state = DataTableState::new(
+            vec![Row { value: "2".into() }, Row { value: "1".into() }],
+            columns(),
+        );
+        state.sort_by_column(0, SortDirection::Ascending);
+        state.replace_in_memory_data(vec![Row { value: "10".into() }, Row { value: "3".into() }]);
+
+        let DataBacking::InMemory { data } = &state.backing else {
+            panic!("expected in-memory data");
+        };
+        assert_eq!(
+            data.iter()
+                .map(|row| row.value.as_str())
+                .collect::<Vec<_>>(),
+            vec!["3", "10"]
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn appending_data_reapplies_the_active_sort() {
+        let mut state = DataTableState::new(
+            vec![Row { value: "1".into() }, Row { value: "3".into() }],
+            columns(),
+        );
+        state.sort_by_column(0, SortDirection::Descending);
+        assert!(state.append_in_memory_data(vec![Row { value: "10".into() }]));
+
+        let DataBacking::InMemory { data } = &state.backing else {
+            panic!("expected in-memory data");
+        };
+        assert_eq!(
+            data.iter()
+                .map(|row| row.value.as_str())
+                .collect::<Vec<_>>(),
+            vec!["10", "3", "1"]
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn virtual_sort_does_not_claim_a_local_order() {
+        let mut state = DataTableState::new(Vec::<Row>::new(), columns());
+        state.virtual_reset(10, Some(2));
+        state.sort_by_column(0, SortDirection::Ascending);
+
+        assert!(state.sort_column.is_none());
+    }
+
+    #[gpui::test]
+    fn virtual_sort_dispatches_remote_sort_request() {
+        let mut app = TestApp::new();
+        let requests = Rc::new(RefCell::new(Vec::new()));
+        let requests_for_callback = requests.clone();
+        let table = app.update(|cx| {
+            cx.new(|cx| {
+                DataTable::new_virtual(10, columns(), 2, cx).on_sort_change(
+                    move |column, direction, _, _| {
+                        requests_for_callback
+                            .borrow_mut()
+                            .push((column.to_string(), direction));
+                    },
+                )
+            })
+        });
+        let mut window = app.open_window(|_, _| gpui::Empty);
+
+        window.update(|_, window, cx| {
+            table.update(cx, |table, cx| {
+                table.sort_from_header(0, SortDirection::Descending, window, cx);
+            });
+        });
+
+        assert_eq!(
+            requests.borrow().as_slice(),
+            &[("value".to_string(), SortDirection::Descending)]
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn virtual_reset_clears_index_based_selection() {
+        let mut state = DataTableState::new(Vec::<Row>::new(), columns());
+        state.virtual_reset(10, Some(2));
+        state.toggle_row(7);
+        state.virtual_reset(3, Some(2));
+        assert!(state.selected_rows.is_empty());
+    }
+
+    #[gpui::test]
+    fn window_aware_data_reset_notifies_selection_observers() {
+        let mut app = TestApp::new();
+        let calls = Rc::new(Cell::new(0));
+        let calls_for_callback = calls.clone();
+        let table = app.update(|cx| {
+            cx.new(|cx| {
+                DataTable::new(
+                    vec![Row {
+                        value: "one".into(),
+                    }],
+                    columns(),
+                    cx,
+                )
+                .on_selection_change(move |selected, _, _| {
+                    if selected.is_empty() {
+                        calls_for_callback.set(calls_for_callback.get() + 1);
+                    }
+                })
+            })
+        });
+        let mut window = app.open_window(|_, _| gpui::Empty);
+
+        window.update(|_, window, cx| {
+            table.update(cx, |table, _cx| table.state.toggle_row(0));
+            table.update(cx, |table, cx| {
+                table.set_data_with_window(
+                    vec![Row {
+                        value: "two".into(),
+                    }],
+                    window,
+                    cx,
+                );
+            });
+        });
+
+        assert_eq!(calls.get(), 1);
     }
 }
