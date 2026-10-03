@@ -176,15 +176,6 @@ enum EditOp {
     Batch(Vec<EditOp>),
 }
 
-impl EditOp {
-    fn changes_line_structure(&self) -> bool {
-        match self {
-            Self::Insert { text, .. } | Self::Delete { text, .. } => text.contains('\n'),
-            Self::Batch(edits) => edits.iter().any(Self::changes_line_structure),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 struct TextEditRange {
     start: usize,
@@ -1962,7 +1953,12 @@ impl EditorState {
         self.undo_stack.push(EditOp::Batch(edits));
     }
 
-    fn apply_edit_op(&mut self, op: &EditOp, undo: bool) {
+    fn line_at_byte(&self, byte_offset: usize) -> usize {
+        self.rope
+            .byte_to_line(byte_offset.min(self.rope.len_bytes()))
+    }
+
+    fn apply_primitive_edit(&mut self, op: &EditOp, undo: bool) {
         match op {
             EditOp::Insert { byte_offset, text } => {
                 if undo {
@@ -1982,14 +1978,43 @@ impl EditorState {
                     self.cursor = self.byte_offset_to_pos(*byte_offset);
                 }
             }
+            EditOp::Batch(_) => unreachable!("batch edits must be applied recursively"),
+        }
+    }
+
+    fn apply_edit_op_with_fold_state(&mut self, op: &EditOp, undo: bool) {
+        match op {
+            EditOp::Insert { byte_offset, text } | EditOp::Delete { byte_offset, text } => {
+                let start_line = self.line_at_byte(*byte_offset);
+                let old_end_line = match (matches!(op, EditOp::Insert { .. }), undo) {
+                    (true, true) | (false, false) => {
+                        self.line_at_byte(byte_offset.saturating_add(text.len()))
+                    }
+                    _ => start_line,
+                };
+
+                self.apply_primitive_edit(op, undo);
+
+                if text.contains('\n') {
+                    let new_end_line = match (matches!(op, EditOp::Insert { .. }), undo) {
+                        (true, true) | (false, false) => self.line_at_byte(*byte_offset),
+                        _ => self.line_at_byte(byte_offset.saturating_add(text.len())),
+                    };
+                    self.update_fold_state_after_line_edit(LineEditRange {
+                        start_line,
+                        old_end_line,
+                        new_end_line,
+                    });
+                }
+            }
             EditOp::Batch(edits) => {
                 if undo {
                     for edit in edits.iter().rev() {
-                        self.apply_edit_op(edit, true);
+                        self.apply_edit_op_with_fold_state(edit, true);
                     }
                 } else {
                     for edit in edits {
-                        self.apply_edit_op(edit, false);
+                        self.apply_edit_op_with_fold_state(edit, false);
                     }
                 }
             }
@@ -2235,26 +2260,24 @@ impl EditorState {
 
     pub fn undo(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {
         if let Some(op) = self.undo_stack.pop() {
-            let line_structure_changed = op.changes_line_structure();
-            self.apply_edit_op(&op, true);
+            self.apply_edit_op_with_fold_state(&op, true);
             self.redo_stack.push(op);
             self.selection = None;
             self.mark_modified();
             self.update_syntax_tree();
-            self.invalidate_after_edit(line_structure_changed);
+            self.invalidate_text_edit_caches();
             cx.notify();
         }
     }
 
     pub fn redo(&mut self, _: &Redo, _: &mut Window, cx: &mut Context<Self>) {
         if let Some(op) = self.redo_stack.pop() {
-            let line_structure_changed = op.changes_line_structure();
-            self.apply_edit_op(&op, false);
+            self.apply_edit_op_with_fold_state(&op, false);
             self.undo_stack.push(op);
             self.selection = None;
             self.mark_modified();
             self.update_syntax_tree();
-            self.invalidate_after_edit(line_structure_changed);
+            self.invalidate_text_edit_caches();
             cx.notify();
         }
     }
@@ -5816,6 +5839,57 @@ mod tests {
                     }]
                 );
                 assert_eq!(state.folded, state.fold_ranges);
+            });
+        });
+    }
+
+    #[cfg(feature = "tree-sitter-rust")]
+    #[gpui::test]
+    fn undo_and_redo_migrate_unaffected_fold_ranges() {
+        let mut app = TestApp::new();
+        let editor = app.update(|cx| cx.new(EditorState::new));
+        let mut window = app.open_window(|_, _| EditorTestView {
+            state: editor.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.set_language(Language::Rust);
+                state.set_content("fn before() {}\nfn folded() {\n    let value = 1;\n}\n", cx);
+                state.fold_ranges = vec![FoldRange {
+                    start_line: 1,
+                    end_line: 3,
+                }];
+                state.folded = state.fold_ranges.clone();
+                state.cached_display_lines = Some(Rc::new(vec![0, 1, 4]));
+                state.set_cursor_position(0, 0, cx);
+
+                state.insert_text_at_cursor("\n", cx);
+                assert_eq!(
+                    state.folded,
+                    vec![FoldRange {
+                        start_line: 2,
+                        end_line: 4,
+                    }]
+                );
+
+                state.undo(&Undo, window, cx);
+                assert_eq!(
+                    state.folded,
+                    vec![FoldRange {
+                        start_line: 1,
+                        end_line: 3,
+                    }]
+                );
+
+                state.redo(&Redo, window, cx);
+                assert_eq!(
+                    state.folded,
+                    vec![FoldRange {
+                        start_line: 2,
+                        end_line: 4,
+                    }]
+                );
             });
         });
     }
