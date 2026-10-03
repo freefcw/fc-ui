@@ -152,6 +152,18 @@ impl<T: 'static> DataGridState<T> {
         &self.data
     }
 
+    /// Mutate rows while preserving the active sort and edit invariants.
+    pub fn update_data(&mut self, update: impl FnOnce(&mut Vec<T>)) {
+        self.cancel_edit();
+        update(&mut self.data);
+        self.resort_data();
+    }
+
+    /// Access the backing rows directly.
+    ///
+    /// Prefer [`Self::update_data`] so active sorting and editing state stay
+    /// consistent after the mutation.
+    #[deprecated(note = "use update_data to preserve grid invariants")]
     pub fn data_mut(&mut self) -> &mut Vec<T> {
         &mut self.data
     }
@@ -411,6 +423,24 @@ mod tests {
         assert_eq!(
             state.data.iter().map(|row| row.value).collect::<Vec<_>>(),
             [3, 10]
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn update_data_reapplies_sort_and_cancels_editing() {
+        let mut state = DataGridState::new(
+            vec![Row { value: 2 }, Row { value: 1 }],
+            vec![value_column()],
+        );
+        state.sort_by_column("value");
+        state.start_editing(CellPosition { row: 0, col: 0 });
+
+        state.update_data(|rows| rows.push(Row { value: 0 }));
+
+        assert!(state.editing_cell.is_none());
+        assert_eq!(
+            state.data.iter().map(|row| row.value).collect::<Vec<_>>(),
+            [0, 1, 2]
         );
     }
 
