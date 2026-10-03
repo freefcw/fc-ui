@@ -147,9 +147,21 @@ pub enum InputEvent {
     ShiftTab,
 }
 
+#[derive(Clone, Copy)]
+enum DeletionDirection {
+    Backward,
+    Forward,
+}
+
 /// Core input state entity that handles text editing with validation
 pub struct InputState {
     focus_handle: FocusHandle,
+    /// Canonical value before custom display formatting.
+    raw_content: String,
+    /// Last display string written by `InputState` itself. Since `content` is
+    /// public for compatibility, this lets us distinguish an external write
+    /// from a formatter change without reverse-running the formatter.
+    last_synced_display: String,
     pub content: SharedString,
     pub placeholder: SharedString,
     pub disabled: bool,
@@ -192,6 +204,9 @@ pub struct InputState {
     // the initial value every frame, overwriting user edits and emitting
     // a spurious `Change` event on each render.
     initial_value_applied: bool,
+    // Tracks formatter ownership so removing a builder formatter does not
+    // leave the previous display transformation installed on the state.
+    builder_formatter_active: bool,
     event_subscription: Option<Subscription>,
 }
 
@@ -201,6 +216,8 @@ impl InputState {
     pub fn new(cx: &mut Context<Self>) -> Self {
         Self {
             focus_handle: cx.focus_handle(),
+            raw_content: String::new(),
+            last_synced_display: String::new(),
             content: "".into(),
             placeholder: "Type here...".into(),
             disabled: false,
@@ -235,6 +252,7 @@ impl InputState {
             shake_count: 0,
             cursor_position_override: None,
             initial_value_applied: false,
+            builder_formatter_active: false,
             event_subscription: None,
         }
     }
@@ -327,6 +345,11 @@ impl InputState {
         &self.content
     }
 
+    /// Return the canonical value before display formatting.
+    pub(crate) fn raw_value(&self) -> &str {
+        &self.raw_content
+    }
+
     /// Set the text content with validation
     pub fn set_value(
         &mut self,
@@ -334,9 +357,102 @@ impl InputState {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let full_range_utf16 = 0..self.offset_to_utf16(self.content.len());
         let value = value.into();
+        self.sync_raw_content();
+
+        // A formatter is allowed to omit all of the raw value from its
+        // display (for example a visibility formatter that renders an empty
+        // string).  In that case the display range is empty even though the
+        // raw value is not.  Replacing through the display range would append
+        // to the old raw value instead of replacing it.  Clear the raw value
+        // first so the normal insertion path still applies filtering,
+        // masking, length limits, validation, and event emission exactly
+        // once.
+        if self.content.is_empty() && !self.raw_content.is_empty() && self.marked_range.is_none() {
+            self.raw_content.clear();
+            self.selected_range = 0..0;
+            self.set_display_content(String::new());
+        }
+        let full_range_utf16 = 0..self.offset_to_utf16(self.content.len());
         self.replace_text_in_range(Some(full_range_utf16), &value, window, cx);
+    }
+
+    pub(crate) fn value_matches(&self, value: &str) -> bool {
+        // Do not replace text while an IME composition is active. The parent
+        // value intentionally lags the composing value until `unmark_text`.
+        if self.marked_range.is_some() {
+            return true;
+        }
+        self.raw_content == value && self.content.as_ref() == self.format_content(value)
+    }
+
+    fn sync_raw_content(&mut self) {
+        if self.content.as_ref() != self.last_synced_display {
+            // `content` remains public for compatibility. An external write
+            // becomes the next raw value; a formatter update leaves content
+            // untouched and therefore preserves the existing raw value.
+            self.raw_content.clear();
+            self.raw_content.push_str(self.content.as_ref());
+            self.last_synced_display = self.content.to_string();
+        }
+    }
+
+    fn set_display_content(&mut self, display: String) {
+        self.content = display.into();
+        self.last_synced_display = self.content.to_string();
+    }
+
+    /// Re-apply a changed formatter while preserving the raw value and caret.
+    /// Composition text is deliberately left unformatted until `unmark_text`.
+    pub(crate) fn refresh_formatted_content(&mut self) {
+        self.sync_raw_content();
+        if self.marked_range.is_some() {
+            return;
+        }
+        let old_display = self.content.to_string();
+        if self.validation_rules.custom_formatter.is_none() {
+            if old_display == self.raw_content {
+                return;
+            }
+            let raw_range = Self::display_to_raw_index(
+                &self.raw_content,
+                &old_display,
+                self.selected_range.start,
+            )
+                ..Self::display_to_raw_index(
+                    &self.raw_content,
+                    &old_display,
+                    self.selected_range.end,
+                );
+            let raw = self.raw_content.clone();
+            self.set_display_content(raw);
+            self.selected_range = raw_range.start..raw_range.end;
+            self.invalidate_layout_cache();
+            return;
+        }
+        let new_display = self.format_content(&self.raw_content);
+        if old_display == new_display {
+            return;
+        }
+        let raw_range =
+            Self::display_to_raw_index(&self.raw_content, &old_display, self.selected_range.start)
+                ..Self::display_to_raw_index(
+                    &self.raw_content,
+                    &old_display,
+                    self.selected_range.end,
+                );
+        self.set_display_content(new_display.clone());
+        self.selected_range =
+            Self::raw_to_display_index(&self.raw_content, &new_display, raw_range.start)
+                ..Self::raw_to_display_index(&self.raw_content, &new_display, raw_range.end);
+        self.invalidate_layout_cache();
+    }
+
+    pub(crate) fn sync_builder_formatter(&mut self, active: bool) {
+        if !active && self.builder_formatter_active {
+            self.validation_rules.custom_formatter = None;
+        }
+        self.builder_formatter_active = active;
     }
 
     /// Apply the builder-supplied initial value exactly once.
@@ -361,7 +477,8 @@ impl InputState {
 
     /// Validate the current input value
     pub fn validate(&mut self, cx: &mut Context<Self>) -> Result<(), ValidationError> {
-        let value = self.content.as_ref();
+        self.sync_raw_content();
+        let value = self.raw_content.as_str();
 
         if self.validation_rules.required && value.trim().is_empty() {
             let error = ValidationError {
@@ -426,6 +543,32 @@ impl InputState {
             }
         }
 
+        if let Some(pattern) = self.validation_rules.pattern.as_deref() {
+            match regex::Regex::new(pattern) {
+                Ok(regex) if !regex.is_match(value) => {
+                    let error = ValidationError {
+                        message: "Value does not match the required pattern".into(),
+                        field_name: self.aria_label.clone(),
+                    };
+                    self.validation_error = Some(error.clone());
+                    cx.emit(InputEvent::Validate(Err(error.clone())));
+                    cx.notify();
+                    return Err(error);
+                }
+                Err(_) => {
+                    let error = ValidationError {
+                        message: "Invalid validation pattern".into(),
+                        field_name: self.aria_label.clone(),
+                    };
+                    self.validation_error = Some(error.clone());
+                    cx.emit(InputEvent::Validate(Err(error.clone())));
+                    cx.notify();
+                    return Err(error);
+                }
+                Ok(_) => {}
+            }
+        }
+
         if let Some(ref validator) = self.validation_rules.custom_validator {
             if let Err(error) = validator(value) {
                 self.validation_error = Some(error.clone());
@@ -481,6 +624,178 @@ impl InputState {
                 .collect(),
             _ => input.to_string(),
         }
+    }
+
+    fn format_content(&self, content: &str) -> String {
+        if content.is_empty() {
+            return String::new();
+        }
+
+        self.validation_rules
+            .custom_formatter
+            .as_ref()
+            .map(|formatter| formatter(content))
+            .unwrap_or_else(|| content.to_owned())
+    }
+
+    /// Return display byte offsets for each raw character boundary.
+    fn formatted_display_boundaries(raw: &str, display: &str) -> Option<Vec<usize>> {
+        let raw_chars: Vec<char> = raw.chars().collect();
+        let display_chars: Vec<char> = display.chars().collect();
+        if raw_chars.is_empty() {
+            return Some(vec![0]);
+        }
+
+        // A formatter does not expose an inverse mapping.  If no raw
+        // character survives unchanged in display (case conversion,
+        // Unicode normalization, etc.), map character boundaries by their
+        // relative position.  Doing this in character space avoids the old
+        // byte-ratio fallback, which could return an offset in the middle of
+        // a UTF-8 code point.
+        let proportional_boundaries = || {
+            let raw_len = raw_chars.len() as u128;
+            let display_len = display_chars.len() as u128;
+            (0..=raw_chars.len())
+                .map(|boundary| {
+                    let boundary = boundary as u128;
+                    ((boundary * display_len) + raw_len / 2) / raw_len
+                })
+                .map(|char_index| {
+                    display_chars
+                        .iter()
+                        .take(char_index.min(display_chars.len() as u128) as usize)
+                        .map(|ch| ch.len_utf8())
+                        .sum()
+                })
+                .collect::<Vec<usize>>()
+        };
+
+        let mut anchors = Vec::new();
+        let mut display_start = 0;
+        for (raw_index, raw_char) in raw_chars.iter().enumerate() {
+            let Some(relative) = display_chars[display_start..]
+                .iter()
+                .position(|display_char| display_char == raw_char)
+            else {
+                continue;
+            };
+            let display_index = display_start + relative;
+            anchors.push((raw_index, display_index));
+            display_start = display_index + 1;
+        }
+        // One surviving anchor is not enough to infer the direction of a
+        // multi-character formatter (a reversed or otherwise reordered
+        // string commonly leaves exactly one match).  Use the monotonic
+        // proportional mapping in that case.  For a single raw character,
+        // the anchor still correctly preserves a prefix/suffix affix.
+        if anchors.is_empty() || (raw_chars.len() > 1 && anchors.len() == 1) {
+            return Some(proportional_boundaries());
+        }
+
+        let mut boundaries = vec![0; raw_chars.len() + 1];
+        for boundary in 0..raw_chars.len() {
+            if let Some((_, display_index)) =
+                anchors.iter().find(|(raw_index, _)| *raw_index == boundary)
+            {
+                boundaries[boundary] = *display_index;
+                continue;
+            }
+            let previous = anchors
+                .iter()
+                .rev()
+                .find(|(raw_index, _)| *raw_index < boundary);
+            let next = anchors.iter().find(|(raw_index, _)| *raw_index > boundary);
+            boundaries[boundary] = match (previous, next) {
+                (Some((raw_start, display_start)), Some((raw_end, display_end))) => {
+                    let raw_span = raw_end - raw_start;
+                    display_start
+                        + ((boundary - raw_start) * (display_end - display_start) + raw_span / 2)
+                            / raw_span
+                }
+                (None, Some((raw_end, display_end))) => boundary * display_end / (*raw_end).max(1),
+                (Some((raw_start, display_start)), None) => {
+                    let raw_span = raw_chars.len() - raw_start;
+                    display_start
+                        + ((boundary - raw_start) * (display_chars.len() - display_start)
+                            + raw_span / 2)
+                            / raw_span
+                }
+                (None, None) => 0,
+            };
+        }
+        boundaries[raw_chars.len()] = display_chars.len();
+        for index in 1..boundaries.len() {
+            boundaries[index] = boundaries[index].max(boundaries[index - 1]);
+        }
+
+        let mut display_byte_boundaries = Vec::with_capacity(boundaries.len());
+        for char_index in boundaries {
+            display_byte_boundaries.push(
+                display_chars
+                    .iter()
+                    .take(char_index.min(display_chars.len()))
+                    .map(|ch| ch.len_utf8())
+                    .sum(),
+            );
+        }
+        Some(display_byte_boundaries)
+    }
+
+    fn raw_to_display_index(raw: &str, display: &str, raw_index: usize) -> usize {
+        if raw.is_empty() {
+            return 0;
+        }
+
+        let mut raw_index = raw_index.min(raw.len());
+        while raw_index > 0 && !raw.is_char_boundary(raw_index) {
+            raw_index -= 1;
+        }
+        let raw_char_index = raw[..raw_index].chars().count();
+        if let Some(boundaries) = Self::formatted_display_boundaries(raw, display) {
+            return boundaries[raw_char_index.min(boundaries.len() - 1)];
+        }
+        raw_index.min(display.len())
+    }
+
+    fn display_to_raw_index(raw: &str, display: &str, display_index: usize) -> usize {
+        if raw.is_empty() {
+            return 0;
+        }
+
+        let mut display_index = display_index.min(display.len());
+        while display_index > 0 && !display.is_char_boundary(display_index) {
+            display_index -= 1;
+        }
+        if let Some(boundaries) = Self::formatted_display_boundaries(raw, display) {
+            let mut raw_char_index = boundaries.len() - 1;
+            for index in 0..boundaries.len() - 1 {
+                if display_index <= boundaries[index] {
+                    raw_char_index = index;
+                    break;
+                }
+                if display_index <= boundaries[index + 1] {
+                    let left = display_index - boundaries[index];
+                    let right = boundaries[index + 1] - display_index;
+                    raw_char_index = if left > right { index + 1 } else { index };
+                    break;
+                }
+            }
+            let raw_char_boundaries: Vec<usize> = raw
+                .char_indices()
+                .map(|(index, _)| index)
+                .chain(std::iter::once(raw.len()))
+                .collect();
+            return raw_char_boundaries[raw_char_index.min(raw_char_boundaries.len() - 1)];
+        }
+
+        let raw_chars: Vec<char> = raw.chars().collect();
+        let display_char_index = display[..display_index].chars().count();
+        let raw_char_index = display_char_index * raw_chars.len() / display.chars().count().max(1);
+        raw_chars
+            .iter()
+            .take(raw_char_index.min(raw_chars.len()))
+            .map(|ch| ch.len_utf8())
+            .sum()
     }
 
     /// Apply input mask formatting
@@ -766,16 +1081,38 @@ impl InputState {
 
     pub fn backspace(&mut self, _: &Backspace, window: &mut Window, cx: &mut Context<Self>) {
         if self.selected_range.is_empty() {
-            self.select_to(self.previous_boundary(self.cursor_offset()), cx)
+            let cursor = self.cursor_offset();
+            let previous = self.previous_boundary(cursor);
+            if previous == cursor {
+                return;
+            }
+            self.select_to(previous, cx)
         }
-        self.replace_text_in_range(None, "", window, cx)
+        self.replace_text_in_range_with_direction(
+            Some(DeletionDirection::Backward),
+            None,
+            "",
+            window,
+            cx,
+        )
     }
 
     pub fn delete(&mut self, _: &Delete, window: &mut Window, cx: &mut Context<Self>) {
         if self.selected_range.is_empty() {
-            self.select_to(self.next_boundary(self.cursor_offset()), cx)
+            let cursor = self.cursor_offset();
+            let next = self.next_boundary(cursor);
+            if next == cursor {
+                return;
+            }
+            self.select_to(next, cx)
         }
-        self.replace_text_in_range(None, "", window, cx)
+        self.replace_text_in_range_with_direction(
+            Some(DeletionDirection::Forward),
+            None,
+            "",
+            window,
+            cx,
+        )
     }
 
     pub fn tab(&mut self, _: &Tab, window: &mut Window, cx: &mut Context<Self>) {
@@ -902,8 +1239,9 @@ impl InputState {
         self.stop_blink();
         self.cursor_position_override.take();
         if self.trim_on_blur {
-            let trimmed = self.content.trim().to_string();
-            if trimmed != self.content.as_ref() {
+            self.sync_raw_content();
+            let trimmed = self.raw_content.trim().to_string();
+            if trimmed != self.raw_content {
                 self.set_value(trimmed, window, cx);
             }
         }
@@ -1109,6 +1447,90 @@ impl InputState {
         self.start_blink(cx);
     }
 
+    fn replace_text_in_range_with_direction(
+        &mut self,
+        deletion_direction: Option<DeletionDirection>,
+        range_utf16: Option<Range<usize>>,
+        new_text: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.sync_raw_content();
+        let display_range = range_utf16
+            .as_ref()
+            .map(|range_utf16| self.range_from_utf16(range_utf16))
+            .or(self.marked_range.clone())
+            .unwrap_or(self.selected_range.clone());
+        let mut range =
+            Self::display_to_raw_index(&self.raw_content, &self.content, display_range.start)
+                ..Self::display_to_raw_index(&self.raw_content, &self.content, display_range.end);
+        if new_text.is_empty() && !display_range.is_empty() && range.is_empty() {
+            if let Some(direction) = deletion_direction {
+                let fallback = match direction {
+                    DeletionDirection::Backward if range.start > 0 => Some(
+                        text_util::previous_grapheme_boundary(&self.raw_content, range.start)
+                            ..range.start,
+                    ),
+                    DeletionDirection::Forward if range.end < self.raw_content.len() => Some(
+                        range.end..text_util::next_grapheme_boundary(&self.raw_content, range.end),
+                    ),
+                    _ => None,
+                };
+                let Some(fallback) = fallback else {
+                    // The selected display text contains formatting
+                    // characters only (for example a currency prefix). There
+                    // is no raw value to remove in this direction.
+                    return;
+                };
+                range = fallback;
+            }
+        }
+
+        let filtered_text = self.filter_input(new_text);
+        let formatted_text = if self.input_mask != InputMask::None {
+            self.apply_mask(&filtered_text)
+        } else {
+            filtered_text
+        };
+
+        let formatted_text = if let Some(max_length) = self.validation_rules.max_length {
+            let retained_chars =
+                self.raw_content.chars().count() - self.raw_content[range.clone()].chars().count();
+            let allowed_chars = max_length.saturating_sub(retained_chars);
+            formatted_text
+                .chars()
+                .take(allowed_chars)
+                .collect::<String>()
+        } else {
+            formatted_text
+        };
+
+        let next_raw = self.raw_content[0..range.start].to_owned()
+            + &formatted_text
+            + &self.raw_content[range.end..];
+        let next_display = self.format_content(&next_raw);
+        let raw_cursor = range.start + formatted_text.len();
+        let cursor = Self::raw_to_display_index(&next_raw, &next_display, raw_cursor);
+
+        self.raw_content = next_raw;
+        self.set_display_content(next_display);
+        self.selected_range = cursor..cursor;
+
+        self.marked_range.take();
+        self.selection_reversed = false;
+        if self.focus_handle.is_focused(window) {
+            self.reset_blink(cx);
+        }
+        self.invalidate_layout_cache();
+
+        if self.validate_on_change {
+            self.validate(cx).ok();
+        }
+
+        cx.emit(InputEvent::Change);
+        cx.notify();
+    }
+
     pub fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus_handle.clone()
     }
@@ -1149,9 +1571,30 @@ impl EntityInputHandler for InputState {
             .map(|range| self.range_to_utf16(range))
     }
 
-    fn unmark_text(&mut self, _window: &mut Window, _cx: &mut Context<Self>) {
+    fn unmark_text(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let had_marked_text = self.marked_range.is_some();
+        self.sync_raw_content();
+        if self.validation_rules.custom_formatter.is_some() {
+            let raw_selected_range = self.selected_range.clone();
+            let formatted = self.format_content(&self.raw_content);
+            self.set_display_content(formatted);
+            self.selected_range = Self::raw_to_display_index(
+                &self.raw_content,
+                &self.content,
+                raw_selected_range.start,
+            )
+                ..Self::raw_to_display_index(
+                    &self.raw_content,
+                    &self.content,
+                    raw_selected_range.end,
+                );
+        }
         self.marked_range = None;
         self.invalidate_layout_cache();
+        if had_marked_text {
+            cx.emit(InputEvent::Change);
+        }
+        cx.notify();
     }
 
     fn replace_text_in_range(
@@ -1161,53 +1604,8 @@ impl EntityInputHandler for InputState {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let range = range_utf16
-            .as_ref()
-            .map(|range_utf16| self.range_from_utf16(range_utf16))
-            .or(self.marked_range.clone())
-            .unwrap_or(self.selected_range.clone());
-
-        let filtered_text = self.filter_input(new_text);
-        let formatted_text = if self.input_mask != InputMask::None {
-            self.apply_mask(&filtered_text)
-        } else {
-            filtered_text
-        };
-
-        let formatted_text = if let Some(max_length) = self.validation_rules.max_length {
-            let retained_chars =
-                self.content.chars().count() - self.content[range.clone()].chars().count();
-            let allowed_chars = max_length.saturating_sub(retained_chars);
-            formatted_text
-                .chars()
-                .take(allowed_chars)
-                .collect::<String>()
-        } else {
-            formatted_text
-        };
-
-        self.content = (self.content[0..range.start].to_owned()
-            + &formatted_text
-            + &self.content[range.end..])
-            .into();
-        self.selected_range =
-            range.start + formatted_text.len()..range.start + formatted_text.len();
-
-        self.marked_range.take();
-        self.selection_reversed = false;
-        if self.focus_handle.is_focused(window) {
-            self.reset_blink(cx);
-        }
-        self.invalidate_layout_cache();
-
-        if self.validate_on_change {
-            self.validate(cx).ok();
-        }
-
-        cx.emit(InputEvent::Change);
-        cx.notify();
+        self.replace_text_in_range_with_direction(None, range_utf16, new_text, window, cx);
     }
-
     fn replace_and_mark_text_in_range(
         &mut self,
         range_utf16: Option<Range<usize>>,
@@ -1216,16 +1614,25 @@ impl EntityInputHandler for InputState {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let range = range_utf16
+        self.sync_raw_content();
+        let display_range = range_utf16
             .as_ref()
             .map(|range_utf16| self.range_from_utf16(range_utf16))
             .or(self.marked_range.clone())
             .unwrap_or(self.selected_range.clone());
+        let range =
+            Self::display_to_raw_index(&self.raw_content, &self.content, display_range.start)
+                ..Self::display_to_raw_index(&self.raw_content, &self.content, display_range.end);
 
         let filtered_text = self.filter_input(new_text);
-        self.content =
-            (self.content[0..range.start].to_owned() + &filtered_text + &self.content[range.end..])
-                .into();
+        let next_raw = self.raw_content[0..range.start].to_owned()
+            + &filtered_text
+            + &self.raw_content[range.end..];
+        self.raw_content = next_raw;
+
+        // Keep the composition text editable until the IME commits it. The
+        // formatter is applied once by `unmark_text`.
+        self.set_display_content(self.raw_content.clone());
         if !filtered_text.is_empty() {
             self.marked_range = Some(range.start..range.start + filtered_text.len());
         } else {
@@ -1715,6 +2122,283 @@ mod tests {
                 assert_eq!(state.content(), "ab新字cd");
                 assert_eq!(state.selected_range, 8..8);
                 assert!(state.content().is_char_boundary(state.selected_range.start));
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn validation_pattern_is_enforced() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| cx.new(InputState::new));
+        let mut window = app.open_window(|_, _| TestView {
+            state: state.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.validation_rules.pattern = Some(r"^[A-Z]{3}-\d{4}$".into());
+                state.set_value("ABC-1234", window, cx);
+                assert!(state.validate(cx).is_ok());
+
+                state.set_value("abc-1234", window, cx);
+                assert!(state.validate(cx).is_err());
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn custom_formatter_supports_editing_and_clear() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| cx.new(InputState::new));
+        let mut window = app.open_window(|_, _| TestView {
+            state: state.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.validation_rules.custom_formatter = Some(Arc::new(|value| {
+                    format!("${:.2}", value.parse::<f64>().unwrap_or(0.0))
+                }));
+                state.set_value("12", window, cx);
+                assert_eq!(state.content(), "$12.00");
+
+                state.replace_text_in_range(None, "3", window, cx);
+                assert_eq!(state.content(), "$123.00");
+
+                state.set_value("", window, cx);
+                assert!(state.content().is_empty());
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn formatter_preserves_middle_cursor_position() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| cx.new(InputState::new));
+        let mut window = app.open_window(|_, _| TestView {
+            state: state.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.validation_rules.custom_formatter = Some(Arc::new(|value| value.to_owned()));
+                state.set_value("abcd", window, cx);
+                state.selected_range = 1..1;
+
+                state.replace_text_in_range(None, "X", window, cx);
+
+                assert_eq!(state.content(), "aXbcd");
+                assert_eq!(state.selected_range, 2..2);
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn formatter_cursor_mapping_handles_inserted_separators_and_affixes() {
+        assert_eq!(
+            InputState::raw_to_display_index("1234", "1,234", 2),
+            3,
+            "the cursor after raw `12` should move past the grouping separator"
+        );
+        assert_eq!(InputState::display_to_raw_index("1234", "1,234", 3), 2);
+        assert_eq!(InputState::raw_to_display_index("12", "$12.00", 0), 1);
+        assert_eq!(InputState::raw_to_display_index("12", "$12.00", 2), 6);
+        assert_eq!(InputState::display_to_raw_index("12", "$12.00", 6), 2);
+    }
+
+    #[gpui::test]
+    fn formatter_cursor_mapping_uses_character_boundaries_for_unicode_expansion() {
+        // `İ`.to_lowercase() expands to two display characters (`i` plus a
+        // combining dot), whose UTF-8 length is three bytes.  Both ends of
+        // the raw value must map to display character boundaries.
+        let raw = "İ";
+        let display = "i\u{307}";
+        assert_eq!(InputState::raw_to_display_index(raw, display, 0), 0);
+        assert_eq!(
+            InputState::raw_to_display_index(raw, display, raw.len()),
+            display.len()
+        );
+        assert_eq!(InputState::display_to_raw_index(raw, display, 0), 0);
+        assert_eq!(
+            InputState::display_to_raw_index(raw, display, display.len()),
+            raw.len()
+        );
+        assert!(display.is_char_boundary(InputState::raw_to_display_index(
+            raw,
+            display,
+            raw.len()
+        )));
+    }
+
+    #[gpui::test]
+    fn formatter_cursor_mapping_falls_back_for_reordered_text() {
+        // A reverse formatter has no monotonic raw/display inverse.  The
+        // mapping remains monotonic and usable for editing instead of using
+        // the first accidental character match as an anchor.
+        let raw = "abcd";
+        let display = "dcba";
+        assert_eq!(InputState::raw_to_display_index(raw, display, 0), 0);
+        assert_eq!(
+            InputState::raw_to_display_index(raw, display, raw.len()),
+            display.len()
+        );
+        assert_eq!(InputState::display_to_raw_index(raw, display, 0), 0);
+        assert_eq!(
+            InputState::display_to_raw_index(raw, display, display.len()),
+            raw.len()
+        );
+    }
+
+    #[gpui::test]
+    fn set_value_replaces_raw_text_when_formatter_hides_display() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| cx.new(InputState::new));
+        let mut window = app.open_window(|_, _| TestView {
+            state: state.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.validation_rules.custom_formatter = Some(Arc::new(|_| String::new()));
+                state.set_value("first", window, cx);
+                assert_eq!(state.raw_value(), "first");
+                assert!(state.content().is_empty());
+
+                state.set_value("second", window, cx);
+                assert_eq!(state.raw_value(), "second");
+                assert!(state.content().is_empty());
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn removing_a_formatter_restores_the_raw_display_value() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| cx.new(InputState::new));
+        let mut window = app.open_window(|_, _| TestView {
+            state: state.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.validation_rules.custom_formatter =
+                    Some(Arc::new(|value| format!("${value}")));
+                state.set_value("12", window, cx);
+                state.validation_rules.custom_formatter = None;
+                state.refresh_formatted_content();
+
+                assert_eq!(state.content(), "12");
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn formatter_is_applied_when_ime_composition_ends() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| cx.new(InputState::new));
+        let mut window = app.open_window(|_, _| TestView {
+            state: state.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.validation_rules.custom_formatter =
+                    Some(Arc::new(|value| value.to_uppercase()));
+                state.replace_and_mark_text_in_range(None, "ab", None, window, cx);
+                assert_eq!(state.content(), "ab");
+
+                state.unmark_text(window, cx);
+
+                assert_eq!(state.content(), "AB");
+                assert!(state.marked_range.is_none());
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn ime_commit_emits_change_when_composition_ends() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| cx.new(InputState::new));
+        let changes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let changes_for_subscription = changes.clone();
+        app.update(|cx| {
+            cx.subscribe(&state, move |_emitter, event: &InputEvent, _cx| {
+                if matches!(event, InputEvent::Change) {
+                    changes_for_subscription.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+            })
+            .detach();
+        });
+        let mut window = app.open_window(|_, _| TestView {
+            state: state.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.replace_and_mark_text_in_range(None, "ab", None, window, cx);
+                assert_eq!(
+                    changes.load(std::sync::atomic::Ordering::SeqCst),
+                    0,
+                    "composition updates should not emit a committed change"
+                );
+                state.unmark_text(window, cx);
+            });
+        });
+
+        assert_eq!(
+            changes.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "ending composition should emit one committed change"
+        );
+    }
+
+    #[gpui::test]
+    fn externally_changed_public_content_is_used_as_the_next_raw_value() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| cx.new(InputState::new));
+        let mut window = app.open_window(|_, _| TestView {
+            state: state.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.validation_rules.custom_formatter =
+                    Some(Arc::new(|value| format!("<{value}>")));
+                state.set_value("12", window, cx);
+                state.content = "34".into();
+                state.selected_range = 2..2;
+
+                state.replace_text_in_range(None, "5", window, cx);
+
+                assert_eq!(state.content(), "<345>");
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn invalid_validation_pattern_is_rejected() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| cx.new(InputState::new));
+        let mut window = app.open_window(|_, _| TestView {
+            state: state.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.validation_rules.pattern = Some("[".into());
+                state.set_value("abc", window, cx);
+
+                let error = state.validate(cx).expect_err("invalid regex should fail");
+                assert_eq!(error.message.as_ref(), "Invalid validation pattern");
             });
         });
     }

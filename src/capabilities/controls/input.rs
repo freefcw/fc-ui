@@ -193,9 +193,12 @@ impl Input {
         self
     }
 
-    pub fn cleanable(mut self) -> Self {
-        self.clearable = true;
-        self
+    /// Enable the clear button when the input has a value.
+    ///
+    /// This spelling is kept as a compatibility alias for older callers.
+    #[deprecated(note = "use clearable instead")]
+    pub fn cleanable(self) -> Self {
+        self.clearable(true)
     }
 
     /// Set the input variant
@@ -228,7 +231,7 @@ impl Input {
         self
     }
 
-    /// Enable clear button when input has value
+    /// Enable the clear button when the input has a value.
     pub fn clearable(mut self, clearable: bool) -> Self {
         self.clearable = clearable;
         self
@@ -246,7 +249,10 @@ impl Input {
         self
     }
 
-    /// Set callback when value changes
+    /// Set callback when value changes.
+    ///
+    /// The callback receives the canonical value before any custom display
+    /// formatter is applied.
     pub fn on_change<F>(mut self, callback: F) -> Self
     where
         F: Fn(SharedString, &mut App) + 'static,
@@ -440,7 +446,10 @@ impl Input {
             || on_validate.is_some();
         let subscription = has_callbacks.then(|| {
             cx.subscribe(&self.state, move |emitter, event: &InputEvent, cx| {
-                let callback_value = || emitter.read(cx).content.clone();
+                // Custom formatters only change the rendered representation.
+                // Propagate the canonical value so a controlled input can feed
+                // the callback back into `value` without formatting it twice.
+                let callback_value = || emitter.read(cx).raw_value().into();
                 match event {
                     InputEvent::Change => {
                         if let Some(callback) = on_change.as_ref() {
@@ -561,6 +570,12 @@ impl RenderOnce for Input {
                 }
             }
 
+            let builder_formatter_active = self.custom_formatter.is_some()
+                || self
+                    .validation_rules
+                    .as_ref()
+                    .is_some_and(|rules| rules.custom_formatter.is_some());
+
             if let Some(mut rules) = self.validation_rules.clone() {
                 if let Some(ref custom_validator) = self.custom_validator {
                     let validator = custom_validator.clone();
@@ -614,13 +629,20 @@ impl RenderOnce for Input {
                 state.validation_rules = rules;
             }
 
+            state.sync_builder_formatter(builder_formatter_active);
+
+            // Keep the raw value when formatter configuration changes, then
+            // refresh the display representation before applying controlled
+            // value synchronization.
+            state.refresh_formatted_content();
+
             state.aria_label = self.aria_label.clone();
             state.aria_description = self.aria_description.clone();
             state.autocomplete = self.autocomplete.clone();
             state.helper_text = self.helper_text.clone();
 
             if let Some(value) = self.value.clone() {
-                if state.content != value {
+                if !state.value_matches(value.as_ref()) {
                     state.set_value(value, window, cx);
                 }
             } else if let Some(value) = self.initial_value.clone() {
@@ -944,13 +966,72 @@ impl RenderOnce for Input {
 mod tests {
     use super::*;
     use crate::capabilities::foundation::theme::{install_theme, Theme};
-    use std::{cell::Cell, rc::Rc};
+    use std::{
+        cell::{Cell, RefCell},
+        rc::Rc,
+    };
 
     struct InputRenderTestView {
         state: Entity<InputState>,
         callback_calls: Option<Rc<Cell<usize>>>,
         initial_value: Option<SharedString>,
         value: Option<SharedString>,
+    }
+
+    struct FormattedInputRenderTestView {
+        state: Entity<InputState>,
+        value: SharedString,
+        callback_calls: Rc<Cell<usize>>,
+        suffix: bool,
+    }
+
+    struct FormattedCallbackTestView {
+        state: Entity<InputState>,
+        values: Rc<RefCell<Vec<SharedString>>>,
+    }
+
+    struct ToggleFormatterRenderTestView {
+        state: Entity<InputState>,
+        formatter_enabled: bool,
+    }
+
+    impl Render for FormattedCallbackTestView {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            let values = self.values.clone();
+            Input::new(&self.state)
+                .custom_formatter(|input| format!("${:.2}", input.parse::<f64>().unwrap_or(0.0)))
+                .on_change(move |value, _| values.borrow_mut().push(value))
+        }
+    }
+
+    impl Render for FormattedInputRenderTestView {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            let callback_calls = self.callback_calls.clone();
+            let suffix = self.suffix;
+            Input::new(&self.state)
+                .value(self.value.clone())
+                .custom_formatter(move |input| {
+                    if suffix {
+                        format!("{input} USD")
+                    } else {
+                        format!("${:.2}", input.parse::<f64>().unwrap_or(0.0))
+                    }
+                })
+                .on_change(move |_, _| callback_calls.set(callback_calls.get() + 1))
+        }
+    }
+
+    impl Render for ToggleFormatterRenderTestView {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            let input = Input::new(&self.state).value("12");
+            if self.formatter_enabled {
+                input.custom_formatter(|value| {
+                    format!("${:.2}", value.parse::<f64>().unwrap_or(0.0))
+                })
+            } else {
+                input
+            }
+        }
     }
 
     impl Render for InputRenderTestView {
@@ -1009,6 +1090,124 @@ mod tests {
         window.draw();
 
         assert_eq!(calls.get(), 0);
+    }
+
+    #[gpui::test]
+    fn formatted_controlled_value_does_not_emit_on_unchanged_rerender() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let calls = Rc::new(Cell::new(0));
+        let mut window = app.open_window(|_, cx| FormattedInputRenderTestView {
+            state: cx.new(InputState::new),
+            value: "12".into(),
+            callback_calls: calls.clone(),
+            suffix: false,
+        });
+
+        window.draw();
+        let calls_after_initial_render = calls.get();
+        assert_eq!(
+            window.read(|view, cx| view.state.read(cx).content().to_string()),
+            "$12.00"
+        );
+
+        window.update(|_, _, cx| cx.notify());
+        window.draw();
+
+        assert_eq!(calls.get(), calls_after_initial_render);
+    }
+
+    #[gpui::test]
+    fn changing_formatter_reformats_the_controlled_value() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let calls = Rc::new(Cell::new(0));
+        let mut window = app.open_window(|_, cx| FormattedInputRenderTestView {
+            state: cx.new(InputState::new),
+            value: "12".into(),
+            callback_calls: calls.clone(),
+            suffix: false,
+        });
+
+        window.draw();
+        assert_eq!(
+            window.read(|view, cx| view.state.read(cx).content().to_string()),
+            "$12.00"
+        );
+
+        window.update(|view, _, cx| {
+            view.suffix = true;
+            cx.notify();
+        });
+        window.draw();
+
+        assert_eq!(
+            window.read(|view, cx| view.state.read(cx).content().to_string()),
+            "12 USD"
+        );
+    }
+
+    #[gpui::test]
+    fn removing_builder_formatter_restores_raw_display_value() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let mut window = app.open_window(|_, cx| ToggleFormatterRenderTestView {
+            state: cx.new(InputState::new),
+            formatter_enabled: true,
+        });
+
+        window.draw();
+        assert_eq!(
+            window.read(|view, cx| view.state.read(cx).content().to_string()),
+            "$12.00"
+        );
+
+        window.update(|view, _, cx| {
+            view.formatter_enabled = false;
+            cx.notify();
+        });
+        window.draw();
+
+        assert_eq!(
+            window.read(|view, cx| view.state.read(cx).content().to_string()),
+            "12"
+        );
+    }
+
+    #[gpui::test]
+    fn formatted_input_change_callback_reports_raw_value() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| cx.new(InputState::new));
+        let values = Rc::new(RefCell::new(Vec::new()));
+        let values_for_view = values.clone();
+        let mut window = app.open_window(|_, _| FormattedCallbackTestView {
+            state: state.clone(),
+            values: values_for_view,
+        });
+
+        window.draw();
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.set_value("123", window, cx);
+            });
+        });
+
+        assert_eq!(
+            values.borrow().last().map(SharedString::as_ref),
+            Some("123")
+        );
+    }
+
+    #[gpui::test]
+    fn clearable_builder_enables_clear_button() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| cx.new(InputState::new));
+
+        let input = Input::new(&state).clearable(true);
+
+        assert!(input.clearable);
     }
 
     #[gpui::test]
