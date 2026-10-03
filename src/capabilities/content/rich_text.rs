@@ -334,49 +334,14 @@ pub fn render_inlines(
     element_id: Option<ElementId>,
     cx: &App,
 ) -> AnyElement {
-    let theme = use_theme(cx);
-    let font_family = theme.tokens.font_family.clone();
-    let font_mono = theme.tokens.font_mono.clone();
-    let text_color = theme.tokens.foreground;
-    let link_color = theme.tokens.primary;
-    let code_bg = theme.tokens.muted.opacity(0.3);
-
-    let flattened = InlineFlattener::new(font_family, font_mono, text_color, link_color, code_bg)
-        .flatten(inlines);
-
-    if flattened.text.is_empty() {
-        return div().into_any_element();
-    }
-
-    let styled = StyledText::new(SharedString::from(flattened.text)).with_runs(flattened.runs);
-
-    if !flattened.links.is_empty() {
-        let id = element_id.unwrap_or_else(|| ElementId::Name("rich-text-inline".into()));
-        let click_ranges: Vec<std::ops::Range<usize>> =
-            flattened.links.iter().map(|l| l.range.clone()).collect();
-        let link_urls: Vec<String> = flattened.links.iter().map(|l| l.url.clone()).collect();
-        let handler = link_handler.cloned();
-
-        return div()
-            .text_size(base_size)
-            .line_height(relative(1.5))
-            .debug_selector(|| "rich-text-link".into())
-            .child(InteractiveText::new(id, styled).on_click(
-                click_ranges,
-                move |idx, window, cx| {
-                    if let Some(url) = link_urls.get(idx) {
-                        dispatch_link_click(&handler, url, window, cx);
-                    }
-                },
-            ))
-            .into_any_element();
-    }
-
-    div()
-        .text_size(base_size)
-        .line_height(relative(1.5))
-        .child(styled)
-        .into_any_element()
+    render_inline_content(
+        inlines,
+        base_size,
+        link_handler.cloned(),
+        element_id,
+        true,
+        cx,
+    )
 }
 
 pub fn render_inlines_with_handler(
@@ -385,6 +350,24 @@ pub fn render_inlines_with_handler(
     _link_urls: &[LinkInfo],
     on_link_click: &Option<LinkClickHandler>,
     element_id: Option<ElementId>,
+    cx: &App,
+) -> AnyElement {
+    render_inline_content(
+        inlines,
+        base_size,
+        on_link_click.clone(),
+        element_id,
+        false,
+        cx,
+    )
+}
+
+fn render_inline_content(
+    inlines: &[RichInline],
+    base_size: Pixels,
+    link_handler: Option<LinkClickHandler>,
+    element_id: Option<ElementId>,
+    debug_links: bool,
     cx: &App,
 ) -> AnyElement {
     let theme = use_theme(cx);
@@ -407,17 +390,19 @@ pub fn render_inlines_with_handler(
         let id = element_id.unwrap_or_else(|| ElementId::Name("rich-text-inline".into()));
         let click_ranges: Vec<std::ops::Range<usize>> =
             flattened.links.iter().map(|l| l.range.clone()).collect();
-        let urls: Vec<String> = flattened.links.iter().map(|l| l.url.clone()).collect();
-        let handler = on_link_click.clone();
+        let link_urls: Vec<String> = flattened.links.iter().map(|l| l.url.clone()).collect();
+        let mut container = div().text_size(base_size).line_height(relative(1.5));
 
-        return div()
-            .text_size(base_size)
-            .line_height(relative(1.5))
+        if debug_links {
+            container = container.debug_selector(|| "rich-text-link".into());
+        }
+
+        return container
             .child(InteractiveText::new(id, styled).on_click(
                 click_ranges,
                 move |idx, window, cx| {
-                    if let Some(url) = urls.get(idx) {
-                        dispatch_link_click(&handler, url, window, cx);
+                    if let Some(url) = link_urls.get(idx) {
+                        dispatch_link_click(&link_handler, url, window, cx);
                     }
                 },
             ))
