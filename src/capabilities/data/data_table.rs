@@ -20,6 +20,8 @@ type FetchPageCallback<T> = Box<dyn Fn(usize, usize, &mut Window, &mut Context<T
 type RowClickCallback<T> =
     Box<dyn Fn(usize, &T, &mut Window, &mut Context<DataTable<T>>) + 'static>;
 type SelectionChangeCallback<T> = Box<dyn Fn(&[usize], &mut Window, &mut Context<T>) + 'static>;
+type SortChangeCallback<T> =
+    Box<dyn Fn(SharedString, SortDirection, &mut Window, &mut Context<T>) + 'static>;
 
 #[derive(Clone)]
 pub struct RowAction {
@@ -412,6 +414,7 @@ pub struct DataTable<T: Clone + 'static> {
     on_cell_double_click: Option<CellDoubleClickCallback<T>>,
     on_fetch_page: Option<FetchPageCallback<Self>>,
     on_row_click: Option<RowClickCallback<T>>,
+    on_sort_change: Option<SortChangeCallback<Self>>,
     search_query: String,
     search_column: Option<usize>,
     show_search: bool,
@@ -450,6 +453,7 @@ impl<T: Clone + 'static> DataTable<T> {
             on_cell_double_click: None,
             on_fetch_page: None,
             on_row_click: None,
+            on_sort_change: None,
             search_query: String::new(),
             search_column: None,
             show_search: true,
@@ -554,6 +558,19 @@ impl<T: Clone + 'static> DataTable<T> {
         self
     }
 
+    /// Set the callback used to request remote sorting for virtual tables.
+    ///
+    /// In-memory tables sort locally. Virtual tables do not reorder cached
+    /// pages, so this callback must request sorted data from the backing
+    /// source and refresh the table when the result arrives.
+    pub fn on_sort_change<F>(mut self, callback: F) -> Self
+    where
+        F: Fn(SharedString, SortDirection, &mut Window, &mut Context<Self>) + 'static,
+    {
+        self.on_sort_change = Some(Box::new(callback));
+        self
+    }
+
     /// Set callback for when a cell is edited
     ///
     /// The callback receives: (row_index, column_id, old_value, new_value, context)
@@ -612,6 +629,31 @@ impl<T: Clone + 'static> DataTable<T> {
     pub fn set_search_column(&mut self, column_index: Option<usize>, cx: &mut Context<Self>) {
         self.search_column = column_index;
         cx.notify();
+    }
+
+    fn sort_from_header(
+        &mut self,
+        column_index: usize,
+        direction: SortDirection,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !matches!(&self.state.backing, DataBacking::Virtual { .. }) {
+            self.state.sort_by_column(column_index, direction);
+            return;
+        }
+
+        let Some(callback) = self.on_sort_change.as_ref() else {
+            return;
+        };
+        let Some(column) = self.state.columns.get(column_index) else {
+            return;
+        };
+
+        self.state.sort_column = Some(column_index);
+        self.state.sort_direction = direction;
+        self.state.selected_rows.clear();
+        callback(column.id.clone(), direction, window, cx);
     }
 
     fn row_matches_search(&self, row: &T, query_lower: &str) -> bool {
@@ -1026,7 +1068,7 @@ impl<T: Clone + 'static> DataTable<T> {
                                 }
                             }
                             let had_selection = !this.state.selected_rows.is_empty();
-                            this.state.sort_by_column(col_idx, new_direction);
+                            this.sort_from_header(col_idx, new_direction, window, cx);
                             if had_selection {
                                 if let Some(ref callback) = this.on_selection_change {
                                     callback(&this.state.selected_rows, window, cx);
@@ -1077,7 +1119,7 @@ impl<T: Clone + 'static> Styled for DataTable<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::Cell;
+    use std::cell::{Cell, RefCell};
     use std::rc::Rc;
 
     #[derive(Clone)]
@@ -1163,6 +1205,36 @@ mod tests {
         state.sort_by_column(0, SortDirection::Ascending);
 
         assert!(state.sort_column.is_none());
+    }
+
+    #[gpui::test]
+    fn virtual_sort_dispatches_remote_sort_request() {
+        let mut app = TestApp::new();
+        let requests = Rc::new(RefCell::new(Vec::new()));
+        let requests_for_callback = requests.clone();
+        let table = app.update(|cx| {
+            cx.new(|cx| {
+                DataTable::new_virtual(10, columns(), 2, cx).on_sort_change(
+                    move |column, direction, _, _| {
+                        requests_for_callback
+                            .borrow_mut()
+                            .push((column.to_string(), direction));
+                    },
+                )
+            })
+        });
+        let mut window = app.open_window(|_, _| gpui::Empty);
+
+        window.update(|_, window, cx| {
+            table.update(cx, |table, cx| {
+                table.sort_from_header(0, SortDirection::Descending, window, cx);
+            });
+        });
+
+        assert_eq!(
+            requests.borrow().as_slice(),
+            &[("value".to_string(), SortDirection::Descending)]
+        );
     }
 
     #[::core::prelude::v1::test]
