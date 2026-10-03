@@ -36,6 +36,13 @@ fn with_test_selector<E>(element: E, _selector: &'static str) -> E {
     element
 }
 
+type FilterFn<T> = Box<dyn Fn(&T, &str) -> bool>;
+type ItemRenderer<T> = Box<dyn Fn(&T) -> SharedString>;
+type SelectedRenderer<T> = Box<dyn Fn(&[T]) -> SharedString>;
+type SelectCallback<T> = Box<dyn Fn(&T, &mut Window, &mut App)>;
+type ClearCallback = Box<dyn Fn(&mut Window, &mut App)>;
+type SearchCallback = Box<dyn Fn(&str, &mut App)>;
+
 /// Events emitted by the Combobox
 #[derive(Clone, Debug)]
 pub enum ComboboxEvent {
@@ -126,13 +133,13 @@ pub struct Combobox<T: Clone + 'static> {
     multi_select: bool,
     max_height: Pixels,
 
-    filter_fn: Box<dyn Fn(&T, &str) -> bool>,
-    render_item: Box<dyn Fn(&T) -> SharedString>,
-    render_selected: Option<Box<dyn Fn(&[T]) -> SharedString>>,
+    filter_fn: FilterFn<T>,
+    render_item: ItemRenderer<T>,
+    render_selected: Option<SelectedRenderer<T>>,
 
-    on_select: Option<Box<dyn Fn(&T, &mut Window, &mut App)>>,
-    on_clear: Option<Box<dyn Fn(&mut Window, &mut App)>>,
-    on_search: Option<Box<dyn Fn(&str, &mut App)>>,
+    on_select: Option<SelectCallback<T>>,
+    on_clear: Option<ClearCallback>,
+    on_search: Option<SearchCallback>,
 
     bounds: Bounds<Pixels>,
 
