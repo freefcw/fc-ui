@@ -681,78 +681,6 @@ impl Styled for Chart {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{DataPoint, DataRange};
-
-    #[test]
-    fn data_range_normalization_is_finite_for_invalid_public_inputs() {
-        for range in [
-            DataRange::new(1.0, 1.0, 2.0, 2.0),
-            DataRange::new(2.0, -2.0, 4.0, -4.0),
-            DataRange::new(f64::NAN, 1.0, 0.0, f64::INFINITY),
-        ] {
-            assert!(range.normalize_x(0.0).is_finite());
-            assert!(range.normalize_y(0.0).is_finite());
-            assert!(range.x_min < range.x_max);
-            assert!(range.y_min < range.y_max);
-        }
-    }
-
-    #[test]
-    fn extreme_finite_values_produce_finite_ranges() {
-        for value in [f64::MAX, f64::MIN] {
-            for range in [
-                DataRange::new(value, value, 0.0, 1.0),
-                DataRange::from_points(&[DataPoint::new(value, 0.0)]),
-            ] {
-                assert!(range.x_min.is_finite());
-                assert!(range.x_max.is_finite());
-                assert!(range.x_min < range.x_max);
-                assert!(range.x_min <= value && value <= range.x_max);
-                assert!(range.normalize_x(value).is_finite());
-            }
-        }
-    }
-
-    #[test]
-    fn data_range_ignores_non_finite_points() {
-        let range = DataRange::from_points(&[
-            DataPoint::new(f64::NAN, 1.0),
-            DataPoint::new(2.0, f64::INFINITY),
-            DataPoint::new(3.0, 4.0),
-        ]);
-
-        assert!(range.x_min <= 3.0 && range.x_max >= 3.0);
-        assert!(range.y_min <= 4.0 && range.y_max >= 4.0);
-        assert!(range.normalize_x(3.0).is_finite());
-        assert!(range.normalize_y(4.0).is_finite());
-    }
-
-    #[test]
-    fn single_finite_point_keeps_the_existing_one_unit_range() {
-        let range = DataRange::from_points(&[DataPoint::new(3.0, 4.0)]);
-
-        assert_eq!(range.x_min, 3.0);
-        assert_eq!(range.x_max, 4.0);
-        assert_eq!(range.y_min, 4.0);
-        assert_eq!(range.y_max, 5.0);
-    }
-
-    #[test]
-    fn data_range_defaults_when_no_points_are_finite() {
-        let range = DataRange::from_points(&[
-            DataPoint::new(f64::NAN, 1.0),
-            DataPoint::new(2.0, f64::INFINITY),
-        ]);
-
-        assert_eq!(range.x_min, 0.0);
-        assert_eq!(range.x_max, 1.0);
-        assert_eq!(range.y_min, 0.0);
-        assert_eq!(range.y_max, 1.0);
-    }
-}
-
 impl RenderOnce for Chart {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = use_theme(cx);
@@ -1108,5 +1036,77 @@ impl RenderOnce for Chart {
                         })),
                 )
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DataPoint, DataRange};
+
+    #[test]
+    fn data_range_normalization_is_finite_for_invalid_public_inputs() {
+        for range in [
+            DataRange::new(1.0, 1.0, 2.0, 2.0),
+            DataRange::new(2.0, -2.0, 4.0, -4.0),
+            DataRange::new(f64::NAN, 1.0, 0.0, f64::INFINITY),
+        ] {
+            assert!(range.normalize_x(0.0).is_finite());
+            assert!(range.normalize_y(0.0).is_finite());
+            assert!(range.x_min < range.x_max);
+            assert!(range.y_min < range.y_max);
+        }
+    }
+
+    #[test]
+    fn extreme_finite_values_produce_finite_ranges() {
+        for value in [f64::MAX, f64::MIN] {
+            for range in [
+                DataRange::new(value, value, 0.0, 1.0),
+                DataRange::from_points(&[DataPoint::new(value, 0.0)]),
+            ] {
+                assert!(range.x_min.is_finite());
+                assert!(range.x_max.is_finite());
+                assert!(range.x_min < range.x_max);
+                assert!(range.x_min <= value && value <= range.x_max);
+                assert!(range.normalize_x(value).is_finite());
+            }
+        }
+    }
+
+    #[test]
+    fn data_range_ignores_non_finite_points() {
+        let range = DataRange::from_points(&[
+            DataPoint::new(f64::NAN, 1.0),
+            DataPoint::new(2.0, f64::INFINITY),
+            DataPoint::new(3.0, 4.0),
+        ]);
+
+        assert!(range.x_min <= 3.0 && range.x_max >= 3.0);
+        assert!(range.y_min <= 4.0 && range.y_max >= 4.0);
+        assert!(range.normalize_x(3.0).is_finite());
+        assert!(range.normalize_y(4.0).is_finite());
+    }
+
+    #[test]
+    fn single_finite_point_keeps_the_existing_one_unit_range() {
+        let range = DataRange::from_points(&[DataPoint::new(3.0, 4.0)]);
+
+        assert_eq!(range.x_min, 3.0);
+        assert_eq!(range.x_max, 4.0);
+        assert_eq!(range.y_min, 4.0);
+        assert_eq!(range.y_max, 5.0);
+    }
+
+    #[test]
+    fn data_range_defaults_when_no_points_are_finite() {
+        let range = DataRange::from_points(&[
+            DataPoint::new(f64::NAN, 1.0),
+            DataPoint::new(2.0, f64::INFINITY),
+        ]);
+
+        assert_eq!(range.x_min, 0.0);
+        assert_eq!(range.x_max, 1.0);
+        assert_eq!(range.y_min, 0.0);
+        assert_eq!(range.y_max, 1.0);
     }
 }
