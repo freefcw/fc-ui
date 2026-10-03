@@ -7,6 +7,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::capabilities::foundation::theme::use_theme;
 use crate::capabilities::primitives::button::{Button, ButtonSize, ButtonVariant};
 
+type DateSelectCallback = Rc<dyn Fn(&DateValue, &mut Window, &mut App)>;
+type MonthChangeCallback = Rc<dyn Fn(&DateValue, &mut Window, &mut App)>;
+type DateDisabledPredicate = Rc<dyn Fn(&DateValue) -> bool>;
+
 /// Default English weekday abbreviations
 pub const DEFAULT_WEEKDAYS: [&str; 7] = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
@@ -265,10 +269,10 @@ pub struct Calendar {
     selected_date: Option<DateValue>,
     selected_range: Option<DateRange>,
     range_start_temp: Option<DateValue>,
-    on_date_select: Option<Rc<dyn Fn(&DateValue, &mut Window, &mut App)>>,
-    on_month_change: Option<Rc<dyn Fn(&DateValue, &mut Window, &mut App)>>,
+    on_date_select: Option<DateSelectCallback>,
+    on_month_change: Option<MonthChangeCallback>,
     disabled_dates: Vec<DateValue>,
-    is_date_disabled: Option<Rc<dyn Fn(&DateValue) -> bool>>,
+    is_date_disabled: Option<DateDisabledPredicate>,
     locale: CalendarLocale,
     style: StyleRefinement,
 }
