@@ -526,6 +526,46 @@ impl Input {
             InputSize::Lg => px(10.0),
         }
     }
+
+    /// Merge builder callbacks into the public ValidationRules representation.
+    ///
+    /// ValidationRules keeps Arc-based callback fields for API compatibility,
+    /// while Input builders own UI-thread Rc callbacks. The conversion is
+    /// intentionally kept in this one boundary rather than duplicated during
+    /// every render branch.
+    #[allow(clippy::arc_with_non_send_sync)]
+    fn validation_rules_for_state(&self) -> Option<ValidationRules> {
+        let has_builder_callbacks = self.custom_validator.is_some()
+            || self.custom_filter.is_some()
+            || self.custom_formatter.is_some();
+        let mut rules = self
+            .validation_rules
+            .clone()
+            .or_else(|| has_builder_callbacks.then(ValidationRules::default))?;
+
+        if let Some(custom_validator) = self.custom_validator.as_ref() {
+            let validator = custom_validator.clone();
+            rules.custom_validator = Some(Arc::new(move |value| match validator(value) {
+                Ok(()) => Ok(()),
+                Err(message) => Err(ValidationError {
+                    message: message.into(),
+                    field_name: None,
+                }),
+            }));
+        }
+
+        if let Some(custom_filter) = self.custom_filter.as_ref() {
+            let filter = custom_filter.clone();
+            rules.custom_filter = Some(Arc::new(move |input| filter(input)));
+        }
+
+        if let Some(custom_formatter) = self.custom_formatter.as_ref() {
+            let formatter = custom_formatter.clone();
+            rules.custom_formatter = Some(Arc::new(move |input| formatter(input)));
+        }
+
+        Some(rules)
+    }
 }
 
 impl Styled for Input {
@@ -581,59 +621,9 @@ impl RenderOnce for Input {
                     .as_ref()
                     .is_some_and(|rules| rules.custom_formatter.is_some());
 
-            if let Some(mut rules) = self.validation_rules.clone() {
-                if let Some(ref custom_validator) = self.custom_validator {
-                    let validator = custom_validator.clone();
-                    rules.custom_validator = Some(Arc::new(move |value| match validator(value) {
-                        Ok(()) => Ok(()),
-                        Err(msg) => Err(ValidationError {
-                            message: msg.into(),
-                            field_name: None,
-                        }),
-                    }));
-                }
-
-                if let Some(ref custom_filter) = self.custom_filter {
-                    let filter = custom_filter.clone();
-                    rules.custom_filter = Some(Arc::new(move |input| filter(input)));
-                }
-
-                if let Some(ref custom_formatter) = self.custom_formatter {
-                    let formatter = custom_formatter.clone();
-                    rules.custom_formatter = Some(Arc::new(move |input| formatter(input)));
-                }
-
-                state.validation_rules = rules;
-            } else if self.custom_validator.is_some()
-                || self.custom_filter.is_some()
-                || self.custom_formatter.is_some()
-            {
-                let mut rules = ValidationRules::default();
-
-                if let Some(ref custom_validator) = self.custom_validator {
-                    let validator = custom_validator.clone();
-                    rules.custom_validator = Some(Arc::new(move |value| match validator(value) {
-                        Ok(()) => Ok(()),
-                        Err(msg) => Err(ValidationError {
-                            message: msg.into(),
-                            field_name: None,
-                        }),
-                    }));
-                }
-
-                if let Some(ref custom_filter) = self.custom_filter {
-                    let filter = custom_filter.clone();
-                    rules.custom_filter = Some(Arc::new(move |input| filter(input)));
-                }
-
-                if let Some(ref custom_formatter) = self.custom_formatter {
-                    let formatter = custom_formatter.clone();
-                    rules.custom_formatter = Some(Arc::new(move |input| formatter(input)));
-                }
-
+            if let Some(rules) = self.validation_rules_for_state() {
                 state.validation_rules = rules;
             }
-
             state.sync_builder_formatter(builder_formatter_active);
 
             // Keep the raw value when formatter configuration changes, then
