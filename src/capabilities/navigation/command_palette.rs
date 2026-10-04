@@ -8,6 +8,7 @@ use crate::capabilities::primitives::icon_source::IconSource;
 use crate::capabilities::primitives::text::{body, caption, label_small};
 use crate::capabilities::scroll::scrollable::scrollable_vertical;
 use gpui::{prelude::FluentBuilder as _, InteractiveElement, *};
+use std::cmp::Reverse;
 use std::rc::Rc;
 
 actions!(
@@ -146,7 +147,7 @@ impl CommandPaletteState {
                 .map(|cmd| (cmd.clone(), cmd.match_score(&query)))
                 .collect();
 
-            matches.sort_by(|a, b| b.1.cmp(&a.1));
+            matches.sort_by_key(|(_, score)| Reverse(*score));
             self.filtered_commands = matches.into_iter().map(|(cmd, _)| cmd).collect();
         }
 
