@@ -152,7 +152,7 @@ impl HttpClient for SimpleHttpClient {
                     builder = builder.header(key.as_str(), value.as_bytes());
                 }
 
-                let async_body = AsyncBody::from_bytes(bytes::Bytes::from(bytes));
+                let async_body = AsyncBody::from_bytes(bytes);
                 let response = builder
                     .body(async_body)
                     .map_err(|e| gpui::http_client::anyhow!("Failed to build response: {}", e))?;

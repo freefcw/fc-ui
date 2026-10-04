@@ -842,7 +842,7 @@ impl IntoElement for MasonryGrid {
         let mut column_items: Vec<Vec<AnyElement>> =
             (0..self.columns).map(|_| Vec::new()).collect();
 
-        let gap_value: f32 = self.gap.map(|g| f32::from(g)).unwrap_or(0.0);
+        let gap_value: f32 = self.gap.map(f32::from).unwrap_or(0.0);
 
         for item in self.items {
             let min_column = column_heights
