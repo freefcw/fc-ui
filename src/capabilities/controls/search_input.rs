@@ -150,8 +150,8 @@ impl SearchInput {
 
         let state_weak = state.downgrade();
         let input_entity = state.read(cx).input.clone();
-        cx.subscribe(&input_entity, move |_this, _input, event, cx| match event {
-            InputEvent::Change => {
+        cx.subscribe(&input_entity, move |_this, _input, event, cx| {
+            if let InputEvent::Change = event {
                 let Some(state) = state_weak.upgrade() else {
                     return;
                 };
@@ -163,7 +163,6 @@ impl SearchInput {
                     });
                 }
             }
-            _ => {}
         })
         .detach();
 
