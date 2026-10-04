@@ -304,6 +304,12 @@ impl TreeMap {
     }
 }
 
+impl Default for TreeMap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Styled for TreeMap {
     fn style(&mut self) -> &mut StyleRefinement {
         &mut self.style
