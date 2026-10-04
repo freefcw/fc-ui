@@ -442,7 +442,7 @@ impl IntoElement for ScrollContainer {
 
     fn into_element(self) -> Self::Element {
         let id_to_use = self.custom_id.clone().unwrap_or(self.auto_id.clone());
-        let handle = self.scroll_handle.clone().unwrap_or_else(ScrollHandle::new);
+        let handle = self.scroll_handle.clone().unwrap_or_default();
 
         if !self.show_scrollbar {
             let mut scrollable = self.base.id(id_to_use);
