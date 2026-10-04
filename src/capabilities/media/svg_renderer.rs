@@ -194,6 +194,12 @@ impl SVGRenderer {
     }
 }
 
+impl Default for SVGRenderer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Styled for SVGRenderer {
     fn style(&mut self) -> &mut StyleRefinement {
         &mut self.style
