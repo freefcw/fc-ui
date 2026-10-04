@@ -1294,7 +1294,7 @@ mod tests {
     fn word_left_moves_cursor_to_previous_word_boundary() {
         let mut app = TestApp::new();
         app.update(|cx| install_theme(cx, Theme::light()));
-        let state = app.update(|cx| cx.new(|cx| TextareaState::new(cx)));
+        let state = app.update(|cx| cx.new(TextareaState::new));
         let mut window = app.open_window(|_, _| TestView {
             state: state.clone(),
         });
@@ -1318,7 +1318,7 @@ mod tests {
     fn word_right_moves_cursor_to_next_word_boundary() {
         let mut app = TestApp::new();
         app.update(|cx| install_theme(cx, Theme::light()));
-        let state = app.update(|cx| cx.new(|cx| TextareaState::new(cx)));
+        let state = app.update(|cx| cx.new(TextareaState::new));
         let mut window = app.open_window(|_, _| TestView {
             state: state.clone(),
         });
@@ -1341,7 +1341,7 @@ mod tests {
     fn word_movement_handles_unicode() {
         let mut app = TestApp::new();
         app.update(|cx| install_theme(cx, Theme::light()));
-        let state = app.update(|cx| cx.new(|cx| TextareaState::new(cx)));
+        let state = app.update(|cx| cx.new(TextareaState::new));
         let mut window = app.open_window(|_, _| TestView {
             state: state.clone(),
         });
@@ -1363,7 +1363,7 @@ mod tests {
     fn grapheme_deletion_removes_whole_unicode_clusters() {
         let mut app = TestApp::new();
         app.update(|cx| install_theme(cx, Theme::light()));
-        let state = app.update(|cx| cx.new(|cx| TextareaState::new(cx)));
+        let state = app.update(|cx| cx.new(TextareaState::new));
         let mut window = app.open_window(|_, _| TestView {
             state: state.clone(),
         });
@@ -1398,7 +1398,7 @@ mod tests {
     fn selection_direction_flips_when_crossing_the_anchor() {
         let mut app = TestApp::new();
         app.update(|cx| install_theme(cx, Theme::light()));
-        let state = app.update(|cx| cx.new(|cx| TextareaState::new(cx)));
+        let state = app.update(|cx| cx.new(TextareaState::new));
         let mut window = app.open_window(|_, _| TestView {
             state: state.clone(),
         });
@@ -1442,7 +1442,7 @@ mod tests {
     fn utf16_ranges_preserve_astral_character_boundaries() {
         let mut app = TestApp::new();
         app.update(|cx| install_theme(cx, Theme::light()));
-        let state = app.update(|cx| cx.new(|cx| TextareaState::new(cx)));
+        let state = app.update(|cx| cx.new(TextareaState::new));
         let mut window = app.open_window(|_, _| TestView {
             state: state.clone(),
         });

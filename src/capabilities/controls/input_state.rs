@@ -1847,7 +1847,7 @@ mod tests {
     fn word_left_moves_cursor_to_previous_word_boundary() {
         let mut app = TestApp::new();
         app.update(|cx| install_theme(cx, Theme::light()));
-        let state = app.update(|cx| cx.new(|cx| InputState::new(cx)));
+        let state = app.update(|cx| cx.new(InputState::new));
         let mut window = app.open_window(|_, _| TestView {
             state: state.clone(),
         });
@@ -1871,7 +1871,7 @@ mod tests {
     fn word_right_moves_cursor_to_next_word_boundary() {
         let mut app = TestApp::new();
         app.update(|cx| install_theme(cx, Theme::light()));
-        let state = app.update(|cx| cx.new(|cx| InputState::new(cx)));
+        let state = app.update(|cx| cx.new(InputState::new));
         let mut window = app.open_window(|_, _| TestView {
             state: state.clone(),
         });
@@ -1894,7 +1894,7 @@ mod tests {
     fn word_movement_handles_unicode() {
         let mut app = TestApp::new();
         app.update(|cx| install_theme(cx, Theme::light()));
-        let state = app.update(|cx| cx.new(|cx| InputState::new(cx)));
+        let state = app.update(|cx| cx.new(InputState::new));
         let mut window = app.open_window(|_, _| TestView {
             state: state.clone(),
         });
@@ -1916,7 +1916,7 @@ mod tests {
     fn ime_marked_replacement_maps_selection_into_inserted_text() {
         let mut app = TestApp::new();
         app.update(|cx| install_theme(cx, Theme::light()));
-        let state = app.update(|cx| cx.new(|cx| InputState::new(cx)));
+        let state = app.update(|cx| cx.new(InputState::new));
         let mut window = app.open_window(|_, _| TestView {
             state: state.clone(),
         });
@@ -1950,7 +1950,7 @@ mod tests {
     fn ime_commit_replacing_nonempty_selection_places_cursor_after_insert() {
         let mut app = TestApp::new();
         app.update(|cx| install_theme(cx, Theme::light()));
-        let state = app.update(|cx| cx.new(|cx| InputState::new(cx)));
+        let state = app.update(|cx| cx.new(InputState::new));
         let mut window = app.open_window(|_, _| TestView {
             state: state.clone(),
         });
