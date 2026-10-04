@@ -63,6 +63,8 @@ const MIN_ZOOM: f32 = 0.1;
 const MAX_ZOOM: f32 = 5.0;
 const ZOOM_STEP: f32 = 0.25;
 
+type CloseCallback = Rc<dyn Fn(&mut Window, &mut App)>;
+
 pub struct ImageViewerState {
     images: Vec<ImageItem>,
     current_index: usize,
@@ -185,7 +187,7 @@ pub struct ImageViewer {
     focus_handle: FocusHandle,
     has_focused: bool,
     state: Entity<ImageViewerState>,
-    on_close: Option<Rc<dyn Fn(&mut Window, &mut App)>>,
+    on_close: Option<CloseCallback>,
     close_on_backdrop_click: bool,
     close_on_escape: bool,
     show_controls: bool,
