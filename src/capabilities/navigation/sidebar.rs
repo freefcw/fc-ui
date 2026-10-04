@@ -437,7 +437,5 @@ impl<T: Clone + PartialEq + 'static> Sidebar<T> {
 }
 
 pub fn init_sidebar(cx: &mut App) {
-    if !crate::capabilities::foundation::initialization::begin(cx, "sidebar") {
-        return;
-    }
+    crate::capabilities::foundation::initialization::begin(cx, "sidebar");
 }
