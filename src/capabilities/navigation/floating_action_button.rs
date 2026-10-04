@@ -7,10 +7,12 @@ use std::time::Duration;
 use crate::capabilities::foundation::theme::use_theme;
 use crate::capabilities::motion::animations::{durations, easings};
 
+type FABActionHandler = Rc<dyn Fn(&mut Window, &mut App)>;
+
 struct FABAction {
     id: SharedString,
     icon: SharedString,
-    handler: Rc<dyn Fn(&mut Window, &mut App)>,
+    handler: FABActionHandler,
 }
 
 pub struct FABState {
