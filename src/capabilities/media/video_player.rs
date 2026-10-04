@@ -858,7 +858,7 @@ impl RenderOnce for VideoPlayer {
                         .left_0()
                         .right_0()
                         .h(controls_height + px(40.0))
-                        .bg(Hsla::from(gpui::black()).opacity(0.7))
+                        .bg(gpui::black().opacity(0.7))
                         .flex()
                         .flex_col()
                         .justify_end()
