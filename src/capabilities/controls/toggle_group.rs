@@ -201,7 +201,7 @@ impl RenderOnce for ToggleGroup {
             .children(self.items.into_iter().map(move |item| {
                 let is_selected = match variant {
                     ToggleGroupVariant::Single => {
-                        current_value.as_ref().map_or(false, |v| v == &item.value)
+                        current_value.as_ref().is_some_and(|v| v == &item.value)
                     }
                     ToggleGroupVariant::Multiple => current_values.contains(&item.value),
                 };
