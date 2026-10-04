@@ -196,14 +196,14 @@ impl Element for VirtualList {
                                         .sum::<f32>()),
                                     height: state
                                         .items_sizes
-                                        .get(0)
+                                        .first()
                                         .map_or(px(0.), |size| size.height),
                                 }
                             } else {
                                 Size {
                                     width: state
                                         .items_sizes
-                                        .get(0)
+                                        .first()
                                         .map_or(px(0.), |size| size.width),
                                     height: px(state
                                         .sizes
