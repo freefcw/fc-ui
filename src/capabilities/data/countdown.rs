@@ -3,6 +3,8 @@ use gpui::{prelude::FluentBuilder as _, *};
 use std::rc::Rc;
 use std::time::{Duration, SystemTime};
 
+type CompletionHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub enum CountdownSize {
     Sm,
@@ -164,7 +166,7 @@ pub struct CountdownState {
     count_up: bool,
     running: bool,
     completed: bool,
-    completion_handlers: Vec<(AnyWindowHandle, Rc<dyn Fn(&mut Window, &mut App) + 'static>)>,
+    completion_handlers: Vec<(AnyWindowHandle, CompletionHandler)>,
 }
 
 impl CountdownState {
@@ -210,7 +212,7 @@ impl CountdownState {
     fn register_completion_handler(
         &mut self,
         window: AnyWindowHandle,
-        handler: Option<Rc<dyn Fn(&mut Window, &mut App) + 'static>>,
+        handler: Option<CompletionHandler>,
     ) {
         self.completion_handlers
             .retain(|(registered_window, _)| *registered_window != window);
