@@ -470,7 +470,7 @@ impl IntoElement for ScrollContainer {
                 }
             }
 
-            return scrollable;
+            scrollable
         } else {
             let scrollbar_state = self.scrollbar_state.clone();
             scrollbar_state.init_visible();
