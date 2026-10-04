@@ -242,7 +242,7 @@ impl RenderOnce for Text {
             theme.tokens.font_family.clone()
         };
 
-        let text_color = self.color.unwrap_or_else(|| {
+        let text_color = self.color.unwrap_or({
             if self.muted {
                 theme.tokens.muted_foreground
             } else {
