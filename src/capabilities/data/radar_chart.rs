@@ -124,6 +124,12 @@ impl RadarChart {
     }
 }
 
+impl Default for RadarChart {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Styled for RadarChart {
     fn style(&mut self) -> &mut StyleRefinement {
         &mut self.style

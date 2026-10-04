@@ -83,6 +83,12 @@ impl Heatmap {
     }
 }
 
+impl Default for Heatmap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Styled for Heatmap {
     fn style(&mut self) -> &mut StyleRefinement {
         &mut self.style
