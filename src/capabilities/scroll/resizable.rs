@@ -591,7 +591,7 @@ impl<T: 'static, E: 'static + Render> Element for ResizeHandle<T, E> {
         let theme = use_theme(cx);
 
         window.with_element_state(id.unwrap(), |state, window| {
-            let state = state.unwrap_or_else(ResizeHandleState::default);
+            let state: ResizeHandleState = state.unwrap_or_default();
 
             let bg_color = if state.is_active() {
                 theme.tokens.accent
@@ -670,7 +670,7 @@ impl<T: 'static, E: 'static + Render> Element for ResizeHandle<T, E> {
         request_layout.paint(window, cx);
 
         window.with_element_state(id.unwrap(), |state: Option<ResizeHandleState>, window| {
-            let state = state.unwrap_or_else(ResizeHandleState::default);
+            let state = state.unwrap_or_default();
 
             window.on_mouse_event({
                 let state = state.clone();
