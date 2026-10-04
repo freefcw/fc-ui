@@ -11,6 +11,9 @@ use crate::capabilities::primitives::icon_source::IconSource;
 use gpui::{prelude::FluentBuilder as _, *};
 use std::rc::Rc;
 
+type AccordionChangeCallback = Rc<dyn Fn(&[usize], &mut Window, &mut App)>;
+type AccordionToggleCallback = Rc<dyn Fn(bool, &mut Window, &mut App)>;
+
 #[derive(IntoElement)]
 pub struct Accordion {
     id: ElementId,
@@ -19,7 +22,7 @@ pub struct Accordion {
     bordered: bool,
     disabled: bool,
     open_indices: Vec<usize>,
-    on_change: Option<Rc<dyn Fn(&[usize], &mut Window, &mut App)>>,
+    on_change: Option<AccordionChangeCallback>,
     style: StyleRefinement,
 }
 
@@ -138,7 +141,7 @@ pub struct AccordionItem {
     is_open: bool,
     bordered: bool,
     disabled: bool,
-    on_toggle: Option<Rc<dyn Fn(bool, &mut Window, &mut App)>>,
+    on_toggle: Option<AccordionToggleCallback>,
 }
 
 impl AccordionItem {
