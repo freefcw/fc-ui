@@ -243,6 +243,12 @@ impl AreaChart {
     }
 }
 
+impl Default for AreaChart {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Styled for AreaChart {
     fn style(&mut self) -> &mut StyleRefinement {
         &mut self.style
