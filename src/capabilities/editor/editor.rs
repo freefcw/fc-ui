@@ -5178,6 +5178,90 @@ impl RenderOnce for VerticalScrollbar {
 mod tests {
     use super::*;
 
+    #[::core::prelude::v1::test]
+    fn text_edit_range_maps_cursor_and_selection_offsets() {
+        let insertion = TextEditRange {
+            start: 3,
+            old_end: 3,
+            new_end: 5,
+        };
+
+        assert_eq!(insertion.map_cursor_offset(2), 2);
+        assert_eq!(insertion.map_cursor_offset(3), 3);
+        assert_eq!(insertion.map_cursor_offset(6), 8);
+
+        assert_eq!(insertion.map_selection_offsets(1, 3), (1, 3));
+        assert_eq!(insertion.map_selection_offsets(3, 6), (5, 8));
+        assert_eq!(insertion.map_selection_offsets(6, 3), (8, 5));
+
+        let replacement = TextEditRange {
+            start: 3,
+            old_end: 7,
+            new_end: 5,
+        };
+        assert_eq!(replacement.map_cursor_offset(5), 5);
+        assert_eq!(replacement.map_selection_offsets(1, 9), (1, 7));
+    }
+
+    #[::core::prelude::v1::test]
+    fn line_edit_range_preserves_shifts_and_drops_overlaps() {
+        let insertion = LineEditRange {
+            start_line: 2,
+            old_end_line: 2,
+            new_end_line: 4,
+        };
+        assert_eq!(
+            insertion.map_fold_range(FoldRange {
+                start_line: 0,
+                end_line: 1,
+            }),
+            Some(FoldRange {
+                start_line: 0,
+                end_line: 1,
+            })
+        );
+        assert_eq!(
+            insertion.map_fold_range(FoldRange {
+                start_line: 4,
+                end_line: 6,
+            }),
+            Some(FoldRange {
+                start_line: 6,
+                end_line: 8,
+            })
+        );
+        assert_eq!(
+            insertion.map_fold_range(FoldRange {
+                start_line: 1,
+                end_line: 3,
+            }),
+            None
+        );
+
+        let deletion = LineEditRange {
+            start_line: 2,
+            old_end_line: 5,
+            new_end_line: 3,
+        };
+        assert_eq!(
+            deletion.map_fold_range(FoldRange {
+                start_line: 5,
+                end_line: 7,
+            }),
+            Some(FoldRange {
+                start_line: 3,
+                end_line: 5,
+            })
+        );
+        assert_eq!(
+            deletion.map_fold_range(FoldRange {
+                start_line: 3,
+                end_line: 6,
+            }),
+            None
+        );
+    }
+
     #[cfg(feature = "tree-sitter-rust")]
     fn parse_rust(source: &str) -> Tree {
         let mut parser = Parser::new();
