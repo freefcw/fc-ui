@@ -5684,6 +5684,43 @@ mod tests {
     }
 
     #[gpui::test]
+    fn multiline_replace_all_is_one_undo_and_clears_stale_folds() {
+        let mut app = TestApp::new();
+        let editor = app.update(|cx| cx.new(EditorState::new));
+        let mut window = app.open_window(|_, _| EditorTestView {
+            state: editor.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.set_content("a\nx\na\nx\n", cx);
+                state.search_query = "x\n".to_string();
+                state.search_matches = vec![(2, 4), (6, 8)];
+                state.current_match_idx = Some(0);
+                state.fold_ranges = vec![FoldRange {
+                    start_line: 1,
+                    end_line: 3,
+                }];
+                state.folded = state.fold_ranges.clone();
+                state.cached_display_lines = Some(Rc::new(vec![0, 1]));
+
+                state.replace_all("y\nz\n", cx);
+
+                assert_eq!(state.content(), "a\ny\nz\na\ny\nz\n");
+                assert!(state.fold_ranges.is_empty());
+                assert!(state.folded.is_empty());
+                assert!(state.cached_display_lines.is_none());
+
+                state.undo(&Undo, window, cx);
+                assert_eq!(state.content(), "a\nx\na\nx\n");
+
+                state.redo(&Redo, window, cx);
+                assert_eq!(state.content(), "a\ny\nz\na\ny\nz\n");
+            });
+        });
+    }
+
+    #[gpui::test]
     fn editing_after_load_and_save_updates_modified_state() {
         let path = std::env::temp_dir().join(format!(
             "adabraka-editor-save-state-{}.txt",
