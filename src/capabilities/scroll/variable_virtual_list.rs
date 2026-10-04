@@ -147,7 +147,7 @@ impl Element for VirtualList {
                 size_layout = window.with_element_state(
                     global_id.unwrap(),
                     |state: Option<ItemSizeLayout>, _window| {
-                        let mut state = state.unwrap_or(ItemSizeLayout::default());
+                        let mut state = state.unwrap_or_default();
 
                         let gap = style
                             .gap
