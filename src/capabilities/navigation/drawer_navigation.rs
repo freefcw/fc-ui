@@ -80,6 +80,12 @@ impl DrawerState {
     }
 }
 
+impl Default for DrawerState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(IntoElement)]
 pub struct DrawerNavigation {
     id: ElementId,
