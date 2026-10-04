@@ -10,6 +10,8 @@ use crate::capabilities::motion::animations::easings;
 
 static COLLAPSIBLE_ID: AtomicU32 = AtomicU32::new(0);
 
+type ToggleHandler = Rc<dyn Fn(bool, &mut Window, &mut App)>;
+
 #[derive(IntoElement)]
 pub struct AnimatedCollapsible {
     id: ElementId,
@@ -20,7 +22,7 @@ pub struct AnimatedCollapsible {
     show_icon: bool,
     duration: Duration,
     max_content_height: Pixels,
-    on_toggle: Option<Rc<dyn Fn(bool, &mut Window, &mut App)>>,
+    on_toggle: Option<ToggleHandler>,
     style: StyleRefinement,
 }
 
