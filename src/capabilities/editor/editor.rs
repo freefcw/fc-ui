@@ -309,6 +309,37 @@ struct PositionSnapshot {
     selection_offsets: Option<(usize, usize)>,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct TextEditPlan {
+    range: TextEditRange,
+    old_end_position: TSPoint,
+    start_line: usize,
+    old_end_line: usize,
+}
+
+impl TextEditPlan {
+    fn new(editor: &EditorState, start: usize, old_end: usize, new_end: usize) -> Self {
+        Self {
+            range: TextEditRange {
+                start,
+                old_end,
+                new_end,
+            },
+            old_end_position: editor.byte_to_ts_point(old_end),
+            start_line: editor.line_at_byte(start),
+            old_end_line: editor.line_at_byte(old_end),
+        }
+    }
+
+    fn line_edit_range(self, editor: &EditorState) -> LineEditRange {
+        LineEditRange {
+            start_line: self.start_line,
+            old_end_line: self.old_end_line,
+            new_end_line: editor.line_at_byte(self.range.new_end),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FoldRange {
     pub start_line: usize,
@@ -1798,6 +1829,16 @@ impl EditorState {
         self.schedule_reparse(cx);
     }
 
+    fn update_syntax_tree_for_edit(&mut self, plan: TextEditPlan, cx: &mut Context<Self>) {
+        self.update_syntax_tree_incremental(
+            plan.range.start,
+            plan.range.old_end,
+            plan.range.new_end,
+            plan.old_end_position,
+            cx,
+        );
+    }
+
     fn parse_async(&mut self, cx: &mut Context<Self>) -> bool {
         if self.language.tree_sitter_language().is_none() {
             self.replace_syntax_tree(None);
@@ -2062,8 +2103,8 @@ impl EditorState {
         }
 
         let byte_offset = self.pos_to_byte_offset(self.cursor);
-        let start_line = self.rope.byte_to_line(byte_offset);
-        let old_end_position = self.byte_to_ts_point(byte_offset);
+        let new_end_byte = byte_offset + text.len();
+        let plan = TextEditPlan::new(self, byte_offset, byte_offset, new_end_byte);
         self.undo_stack.push(EditOp::Insert {
             byte_offset,
             text: text.to_string(),
@@ -2073,24 +2114,9 @@ impl EditorState {
         self.rope_insert(byte_offset, text);
         self.mark_modified();
 
-        let new_end_byte = byte_offset + text.len();
         self.cursor = self.byte_offset_to_pos(new_end_byte);
-        self.update_syntax_tree_incremental(
-            byte_offset,
-            byte_offset,
-            new_end_byte,
-            old_end_position,
-            cx,
-        );
-        if text.contains('\n') {
-            self.invalidate_after_line_edit(LineEditRange {
-                start_line,
-                old_end_line: start_line,
-                new_end_line: self.rope.byte_to_line(new_end_byte),
-            });
-        } else {
-            self.invalidate_after_edit(false);
-        }
+        self.update_syntax_tree_for_edit(plan, cx);
+        self.invalidate_after_text_edit(plan, text.contains('\n'));
         if replaces_selection {
             self.group_last_edits(2);
         }
@@ -2106,9 +2132,7 @@ impl EditorState {
             return;
         }
 
-        let start_line = self.rope.byte_to_line(start_offset);
-        let old_end_line = self.rope.byte_to_line(end_offset);
-        let old_end_position = self.byte_to_ts_point(end_offset);
+        let plan = TextEditPlan::new(self, start_offset, end_offset, start_offset);
         let deleted: String = self.rope.byte_slice(start_offset..end_offset).into();
         let line_structure_changed = deleted.contains('\n');
         self.undo_stack.push(EditOp::Delete {
@@ -2121,22 +2145,8 @@ impl EditorState {
         self.mark_modified();
         self.cursor = start;
         self.clamp_cursor();
-        self.update_syntax_tree_incremental(
-            start_offset,
-            end_offset,
-            start_offset,
-            old_end_position,
-            cx,
-        );
-        if line_structure_changed {
-            self.invalidate_after_line_edit(LineEditRange {
-                start_line,
-                old_end_line,
-                new_end_line: self.rope.byte_to_line(start_offset),
-            });
-        } else {
-            self.invalidate_after_edit(false);
-        }
+        self.update_syntax_tree_for_edit(plan, cx);
+        self.invalidate_after_text_edit(plan, line_structure_changed);
     }
 
     fn get_selection_text(&self, selection: &Selection) -> String {
@@ -2563,9 +2573,7 @@ impl EditorState {
             offset
         };
 
-        let start_line = self.rope.byte_to_line(del_start);
-        let old_end_line = self.rope.byte_to_line(del_end);
-        let old_end_position = self.byte_to_ts_point(del_end);
+        let plan = TextEditPlan::new(self, del_start, del_end, del_start);
         let deleted: String = self.rope.byte_slice(del_start..del_end).into();
         let line_structure_changed = deleted.contains('\n');
         self.undo_stack.push(EditOp::Delete {
@@ -2576,16 +2584,8 @@ impl EditorState {
         self.rope_remove(del_start, del_end);
         self.mark_modified();
         self.cursor = self.byte_offset_to_pos(del_start);
-        self.update_syntax_tree_incremental(del_start, del_end, del_start, old_end_position, cx);
-        if line_structure_changed {
-            self.invalidate_after_line_edit(LineEditRange {
-                start_line,
-                old_end_line,
-                new_end_line: self.rope.byte_to_line(del_start),
-            });
-        } else {
-            self.invalidate_after_edit(false);
-        }
+        self.update_syntax_tree_for_edit(plan, cx);
+        self.invalidate_after_text_edit(plan, line_structure_changed);
         cx.notify();
     }
 
@@ -2609,9 +2609,7 @@ impl EditorState {
             self.rope.len_bytes()
         };
         let del_end = min(next_char_byte, self.rope.len_bytes());
-        let start_line = self.rope.byte_to_line(offset);
-        let old_end_line = self.rope.byte_to_line(del_end);
-        let old_end_position = self.byte_to_ts_point(del_end);
+        let plan = TextEditPlan::new(self, offset, del_end, offset);
         let deleted: String = self.rope.byte_slice(offset..del_end).into();
         let line_structure_changed = deleted.contains('\n');
         self.undo_stack.push(EditOp::Delete {
@@ -2621,16 +2619,8 @@ impl EditorState {
         self.redo_stack.clear();
         self.rope_remove(offset, del_end);
         self.mark_modified();
-        self.update_syntax_tree_incremental(offset, del_end, offset, old_end_position, cx);
-        if line_structure_changed {
-            self.invalidate_after_line_edit(LineEditRange {
-                start_line,
-                old_end_line,
-                new_end_line: self.rope.byte_to_line(offset),
-            });
-        } else {
-            self.invalidate_after_edit(false);
-        }
+        self.update_syntax_tree_for_edit(plan, cx);
+        self.invalidate_after_text_edit(plan, line_structure_changed);
         cx.notify();
     }
 
@@ -2644,9 +2634,7 @@ impl EditorState {
         }
         let start_offset = self.pos_to_byte_offset(word_start);
         let end_offset = self.pos_to_byte_offset(self.cursor);
-        let start_line = self.rope.byte_to_line(start_offset);
-        let old_end_line = self.rope.byte_to_line(end_offset);
-        let old_end_position = self.byte_to_ts_point(end_offset);
+        let plan = TextEditPlan::new(self, start_offset, end_offset, start_offset);
         let deleted: String = self.rope.byte_slice(start_offset..end_offset).into();
         let line_structure_changed = deleted.contains('\n');
         self.undo_stack.push(EditOp::Delete {
@@ -2657,22 +2645,8 @@ impl EditorState {
         self.rope_remove(start_offset, end_offset);
         self.mark_modified();
         self.cursor = word_start;
-        self.update_syntax_tree_incremental(
-            start_offset,
-            end_offset,
-            start_offset,
-            old_end_position,
-            cx,
-        );
-        if line_structure_changed {
-            self.invalidate_after_line_edit(LineEditRange {
-                start_line,
-                old_end_line,
-                new_end_line: self.rope.byte_to_line(start_offset),
-            });
-        } else {
-            self.invalidate_after_edit(false);
-        }
+        self.update_syntax_tree_for_edit(plan, cx);
+        self.invalidate_after_text_edit(plan, line_structure_changed);
         cx.notify();
     }
 
@@ -2980,9 +2954,8 @@ impl EditorState {
             return;
         }
         let positions = self.snapshot_positions();
-        let start_line = self.rope.byte_to_line(start);
-        let old_end_line = self.rope.byte_to_line(end);
-        let old_end_position = self.byte_to_ts_point(end.min(self.rope.len_bytes()));
+        let new_end = start + replacement.len();
+        let plan = TextEditPlan::new(self, start, end, new_end);
         let deleted: String = self.rope.byte_slice(start..end).into();
         let line_structure_changed = deleted.contains('\n') || replacement.contains('\n');
         self.undo_stack.push(EditOp::Delete {
@@ -2998,25 +2971,9 @@ impl EditorState {
         self.redo_stack.clear();
         self.group_last_edits(2);
         self.mark_modified();
-        let new_end = start + replacement.len();
-        self.update_syntax_tree_incremental(start, end, new_end, old_end_position, cx);
-        self.restore_positions_after_edit(
-            positions,
-            TextEditRange {
-                start,
-                old_end: end,
-                new_end,
-            },
-        );
-        if line_structure_changed {
-            self.invalidate_after_line_edit(LineEditRange {
-                start_line,
-                old_end_line,
-                new_end_line: self.rope.byte_to_line(new_end),
-            });
-        } else {
-            self.invalidate_after_edit(false);
-        }
+        self.update_syntax_tree_for_edit(plan, cx);
+        self.restore_positions_after_edit(positions, plan.range);
+        self.invalidate_after_text_edit(plan, line_structure_changed);
         let query = self.search_query.clone();
         self.find_all(&query, cx);
     }
@@ -3120,6 +3077,14 @@ impl EditorState {
     fn invalidate_after_line_edit(&mut self, edit: LineEditRange) {
         self.invalidate_text_edit_caches();
         self.update_fold_state_after_line_edit(edit);
+    }
+
+    fn invalidate_after_text_edit(&mut self, plan: TextEditPlan, line_structure_changed: bool) {
+        if line_structure_changed {
+            self.invalidate_after_line_edit(plan.line_edit_range(self));
+        } else {
+            self.invalidate_after_edit(false);
+        }
     }
 
     pub fn invalidate_line_layouts(&mut self, cx: &mut Context<Self>) {
