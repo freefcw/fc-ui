@@ -1,3 +1,30 @@
+//! Editor state, editing commands, syntax integration, and rendering glue.
+//!
+//! `EditorState` intentionally remains the compatibility-facing façade for now,
+//! but its state falls into several distinct responsibility groups:
+//!
+//! - document text, cursor/selection, and undo/redo history;
+//! - file loading and saving;
+//! - syntax parsing, highlighting, and fold ranges;
+//! - search and replace;
+//! - layout, scrolling, blinking, and pointer interaction; and
+//! - GPUI input handling and rendering coordination.
+//!
+//! The main invariants to preserve during future extraction are:
+//!
+//! 1. `rope` always contains a trailing newline (including an empty document).
+//! 2. Cursor and selection byte offsets are always clamped to UTF-8 boundaries.
+//! 3. A content or language change invalidates older asynchronous parse results.
+//! 4. A content change invalidates older asynchronous search results.
+//! 5. Replacing a selection or all search matches is one undoable operation.
+//! 6. Fold ranges and index-keyed layout caches are migrated or invalidated when
+//!    edits change line structure.
+//!
+//! Future refactoring should extract low-coupling state first (`BlinkState`,
+//! `SearchState`, and `InteractionState`), while keeping `EditorState` as the
+//! public façade. The document/editing core and the render snapshot should only
+//! be split after the behavior tests below cover their current contracts.
+
 use crate::capabilities::foundation::icon_config::resolve_icon_path;
 use crate::capabilities::foundation::theme::use_theme;
 use crate::capabilities::scroll::scrollable::scrollable_vertical;
