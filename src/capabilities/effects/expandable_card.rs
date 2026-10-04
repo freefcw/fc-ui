@@ -83,6 +83,12 @@ impl ExpandableCardState {
     }
 }
 
+impl Default for ExpandableCardState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(IntoElement)]
 pub struct ExpandableCard {
     id: ElementId,

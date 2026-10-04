@@ -32,6 +32,12 @@ impl SkeletonLoaderState {
     }
 }
 
+impl Default for SkeletonLoaderState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// 加载骨架屏。每行 shimmer 扫光在 -200px..600px 区间内循环移动，
 /// 适用于宽度不超过约 600px 的容器。
 #[derive(IntoElement)]

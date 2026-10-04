@@ -14,6 +14,12 @@ impl SpotlightState {
     }
 }
 
+impl Default for SpotlightState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(IntoElement)]
 pub struct Spotlight {
     id: ElementId,
