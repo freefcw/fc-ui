@@ -241,7 +241,7 @@ impl UniformVirtualList {
             self.item_extent,
             strategy,
         )
-        .or_else(|| match strategy {
+        .or(match strategy {
             ScrollStrategy::Top => Some(item_start),
             ScrollStrategy::Center | ScrollStrategy::Bottom => None,
         })
@@ -805,7 +805,7 @@ impl<P: ItemExtentProvider + 'static> VariableVirtualList<P> {
             self.engine.item_extents[index],
             strategy,
         )
-        .or_else(|| match strategy {
+        .or(match strategy {
             ScrollStrategy::Top => Some(item_start),
             ScrollStrategy::Center | ScrollStrategy::Bottom => None,
         })
