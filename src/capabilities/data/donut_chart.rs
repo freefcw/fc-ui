@@ -97,6 +97,12 @@ impl DonutChart {
     }
 }
 
+impl Default for DonutChart {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Styled for DonutChart {
     fn style(&mut self) -> &mut StyleRefinement {
         &mut self.style
