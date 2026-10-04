@@ -322,7 +322,7 @@ pub struct Countdown {
     size: CountdownSize,
     separator: CountdownSeparator,
     format: CountdownFormat,
-    on_complete: Option<Rc<dyn Fn(&mut Window, &mut App) + 'static>>,
+    on_complete: Option<CompletionHandler>,
     style: StyleRefinement,
 }
 
