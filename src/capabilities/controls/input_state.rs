@@ -778,19 +778,19 @@ impl InputState {
         let day = parts[1].parse::<u32>().unwrap_or(0);
         let year = parts[2].parse::<u32>().unwrap_or(0);
 
-        if month < 1 || month > 12 {
+        if !(1..=12).contains(&month) {
             return Err(ValidationError {
                 message: "Invalid month".into(),
                 field_name: self.aria_label.clone(),
             });
         }
-        if day < 1 || day > 31 {
+        if !(1..=31).contains(&day) {
             return Err(ValidationError {
                 message: "Invalid day".into(),
                 field_name: self.aria_label.clone(),
             });
         }
-        if year < 1900 || year > 2100 {
+        if !(1900..=2100).contains(&year) {
             return Err(ValidationError {
                 message: "Invalid year".into(),
                 field_name: self.aria_label.clone(),
