@@ -464,7 +464,7 @@ impl RenderOnce for OTPInput {
         let state = otp_state.state;
         let masked = self.masked || otp_state.masked;
         let disabled = self.disabled || otp_state.disabled;
-        let focus_handles: Vec<FocusHandle> = otp_state.focus_handles.iter().cloned().collect();
+        let focus_handles = otp_state.focus_handles.to_vec();
 
         self.state.update(cx, |state, _| {
             state.disabled = disabled;
