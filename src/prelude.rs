@@ -56,7 +56,9 @@ pub use crate::components::file_upload::{
 };
 pub use crate::components::form::{Form, FormState};
 pub use crate::components::glass_morphism::{GlassIntensity, GlassMorphism};
-pub use crate::components::hotkey_input::{HotkeyInput, HotkeyInputState, HotkeyValue};
+pub use crate::components::hotkey_input::{
+    HotkeyInput, HotkeyInputSize, HotkeyInputState, HotkeyValue,
+};
 #[allow(deprecated)]
 pub use crate::components::icon::{icon, icon_button, Icon, IconSize, IconVariant};
 pub use crate::components::icon_button::IconButton;

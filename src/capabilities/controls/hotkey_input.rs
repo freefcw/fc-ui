@@ -180,10 +180,23 @@ impl Render for HotkeyInputState {
     }
 }
 
+/// Size variants for [`HotkeyInput`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HotkeyInputSize {
+    /// Compact 32px chip for dense settings rows and toolbars.
+    Sm,
+    /// Standard 40px input matching `Input`'s medium size.
+    #[default]
+    Md,
+}
+
 #[derive(IntoElement)]
 pub struct HotkeyInput {
     state: Entity<HotkeyInputState>,
     placeholder: SharedString,
+    recording_text: SharedString,
+    size: HotkeyInputSize,
+    clearable: bool,
     disabled: bool,
     on_change: Option<Rc<dyn Fn(Option<&HotkeyValue>, &mut Window, &mut App)>>,
     style: StyleRefinement,
@@ -194,6 +207,9 @@ impl HotkeyInput {
         Self {
             state,
             placeholder: "Click to record".into(),
+            recording_text: "Press a key...".into(),
+            size: HotkeyInputSize::default(),
+            clearable: true,
             disabled: false,
             on_change: None,
             style: StyleRefinement::default(),
@@ -202,6 +218,25 @@ impl HotkeyInput {
 
     pub fn placeholder(mut self, placeholder: impl Into<SharedString>) -> Self {
         self.placeholder = placeholder.into();
+        self
+    }
+
+    /// Set the text shown while recording a hotkey.
+    pub fn recording_text(mut self, text: impl Into<SharedString>) -> Self {
+        self.recording_text = text.into();
+        self
+    }
+
+    /// Set the input size.
+    pub fn size(mut self, size: HotkeyInputSize) -> Self {
+        self.size = size;
+        self
+    }
+
+    /// Set whether the clear button is shown when a hotkey is recorded
+    /// (default `true`).
+    pub fn clearable(mut self, clearable: bool) -> Self {
+        self.clearable = clearable;
         self
     }
 
@@ -242,7 +277,7 @@ impl RenderOnce for HotkeyInput {
         }
 
         let display_text: SharedString = if recording {
-            "Press a key...".into()
+            self.recording_text.clone()
         } else if let Some(ref hk) = hotkey {
             hk.format_display().into()
         } else {
@@ -250,7 +285,12 @@ impl RenderOnce for HotkeyInput {
         };
 
         let has_value = hotkey.is_some();
-        let show_clear = has_value && !self.disabled && !recording;
+        let show_clear = self.clearable && has_value && !self.disabled && !recording;
+
+        let (height, padding_x, text_size) = match self.size {
+            HotkeyInputSize::Sm => (px(32.0), px(8.0), px(13.0)),
+            HotkeyInputSize::Md => (px(40.0), px(12.0), px(14.0)),
+        };
 
         let state_for_click = self.state.clone();
         let state_for_keydown = self.state.clone();
@@ -317,8 +357,8 @@ impl RenderOnce for HotkeyInput {
                 div()
                     .id(("hotkey-input", self.state.entity_id()))
                     .track_focus(&focus_handle.tab_index(0).tab_stop(true))
-                    .h(px(40.0))
-                    .px(px(12.0))
+                    .h(height)
+                    .px(padding_x)
                     .flex()
                     .items_center()
                     .justify_between()
@@ -327,7 +367,7 @@ impl RenderOnce for HotkeyInput {
                     .border_color(border_color)
                     .rounded(theme.tokens.radius_md)
                     .font_family(theme.tokens.font_mono.clone())
-                    .text_size(px(14.0))
+                    .text_size(text_size)
                     .when(self.disabled, |d| d.opacity(0.5).cursor_not_allowed())
                     .when(!self.disabled, |d| d.cursor_pointer())
                     .when(is_focused && !recording, |d| {
@@ -370,5 +410,27 @@ impl RenderOnce for HotkeyInput {
                     )
                     .children(clear_button),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::capabilities::foundation::theme::{install_theme, Theme};
+
+    #[gpui::test]
+    fn builders_configure_size_clear_and_recording_text() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| cx.new(HotkeyInputState::new));
+
+        let input = HotkeyInput::new(state)
+            .size(HotkeyInputSize::Sm)
+            .clearable(false)
+            .recording_text("Waiting for keys…");
+
+        assert_eq!(input.size, HotkeyInputSize::Sm);
+        assert!(!input.clearable);
+        assert_eq!(input.recording_text, "Waiting for keys…");
     }
 }
