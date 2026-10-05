@@ -28,8 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Video player auto-hide tasks are armed by interaction and invalidated by later interaction or pause/stop, rather than polling permanently every 100ms.
 - Overlays that open now move focus into the overlay and restore the previously focused element on close (`Dialog`, `AlertDialog`, `Sheet`); `AlertDialog` and `Sheet` respond to Escape. Several decorative effect and animation identifiers are now per-instance, so multiple instances on one screen no longer share animation state.
 - Text input `max_length`/character counting is character-based rather than byte-based, matching the validation messages.
+- `just test` (and its CI mirror `just test-ci`) now runs `cargo test --all-features`, so the feature-gated `editor`, `markdown`, `html-render`, `audio`, and `qrcode` suites are actually executed; a default-feature `cargo test` silently skipped ~35 tests. The CI job named "test" is now the full suite instead of relying on the capability-contract job's lib-only run.
+- `just run-example <name>` forwards extra arguments to cargo, so feature-gated examples are runnable: `just run-example editor_demo --features editor,editor-languages`.
 
 ### Fixed
+- Editor: `min_lines`/`max_lines` and line-based horizontal wheel scrolling used a hardcoded 20px line height, so an editor resized via `set_font_size` (which sets `line_height = size * 1.5`) computed the wrong height and scroll step.
+- `SvgRenderer`'s path parser treated unsupported commands (`A`, `S`, `T`) as unknown characters and nibbled through their arguments one character at a time, silently swallowing the command that followed them too; unsupported commands now skip their arguments cleanly and the next command still parses.
+- `Input`/`Textarea` caret and selection quads were hardcoded blue (`0x0066ff`/`0x3311ff30`) and ignored the theme; they now use `theme.tokens.primary` (`opacity(0.25)` for the selection) like `MentionInput`, `InlineEdit`, and `Editor` already did.
 - Editor: cursor movement stays on UTF-8 character boundaries (left/right arrows no longer panic on CJK text and Enter/typing after moving through CJK is safe), stale search matches can no longer panic replace-current/replace-all, and paste clears the IME marked range.
 - Text input: the IME `new_selected_range` mapping no longer targets the wrong byte offset (fixed in input, textarea, mention input, and inline edit); `MentionInput` tracks IME marked text properly so composing CJK text replaces instead of appending; disabled inputs ignore IME edits; mention triggers work for multi-byte characters; `TextField` no longer slices UTF-16 ranges as byte offsets.
 - `Alert` success/warning/error default icons referenced non-existent asset names (`check-circle` etc.) and rendered blank; corrected to the bundled `circle-check`/`triangle-alert`/`circle-alert` assets, along with the same wrong names in `Timeline`, `Toast`, `NotificationCenter`, and demos.
@@ -46,8 +51,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Media: `SvgRenderer` drew all curve commands incorrectly (cubic commands went through the quadratic path with parameters swapped); `FileUpload`'s drop zone actually accepts dragged files and single-selection mode replaces instead of appending; audio time display rolls over into hours.
 - Layout: `Justify::Evenly` silently degraded to space-around instead of real space-evenly; `Grid`'s last row no longer stretches cells; foundation: `install_theme` now repaints windows, font registration failures warn instead of panicking, and the `z_sticky`/`z_dropdown` token order is corrected.
 
+### Added
+- `SvgRenderer` now understands relative path commands (`m l h v c q z`), resolving them against the current point while parsing; after a close, the current point returns to the start of the subpath, so the `z m…` continuation emitted by SVG optimizers lands where the spec says it does.
+
 ### Deprecated
 - `TextField` (use `Input`), the legacy `VirtualList` in `capabilities::scroll::variable_virtual_list` (use `uniform_virtual_list`), the crate-local `Spring` (use GPUI's `SpringAnimation`/`with_spring`), `Button::tooltip` (wrap with `overlays::tooltip`), `Label::for_id`, the `icon_button()` free function (use `IconButton`), and `ScrollContainer::no_auto_size()` (no-op).
+
+### Removed
+- `capabilities::controls::text_field` (`TextField`, `TextFieldState`, `TextFieldSize`) — deprecated as incomplete and never constructed anywhere in the crate; use `Input` instead.
+- `capabilities::scroll::variable_virtual_list` — every public item was deprecated and it had no callers. The `adabraka_ui::navigation::virtual_list` path is kept and now aliases `uniform_virtual_list`, but `VirtualList`/`v_virtual_list` and the module path itself are gone.
+- The editor's internal `VerticalScrollbar`, which carried `#[allow(dead_code)]` because only `HorizontalScrollbar` was ever constructed.
 
 ## [0.8.1] - 2026-09-05
 
