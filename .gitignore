@@ -6,5 +6,6 @@ target/
 .env.local
 .env.development.local
 .env.test.local
-.env.production.localassets/audio/
+.env.production.local
+assets/audio/
 __pycache__/
