@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-After comprehensive analysis of adabraka-ui's 80+ components, GPUI's rendering internals, and modern web framework capabilities, this document identifies what's missing and proposes a strategy to make adabraka-ui a self-sufficient UI framework where users never need to import GPUI directly.
+After comprehensive analysis of adabraka-ui's 85+ components, GPUI's rendering internals, and modern web framework capabilities, this document identifies what's missing and proposes a strategy to make adabraka-ui a self-sufficient UI framework where users never need to import GPUI directly.
 
 ---
 

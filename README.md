@@ -9,7 +9,7 @@
 
 A comprehensive, professional UI component library for [GPUI](https://github.com/zed-industries/zed), the GPU-accelerated UI framework powering the Zed editor. Inspired by [shadcn/ui](https://ui.shadcn.com/), adabraka-ui provides 85+ polished components for building beautiful desktop applications in Rust.
 
-**[📖 Documentation](https://augani.github.io/adabraka-ui/)** · **[🚀 Getting Started](#installation)** · **[📦 Components](#components)** · **[💡 Examples](#examples)**
+**[📖 Documentation](https://freefcw.github.io/fc-ui/)** · **[🚀 Getting Started](#-installation)** · **[📦 Components](#components)** · **[💡 Examples](#examples)**
 
 ## ✨ Features
 
@@ -1903,11 +1903,14 @@ The library includes 140+ example applications demonstrating all components and 
 # Comprehensive demo with all components
 just run-example demo
 
-# Full IDE-style application
-just run-example ide_demo
+# Feature showcase: charts, effects, and overlays (needs the `qrcode` feature)
+just run-example components_showcase --features qrcode
+
+# IDE-style tree + list navigation panel
+just run-example tree_list_demo
 
 # File explorer with tree navigation
-just run-example file_explorer
+just run-example file_tree_demo
 ```
 
 ### Component Demos
@@ -1943,7 +1946,7 @@ just run-example overlays_demo
 just run-example command_palette_demo
 
 # Advanced
-just run-example editor_demo
+just run-example editor_demo --features editor,editor-languages
 just run-example drag_drop_demo
 just run-example animations_demo
 just run-example transitions_demo
@@ -1981,6 +1984,17 @@ The architecture follows these key principles:
 - **Performance-first** with efficient rendering and minimal allocations
 - **Accessible** with proper ARIA labels and keyboard navigation
 
+### Further Reading
+
+Repository documents that go deeper than this README:
+
+- [CAPABILITY_ARCHITECTURE.md](CAPABILITY_ARCHITECTURE.md) — capability boundaries and the checked dependency matrix
+- [CONTRIBUTING.md](CONTRIBUTING.md) — development workflow and the Cargo compatibility contract
+- [LAYOUT_GUIDE.md](LAYOUT_GUIDE.md) and [LAYOUT_QUICK_REFERENCE.md](LAYOUT_QUICK_REFERENCE.md) — layout primitives
+- [ROADMAP.md](ROADMAP.md) — planned and shipped work
+- [CHANGELOG.md](CHANGELOG.md) — release history
+- [GAP_ANALYSIS.md](GAP_ANALYSIS.md), [COMPONENT_REVIEW.md](COMPONENT_REVIEW.md), [EDITOR_REFACTOR.md](EDITOR_REFACTOR.md) — historical analysis and refactor notes
+
 ## Contributing
 
 We welcome contributions from the community! Whether you're fixing bugs, adding features, or improving documentation, your help is appreciated.
@@ -1988,7 +2002,7 @@ We welcome contributions from the community! Whether you're fixing bugs, adding 
 ### Quick Start
 
 1. **Read the [Contributing Guidelines](CONTRIBUTING.md)** for detailed information
-2. **Check existing [issues](https://github.com/Augani/adabraka-ui/issues)** and [pull requests](https://github.com/Augani/adabraka-ui/pulls)
+2. **Check existing [issues](https://github.com/freefcw/fc-ui/issues)** and [pull requests](https://github.com/freefcw/fc-ui/pulls)
 3. **Fork the repository** and create your feature branch
 4. **Follow our coding guidelines** and add tests
 5. **Submit a pull request** using our template
@@ -1997,7 +2011,7 @@ We welcome contributions from the community! Whether you're fixing bugs, adding 
 
 - **Bug Reports**: Use our [bug report template](.github/ISSUE_TEMPLATE/bug_report.md)
 - **Feature Requests**: Use our [feature request template](.github/ISSUE_TEMPLATE/feature_request.md)
-- **Questions**: Start a [discussion](https://github.com/Augani/adabraka-ui/discussions)
+- **Questions**: Start a [discussion](https://github.com/freefcw/fc-ui/discussions)
 
 ### Development Guidelines
 

@@ -1,9 +1,14 @@
 # Component Review and Improvement Plan
 
+> **Snapshot status**: this document captures a review taken before the
+> capability refactor. Paths and "Issues Identified" lists below are the
+> *original* findings — many are already resolved in `main`. Treat the ✅/❌
+> marks as the review-time assessment, not as current status.
+
 ## Button Component Analysis
 
 ### Current Implementation Status
-**Location**: `src/components/button.rs`
+**Location**: `src/capabilities/primitives/button.rs` (was `src/components/button.rs` before the refactor)
 
 **Strengths**:
 - ✅ Clean builder pattern API
@@ -124,7 +129,7 @@
 ## IconButton Component Analysis
 
 ### Current Implementation Status
-**Location**: `src/components/icon_button.rs`
+**Location**: `src/capabilities/primitives/icon_button.rs` (was `src/components/icon_button.rs` before the refactor)
 
 **Strengths**:
 - ✅ Good IconSource enum with smart From<&str> detection
