@@ -1125,7 +1125,7 @@ impl Element for TextareaTextElement {
                         ),
                         size(px(2.), line_height),
                     ),
-                    rgb(0x0066ff),
+                    theme.tokens.primary,
                 ));
             }
         } else if !is_empty {
@@ -1187,11 +1187,10 @@ impl Element for TextareaTextElement {
                             bounds.top() + logical_line_origin_y + end_point.y + line_height,
                         ),
                     ),
-                    rgba(0x3311ff30),
+                    theme.tokens.primary.opacity(0.25),
                 ));
             }
         }
-
         TextareaPrepaintState {
             lines: wrapped_lines,
             cursor: cursor_quad,

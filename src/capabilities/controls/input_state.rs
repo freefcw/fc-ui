@@ -1697,7 +1697,7 @@ impl gpui::Element for InputTextElement {
                         point(bounds.left() + cursor_pos, bounds.top()),
                         size(px(2.), bounds.bottom() - bounds.top()),
                     ),
-                    rgb(0x0066ff),
+                    theme.tokens.primary,
                 )),
             )
         } else {
@@ -1713,7 +1713,7 @@ impl gpui::Element for InputTextElement {
                             bounds.bottom(),
                         ),
                     ),
-                    rgba(0x3311ff30),
+                    theme.tokens.primary.opacity(0.25),
                 )),
                 None,
             )
