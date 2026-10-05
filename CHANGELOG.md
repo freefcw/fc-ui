@@ -54,6 +54,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `SvgRenderer` now understands relative path commands (`m l h v c q z`), resolving them against the current point while parsing; after a close, the current point returns to the start of the subpath, so the `z m…` continuation emitted by SVG optimizers lands where the spec says it does.
+- `input_state::wire_actions` and `textarea_state::wire_actions` (exported from the prelude as `wire_input_actions` / `wire_textarea_actions`): wire a bare `InputState`/`TextareaState` into a fully custom container with the same key context, focus/scroll tracking, and complete keyboard action set (20 input / 25 textarea actions, including word navigation) that the `Input`/`Textarea` shells use. Previously a self-drawn container had to hand-copy that wiring or every editing key except plain typing was silently dead. The components themselves now route through the same helper, so custom shells cannot drift from the built-in wiring.
+- `InputState` builders `value`, `disabled`, `select_on_focus`, and `trim_on_blur`, and `TextareaState` builders `value`, `placeholder`, and `disabled`, replacing direct public-field assignment at construction time.
+- `HotkeyInput` gains the `HotkeyInputSize` size variant (`Sm` 32px chip / `Md` 40px, the previous fixed size), a `clearable(bool)` option to hide the built-in clear button (default shown), and `recording_text(...)` to replace the hardcoded "Press a key..." recording placeholder (e.g. for i18n).
 
 ### Deprecated
 - `TextField` (use `Input`), the legacy `VirtualList` in `capabilities::scroll::variable_virtual_list` (use `uniform_virtual_list`), the crate-local `Spring` (use GPUI's `SpringAnimation`/`with_spring`), `Button::tooltip` (wrap with `overlays::tooltip`), `Label::for_id`, the `icon_button()` free function (use `IconButton`), and `ScrollContainer::no_auto_size()` (no-op).

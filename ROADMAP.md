@@ -632,6 +632,16 @@ The web won the UI war through ecosystem, not rendering quality. HTML/CSS/JS are
 
 ---
 
+## 5. FOUNDATION FOLLOW-UPS (UNSCHEDULED)
+
+Accepted follow-ups from downstream integration feedback, not yet scheduled:
+
+- `install_system_theme(cx)` — observe the window/system appearance and swap the installed `Theme` on change. Today all 18 themes are installed explicitly via `theme::install_theme` and the docs no longer claim automatic light/dark switching.
+- Headless / style-injection modes for the `Input`/`Textarea` shells (background, border, radius, height, focus ring all overridable per instance). Interim pattern, already supported and documented in CONTRIBUTING: render the state entity plus `wire_actions` inside a fully custom container.
+- `HotkeyInputState` event callbacks (`on_capture`) on the state itself, for applications that reuse the state machine with a fully custom renderer.
+
+---
+
 ## Appendix A: Component Count
 
 | Category | Existing | New (Phase 1-4) | Total |
