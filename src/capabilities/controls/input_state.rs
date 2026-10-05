@@ -1828,6 +1828,71 @@ impl Focusable for InputState {
 
 use regex;
 
+/// Wire a bare [`InputState`] into a custom container with full keyboard
+/// editing, using the same wiring the `Input` component applies to its shell.
+///
+/// `InputState` renders only the text body (text, caret, selection, IME
+/// underline). The editing keys are key bindings scoped to the `"Input"`
+/// context and are attached by the `Input` component's container — a
+/// container an application renders itself must reproduce that wiring, or
+/// every editing key except plain text insertion silently does nothing.
+/// This helper attaches:
+///
+/// - the `"Input"` key context the key bindings are filtered on,
+/// - focus tracking for the state's focus handle (click-to-focus, tab order),
+/// - all 20 keyboard actions, including word navigation, unless the state
+///   is [`InputState::disabled`].
+///
+/// The returned div is an unstyled container; style it and add the state as
+/// its child:
+///
+/// ```rust,ignore
+/// use adabraka_ui::components::input_state::wire_actions;
+///
+/// fn render(state: &Entity<InputState>, window: &mut Window, cx: &App) -> impl IntoElement {
+///     wire_actions(state, window, cx)
+///         .h(px(36.0))
+///         .px(px(12.0))
+///         .rounded(px(8.0))
+///         .child(state.clone())
+/// }
+/// ```
+///
+/// The key bindings are registered by `components::input::init`, which
+/// `adabraka_ui::init` calls at startup; applications that skip crate init
+/// must call it themselves or no keystroke will match an action.
+pub fn wire_actions(state: &Entity<InputState>, window: &mut Window, cx: &App) -> Stateful<Div> {
+    let disabled = state.read(cx).disabled;
+    let focus_handle = state.read(cx).focus_handle(cx);
+
+    div()
+        .id(("input", state.entity_id()))
+        .key_context("Input")
+        .track_focus(&focus_handle.tab_index(0).tab_stop(true))
+        .when(!disabled, |this| {
+            this.on_action(window.listener_for(state, InputState::backspace))
+                .on_action(window.listener_for(state, InputState::delete))
+                .on_action(window.listener_for(state, InputState::left))
+                .on_action(window.listener_for(state, InputState::right))
+                .on_action(window.listener_for(state, InputState::select_left))
+                .on_action(window.listener_for(state, InputState::select_right))
+                .on_action(window.listener_for(state, InputState::select_all))
+                .on_action(window.listener_for(state, InputState::home))
+                .on_action(window.listener_for(state, InputState::end))
+                .on_action(window.listener_for(state, InputState::copy))
+                .on_action(window.listener_for(state, InputState::cut))
+                .on_action(window.listener_for(state, InputState::paste))
+                .on_action(window.listener_for(state, InputState::enter))
+                .on_action(window.listener_for(state, InputState::tab))
+                .on_action(window.listener_for(state, InputState::shift_tab))
+                .on_action(window.listener_for(state, InputState::escape))
+                .on_action(window.listener_for(state, InputState::word_left))
+                .on_action(window.listener_for(state, InputState::word_right))
+                .on_action(window.listener_for(state, InputState::select_word_left))
+                .on_action(window.listener_for(state, InputState::select_word_right))
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

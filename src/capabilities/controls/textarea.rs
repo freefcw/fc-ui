@@ -1,6 +1,7 @@
 //! Textarea component - Multi-line text input component with full editing capabilities.
 
 use crate::capabilities::controls::input::InputVariant;
+pub use crate::capabilities::controls::textarea_state::wire_actions;
 use crate::capabilities::controls::textarea_state::TextareaEvent;
 use crate::capabilities::controls::textarea_state::TextareaState;
 use crate::capabilities::foundation::theme::use_theme;
@@ -294,30 +295,9 @@ impl RenderOnce for Textarea {
         };
 
         let is_focused = self.state.read(cx).focus_handle(cx).is_focused(window);
-        let focus_handle = self
-            .state
-            .read(cx)
-            .focus_handle(cx)
-            .tab_index(0)
-            .tab_stop(true);
-        let focus_handle_for_mouse = focus_handle.clone();
-        let scroll_handle = self.state.read(cx).scroll_handle.clone();
         let user_style = self.style;
 
-        div()
-            .id(("textarea", self.state.entity_id()))
-            .key_context("Textarea")
-            .track_focus(&focus_handle)
-            .track_scroll(&scroll_handle)
-            .overflow_y_scroll()
-            .when(!self.disabled, |this| {
-                this.on_mouse_down(MouseButton::Left, {
-                    let focus_handle = focus_handle_for_mouse.clone();
-                    move |_event, window, _cx| {
-                        window.focus(&focus_handle);
-                    }
-                })
-            })
+        wire_actions(&self.state, window, cx)
             .w_full()
             .h(height)
             .flex_shrink_0()
@@ -346,33 +326,6 @@ impl RenderOnce for Textarea {
                 } else {
                     theme.tokens.ring
                 })
-            })
-            .when(!self.disabled, |this| {
-                this.on_action(window.listener_for(&self.state, TextareaState::backspace))
-                    .on_action(window.listener_for(&self.state, TextareaState::delete))
-                    .on_action(window.listener_for(&self.state, TextareaState::left))
-                    .on_action(window.listener_for(&self.state, TextareaState::right))
-                    .on_action(window.listener_for(&self.state, TextareaState::up))
-                    .on_action(window.listener_for(&self.state, TextareaState::down))
-                    .on_action(window.listener_for(&self.state, TextareaState::select_left))
-                    .on_action(window.listener_for(&self.state, TextareaState::select_right))
-                    .on_action(window.listener_for(&self.state, TextareaState::select_up))
-                    .on_action(window.listener_for(&self.state, TextareaState::select_down))
-                    .on_action(window.listener_for(&self.state, TextareaState::select_all))
-                    .on_action(window.listener_for(&self.state, TextareaState::home))
-                    .on_action(window.listener_for(&self.state, TextareaState::end))
-                    .on_action(window.listener_for(&self.state, TextareaState::copy))
-                    .on_action(window.listener_for(&self.state, TextareaState::cut))
-                    .on_action(window.listener_for(&self.state, TextareaState::paste))
-                    .on_action(window.listener_for(&self.state, TextareaState::enter))
-                    .on_action(window.listener_for(&self.state, TextareaState::shift_enter))
-                    .on_action(window.listener_for(&self.state, TextareaState::tab))
-                    .on_action(window.listener_for(&self.state, TextareaState::shift_tab))
-                    .on_action(window.listener_for(&self.state, TextareaState::escape))
-                    .on_action(window.listener_for(&self.state, TextareaState::word_left))
-                    .on_action(window.listener_for(&self.state, TextareaState::word_right))
-                    .on_action(window.listener_for(&self.state, TextareaState::select_word_left))
-                    .on_action(window.listener_for(&self.state, TextareaState::select_word_right))
             })
             .when(!self.disabled, |this| this.cursor(gpui::CursorStyle::IBeam))
             .map(|this| {
@@ -437,5 +390,44 @@ mod tests {
                 .update(cx, |_, cx| cx.emit(TextareaEvent::Change));
         });
         assert_eq!(current_calls.get(), 1);
+    }
+
+    struct BareTextareaTestView {
+        state: Entity<TextareaState>,
+    }
+
+    impl Render for BareTextareaTestView {
+        fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            wire_actions(&self.state, window, cx)
+                .h(px(96.0))
+                .px(px(12.0))
+                .rounded(px(8.0))
+                .child(self.state.clone())
+        }
+    }
+
+    #[gpui::test]
+    fn wire_actions_gives_custom_textarea_containers_full_keyboard_editing() {
+        let mut app = TestApp::new();
+        app.update(|cx| {
+            install_theme(cx, Theme::light());
+            crate::capabilities::controls::textarea_state::init(cx);
+        });
+        let state = app.update(|cx| cx.new(|cx| TextareaState::new(cx).value("hello")));
+        let mut window = app.open_window(|_, _| BareTextareaTestView {
+            state: state.clone(),
+        });
+
+        window.draw();
+        window.update(|_, window, cx| state.read(cx).focus_handle(cx).focus(window));
+        window.draw();
+        let handle: AnyWindowHandle = window.handle().into();
+        app.raw_context_mut()
+            .simulate_keystrokes(handle, "backspace");
+        app.flush();
+
+        app.update(|cx| {
+            assert_eq!(state.read(cx).content(), "hell");
+        });
     }
 }

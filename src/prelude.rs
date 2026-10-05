@@ -66,6 +66,7 @@ pub use crate::components::image_viewer::{
 };
 pub use crate::components::infinite_scroll::{InfiniteScroll, InfiniteScrollState, LoadingState};
 pub use crate::components::inline_edit::{InlineEdit, InlineEditState, InlineEditTrigger};
+pub use crate::components::input_state::wire_actions as wire_input_actions;
 pub use crate::components::keyboard_shortcuts::{
     KeyboardShortcuts, ShortcutCategory, ShortcutItem,
 };
@@ -116,6 +117,7 @@ pub use crate::components::text::{
     label_small, muted, muted_small, Text, TextVariant,
 };
 pub use crate::components::textarea::Textarea;
+pub use crate::components::textarea_state::wire_actions as wire_textarea_actions;
 pub use crate::components::textarea_state::{TextareaEvent, TextareaState};
 pub use crate::components::time_picker::{
     TimeFormat, TimePeriod, TimePicker, TimePickerState, TimeValue,

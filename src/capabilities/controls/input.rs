@@ -1,8 +1,8 @@
 //! Input component - Advanced text input with validation, masking, and accessibility.
 
 pub use crate::capabilities::controls::input_state::{
-    Backspace, Copy, Cut, Delete, End, Enter, Escape, Home, InputEvent, InputMask, InputState,
-    InputType, Left, Paste, Right, SelectAll, SelectLeft, SelectRight, SelectWordLeft,
+    wire_actions, Backspace, Copy, Cut, Delete, End, Enter, Escape, Home, InputEvent, InputMask,
+    InputState, InputType, Left, Paste, Right, SelectAll, SelectLeft, SelectRight, SelectWordLeft,
     SelectWordRight, ShiftTab, Tab, ValidationError, ValidationRules, WordLeft, WordRight,
 };
 use crate::capabilities::foundation::theme::use_theme;
@@ -747,8 +747,7 @@ impl RenderOnce for Input {
             .w_full()
             .gap(px(4.0))
             .child({
-                let input_container = div()
-                    .id(("input", self.state.entity_id()))
+                let input_container = wire_actions(&self.state, window, cx)
                     .role(aria_role)
                     .when_some(aria_label, |this, label| this.aria_label(label))
                     .when_some(aria_description, |this, description| {
@@ -760,41 +759,6 @@ impl RenderOnce for Input {
                     .aria_required(aria_required)
                     .when(aria_invalid, |this| {
                         this.aria_invalid(gpui::accesskit::Invalid::True)
-                    })
-                    .key_context("Input")
-                    .track_focus(
-                        &self
-                            .state
-                            .read(cx)
-                            .focus_handle(cx)
-                            .tab_index(0)
-                            .tab_stop(true),
-                    )
-                    .when(!self.disabled, |this| {
-                        this.on_action(window.listener_for(&self.state, InputState::backspace))
-                            .on_action(window.listener_for(&self.state, InputState::delete))
-                            .on_action(window.listener_for(&self.state, InputState::left))
-                            .on_action(window.listener_for(&self.state, InputState::right))
-                            .on_action(window.listener_for(&self.state, InputState::select_left))
-                            .on_action(window.listener_for(&self.state, InputState::select_right))
-                            .on_action(window.listener_for(&self.state, InputState::select_all))
-                            .on_action(window.listener_for(&self.state, InputState::home))
-                            .on_action(window.listener_for(&self.state, InputState::end))
-                            .on_action(window.listener_for(&self.state, InputState::copy))
-                            .on_action(window.listener_for(&self.state, InputState::cut))
-                            .on_action(window.listener_for(&self.state, InputState::paste))
-                            .on_action(window.listener_for(&self.state, InputState::enter))
-                            .on_action(window.listener_for(&self.state, InputState::tab))
-                            .on_action(window.listener_for(&self.state, InputState::shift_tab))
-                            .on_action(window.listener_for(&self.state, InputState::escape))
-                            .on_action(window.listener_for(&self.state, InputState::word_left))
-                            .on_action(window.listener_for(&self.state, InputState::word_right))
-                            .on_action(
-                                window.listener_for(&self.state, InputState::select_word_left),
-                            )
-                            .on_action(
-                                window.listener_for(&self.state, InputState::select_word_right),
-                            )
                     })
                     .child(
                         HStack::new()
@@ -1334,5 +1298,44 @@ mod tests {
             window.read(|view, cx| view.state.read(cx).content().to_string()),
             "edited"
         );
+    }
+
+    struct BareInputTestView {
+        state: Entity<InputState>,
+    }
+
+    impl Render for BareInputTestView {
+        fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            wire_actions(&self.state, window, cx)
+                .h(px(36.0))
+                .px(px(12.0))
+                .rounded(px(8.0))
+                .child(self.state.clone())
+        }
+    }
+
+    #[gpui::test]
+    fn wire_actions_gives_custom_input_containers_full_keyboard_editing() {
+        let mut app = TestApp::new();
+        app.update(|cx| {
+            install_theme(cx, Theme::light());
+            crate::capabilities::controls::input::init(cx);
+        });
+        let state = app.update(|cx| cx.new(|cx| InputState::new(cx).value("hello")));
+        let mut window = app.open_window(|_, _| BareInputTestView {
+            state: state.clone(),
+        });
+
+        window.draw();
+        window.update(|_, window, cx| state.read(cx).focus_handle(cx).focus(window));
+        window.draw();
+        let handle: AnyWindowHandle = window.handle().into();
+        app.raw_context_mut()
+            .simulate_keystrokes(handle, "backspace");
+        app.flush();
+
+        app.update(|cx| {
+            assert_eq!(state.read(cx).content(), "hell");
+        });
     }
 }

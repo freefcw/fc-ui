@@ -1274,6 +1274,85 @@ impl Element for TextareaTextElement {
     }
 }
 
+/// Wire a bare [`TextareaState`] into a custom container with full keyboard
+/// editing, using the same wiring the `Textarea` component applies to its
+/// shell.
+///
+/// `TextareaState` renders only the text body (text, caret, selection, IME
+/// underline). The editing keys are key bindings scoped to the `"Textarea"`
+/// context and are attached by the `Textarea` component's container — a
+/// container an application renders itself must reproduce that wiring, or
+/// every editing key except plain text insertion silently does nothing.
+/// This helper attaches:
+///
+/// - the `"Textarea"` key context the key bindings are filtered on,
+/// - focus tracking for the state's focus handle and scroll tracking for
+///   its scroll handle,
+/// - click-to-focus and all 25 keyboard actions, unless the state is
+///   [`TextareaState::disabled`].
+///
+/// The returned div is an unstyled, vertically scrollable container; style
+/// it and add the state as its child:
+///
+/// ```rust,ignore
+/// use adabraka_ui::components::textarea_state::wire_actions;
+///
+/// fn render(state: &Entity<TextareaState>, window: &mut Window, cx: &App) -> impl IntoElement {
+///     wire_actions(state, window, cx)
+///         .h(px(96.0))
+///         .px(px(12.0))
+///         .rounded(px(8.0))
+///         .child(state.clone())
+/// }
+/// ```
+///
+/// The key bindings are registered by `components::textarea::init`, which
+/// `adabraka_ui::init` calls at startup; applications that skip crate init
+/// must call it themselves or no keystroke will match an action.
+pub fn wire_actions(state: &Entity<TextareaState>, window: &mut Window, cx: &App) -> Stateful<Div> {
+    let disabled = state.read(cx).disabled;
+    let focus_handle = state.read(cx).focus_handle(cx);
+    let scroll_handle = state.read(cx).scroll_handle.clone();
+    let focus_handle_for_mouse = focus_handle.clone();
+
+    div()
+        .id(("textarea", state.entity_id()))
+        .key_context("Textarea")
+        .track_focus(&focus_handle.tab_index(0).tab_stop(true))
+        .track_scroll(&scroll_handle)
+        .overflow_y_scroll()
+        .when(!disabled, |this| {
+            this.on_mouse_down(MouseButton::Left, move |_event, window, _cx| {
+                window.focus(&focus_handle_for_mouse);
+            })
+            .on_action(window.listener_for(state, TextareaState::backspace))
+            .on_action(window.listener_for(state, TextareaState::delete))
+            .on_action(window.listener_for(state, TextareaState::left))
+            .on_action(window.listener_for(state, TextareaState::right))
+            .on_action(window.listener_for(state, TextareaState::up))
+            .on_action(window.listener_for(state, TextareaState::down))
+            .on_action(window.listener_for(state, TextareaState::select_left))
+            .on_action(window.listener_for(state, TextareaState::select_right))
+            .on_action(window.listener_for(state, TextareaState::select_up))
+            .on_action(window.listener_for(state, TextareaState::select_down))
+            .on_action(window.listener_for(state, TextareaState::select_all))
+            .on_action(window.listener_for(state, TextareaState::home))
+            .on_action(window.listener_for(state, TextareaState::end))
+            .on_action(window.listener_for(state, TextareaState::copy))
+            .on_action(window.listener_for(state, TextareaState::cut))
+            .on_action(window.listener_for(state, TextareaState::paste))
+            .on_action(window.listener_for(state, TextareaState::enter))
+            .on_action(window.listener_for(state, TextareaState::shift_enter))
+            .on_action(window.listener_for(state, TextareaState::tab))
+            .on_action(window.listener_for(state, TextareaState::shift_tab))
+            .on_action(window.listener_for(state, TextareaState::escape))
+            .on_action(window.listener_for(state, TextareaState::word_left))
+            .on_action(window.listener_for(state, TextareaState::word_right))
+            .on_action(window.listener_for(state, TextareaState::select_word_left))
+            .on_action(window.listener_for(state, TextareaState::select_word_right))
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
