@@ -6,7 +6,7 @@
 # Local build
 just build
 
-# Local tests
+# Local tests (runs `cargo test --all-features`)
 just test
 
 # Local lint
@@ -46,6 +46,8 @@ just run-example slider_styled_demo
 ```
 
 GitHub Actions uses `gpui/runtime_shaders` on hosted macOS runners because the default GPUI Metal shader compilation path can fail when the Metal Toolchain is unavailable. CI Cargo targets use `--locked`, and `just check-platform-ci` verifies the accessibility-enabled library on Linux and Windows. `just clippy-strict` exists as the future hard gate, but CI currently uses `just clippy-ci` while the existing clippy debt is being paid down.
+
+`just test` passes `--all-features`, because a default-feature `cargo test` silently skips the feature-gated `editor`, `markdown`, `html-render`, `audio`, and `qrcode` suites. `just test-ci` mirrors this for CI (`--locked`, plus the `gpui/runtime_shaders` feature).
 
 The `Justfile` is the canonical command source for local development and CI targets.
 

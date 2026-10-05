@@ -13,7 +13,10 @@ build:
     {{ cargo }} build
 
 test:
-    {{ cargo }} test
+    # `--all-features` so feature-gated suites (editor, markdown, html-render,
+    # audio, qrcode) actually run; a default-feature `cargo test` silently
+    # skips ~35 of them.
+    {{ cargo }} test --all-features
 
 clippy:
     {{ cargo }} clippy --all-targets
@@ -49,7 +52,9 @@ build-ci:
     {{ cargo }} build --locked --features {{ runtime_shaders_feature }}
 
 test-ci:
-    {{ cargo }} test --locked --features {{ runtime_shaders_feature }}
+    # Mirror `just test` (--all-features) so the CI job named "test" is the full
+    # suite; the capability-contract job only exercises the lib target.
+    {{ cargo }} test --locked --all-features --features {{ runtime_shaders_feature }}
 
 clippy-ci:
     {{ cargo }} clippy --locked --all-targets --features {{ runtime_shaders_feature }}

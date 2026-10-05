@@ -14,6 +14,8 @@ fc-ui (crate root `adabraka_ui`, repository `freefcw/fc-ui`) is a Rust GPUI comp
 - `just run-example slider_styled_demo`
 - `just list-examples`
 
+`just test` runs `cargo test --all-features` so that feature-gated suites (`editor`, `markdown`, `html-render`, `audio`, `qrcode`) are actually exercised; a bare `cargo test` on default features silently skips them. `just test-ci` mirrors this for CI (`--locked`, plus the `gpui/runtime_shaders` feature for hosted macOS runners).
+
 ## GitHub Actions Commands
 
 - `just build-ci`
