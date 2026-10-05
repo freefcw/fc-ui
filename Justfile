@@ -3,6 +3,9 @@
 # default GPUI Metal shader compilation path can fail when the Metal Toolchain
 # is unavailable.
 
+set unstable
+set lists
+
 cargo := env_var_or_default('CARGO', 'cargo')
 runtime_shaders_feature := env_var_or_default('RUNTIME_SHADERS_FEATURE', 'gpui/runtime_shaders')
 
@@ -24,7 +27,7 @@ clippy:
 fmt:
     {{ cargo }} fmt
 
-run-example example='':
+run-example example='' *args:
     #!/usr/bin/env bash
     set -euo pipefail
 
@@ -38,7 +41,7 @@ run-example example='':
       exit 1
     fi
 
-    {{ cargo }} run --example "$example"
+    {{ cargo }} run --example "$example" {{ quote(args) }}
 
 list-examples:
     #!/usr/bin/env bash
