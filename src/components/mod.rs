@@ -5,8 +5,8 @@ pub use crate::capabilities::controls::{
     avatar_group, calendar, carousel, checkbox, collapsible, color_picker, combobox, copy_button,
     date_picker, drag_drop, dropdown, form, hotkey_input, inline_edit, input, input_state,
     mention_input, number_input, otp_input, radio, range_slider, rating, search_input, select,
-    slider, sortable_list, stepper, tag_input, text_field, textarea, textarea_state, time_picker,
-    toggle, toggle_group,
+    slider, sortable_list, stepper, tag_input, textarea, textarea_state, time_picker, toggle,
+    toggle_group,
 };
 pub use crate::capabilities::data::{countdown, sparkline, timeline};
 #[cfg(feature = "editor")]

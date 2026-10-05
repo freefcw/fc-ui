@@ -27,7 +27,6 @@ pub mod slider;
 pub mod sortable_list;
 pub mod stepper;
 pub mod tag_input;
-pub mod text_field;
 pub(crate) mod text_util;
 pub mod textarea;
 pub mod textarea_state;

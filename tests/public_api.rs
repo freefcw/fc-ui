@@ -140,8 +140,8 @@ fn every_legacy_component_module_remains_public() {
         ripple, scrollable, scrollbar, search_input, segmented_nav, select, separator,
         shared_element_transition, shimmer, skeleton, skeleton_loader, slider, sortable_list,
         sparkline, spinner, split_pane, spotlight, stepper, svg_renderer, tag_input, text,
-        text_field, text_highlight, text_reveal, textarea, textarea_state, tilt_card, time_picker,
-        timeline, toggle, toggle_group, tooltip, type_writer, video_player, view_router, waveform,
+        text_highlight, text_reveal, textarea, textarea_state, tilt_card, time_picker, timeline,
+        toggle, toggle_group, tooltip, type_writer, video_player, view_router, waveform,
     };
 }
 
@@ -266,9 +266,9 @@ mod prelude_export_contract {
         StaggerConfig, StandardMacMenuBar, StatusBar, StatusItem, StepItem, StepStatus, Stepper,
         StepperOrientation, StepperSize, StepperState, StyledExt, SwipeDirection, SwipeGesture,
         TabItem, Table, TableColumn, TableRow, Tabs, TagInput, TagInputState, TapGesture, Text,
-        TextAnimation, TextField, TextFieldSize, TextHighlight, TextReveal, TextVariant, Textarea,
-        TextareaEvent, TextareaState, Theme, ThemeTokens, ThemeVariant, TiltCard, TiltCardState,
-        TimeFormat, TimePeriod, TimePicker, TimePickerState, TimeUnits, TimeValue, Timeline,
+        TextAnimation, TextHighlight, TextReveal, TextVariant, Textarea, TextareaEvent,
+        TextareaState, Theme, ThemeTokens, ThemeVariant, TiltCard, TiltCardState, TimeFormat,
+        TimePeriod, TimePicker, TimePickerState, TimeUnits, TimeValue, Timeline,
         TimelineConnectorStyle, TimelineIndicatorStyle, TimelineItem, TimelineItemPosition,
         TimelineItemVariant, TimelineLayout, TimelineOrientation, TimelineSize, ToastItem,
         ToastManager, ToastPosition, ToastVariant, Toggle, ToggleGroup, ToggleGroupItem,

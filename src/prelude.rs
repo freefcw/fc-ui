@@ -115,8 +115,6 @@ pub use crate::components::text::{
     body, body_large, body_small, caption, code, code_small, h1, h2, h3, h4, h5, h6, label,
     label_small, muted, muted_small, Text, TextVariant,
 };
-#[allow(deprecated)]
-pub use crate::components::text_field::{TextField, TextFieldSize};
 pub use crate::components::textarea::Textarea;
 pub use crate::components::textarea_state::{TextareaEvent, TextareaState};
 pub use crate::components::time_picker::{
