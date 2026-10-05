@@ -335,8 +335,11 @@ fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoE
 
 ### Available Themes
 
-- `Theme::light()` - Clean light theme
-- `Theme::dark()` - Dark theme with proper contrast
+All 18 presets are installed explicitly with `theme::install_theme(cx, theme)`; the library does not track the OS light/dark appearance automatically.
+
+- `Theme::light()` / `Theme::dark()` - Base light and dark themes with proper contrast
+- `Theme::dracula()`, `Theme::nord()`, `Theme::monokai_pro()`, `Theme::tokyo_night()`, `Theme::catppuccin_mocha()`, `Theme::rose_pine()` - Editor-inspired palettes
+- `Theme::midnight_blue()`, `Theme::forest_grove()`, `Theme::sunset_amber()`, `Theme::ocean_breeze()`, `Theme::coral_reef()`, `Theme::lavender_dreams()`, `Theme::mint_fresh()`, `Theme::peachy_keen()`, `Theme::sky_blue()`, `Theme::cherry_blossom()` - Accent palettes
 
 ### Theme Tokens
 

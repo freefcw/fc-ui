@@ -18,7 +18,9 @@
 //!
 //! ## Key Features
 //!
-//! - **Theme System**: Comprehensive design tokens with automatic light/dark mode support
+//! - **Theme System**: Design tokens across 18 preset themes with light and dark
+//!   variants; the active theme is installed explicitly via `theme::install_theme`
+//!   (the library does not track the system appearance automatically)
 //! - **Accessibility**: Keyboard support across controls, with tested AccessKit semantics for
 //!   Button, Checkbox, Select, Input, and Dialog
 //! - **Performance**: Optimized rendering with virtual scrolling for large datasets

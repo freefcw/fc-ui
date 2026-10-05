@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Text input `max_length`/character counting is character-based rather than byte-based, matching the validation messages.
 - `just test` (and its CI mirror `just test-ci`) now runs `cargo test --all-features`, so the feature-gated `editor`, `markdown`, `html-render`, `audio`, and `qrcode` suites are actually executed; a default-feature `cargo test` silently skipped ~35 tests. The CI job named "test" is now the full suite instead of relying on the capability-contract job's lib-only run.
 - `just run-example <name>` forwards extra arguments to cargo, so feature-gated examples are runnable: `just run-example editor_demo --features editor,editor-languages`.
+- Theme documentation no longer claims "automatic light/dark mode support": all 18 presets are installed explicitly via `theme::install_theme` and the library does not track the system appearance. The README theme list now covers all 18 presets instead of only light/dark.
 
 ### Fixed
 - Editor: `min_lines`/`max_lines` and line-based horizontal wheel scrolling used a hardcoded 20px line height, so an editor resized via `set_font_size` (which sets `line_height = size * 1.5`) computed the wrong height and scroll step.
