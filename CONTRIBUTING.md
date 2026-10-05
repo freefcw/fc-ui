@@ -428,6 +428,64 @@ fn test_button_builder_pattern() {
 }
 ```
 
+### GPUI Component Tests
+
+Interactive components (input, textarea, select, ...) have two test layers. Pick the
+cheapest one that actually exercises what you changed:
+
+1. **Direct state manipulation** — most tests call the state's methods directly
+   (`state.set_value(...)`, `state.word_left(&WordLeft, window, cx)`). No keymap is
+   involved, so no `init` is required; only `install_theme` is needed when the code
+   path reads theme tokens.
+2. **Real keyboard chain** — for changes in key wiring, focus handling, or key
+   bindings, drive actual keystrokes through a window:
+
+```rust
+#[gpui::test]
+fn enter_from_single_line_input_reaches_form_submit() {
+    let mut app = TestApp::new();
+    app.update(|cx| {
+        install_theme(cx, Theme::light());
+        // Binds the keystrokes to actions; adabraka_ui::init does this for the
+        // whole crate, a single component's init is enough for a focused test.
+        crate::capabilities::controls::input::init(cx);
+    });
+    // ... build state + view, open a window ...
+    window.draw();
+    window.update(|_, window, cx| state.read(cx).focus_handle(cx).focus(window));
+    window.draw();
+    let handle: AnyWindowHandle = window.handle().into();
+    app.raw_context_mut().simulate_keystrokes(handle, "enter");
+    app.flush();
+    // assert on effects
+}
+```
+
+Reference tests: `enter_from_single_line_input_reaches_form_submit`
+(`src/capabilities/controls/form.rs`) and
+`wire_actions_gives_custom_input_containers_full_keyboard_editing`
+(`src/capabilities/controls/input.rs`).
+
+Known pitfalls:
+
+- **Simulated keystrokes require the key bindings to be registered.** The bindings
+  are attached by each component's `init` (`input::init`, `textarea::init`, ...).
+  Without it, `simulate_keystrokes` dispatches nothing and the test fails silently
+  in the form of "nothing happened".
+- **Editing keys are filtered on the key context of the focused element.** Input
+  and textarea bindings carry `Some("Input")` / `Some("Textarea")`; if the focused
+  element does not set `key_context("Input")`, the binding never matches and every
+  editing key except plain text insertion is silently dead. Components set this
+  themselves; for a custom container around a bare `InputState`/`TextareaState`,
+  use `wire_input_actions` / `wire_textarea_actions` (from the prelude) instead of
+  hand-rolling the wiring.
+
+A note on multi-form windows: `InputState` entities hold live drafts. When one
+settings panel is reused for different data sources (provider switching, etc.),
+key the input entities by the form's identity and reuse or rebuild them on
+identity change — sharing entities across identities leaks drafts from one form
+into the next, while rebuilding unconditionally drops the user's in-progress edits.
+
 ### Example Applications
 
 Create a dedicated example for new components:
