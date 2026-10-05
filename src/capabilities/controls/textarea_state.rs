@@ -170,6 +170,30 @@ impl TextareaState {
         self.event_subscription = subscription;
     }
 
+    /// Set the placeholder text.
+    pub fn placeholder(mut self, placeholder: impl Into<SharedString>) -> Self {
+        self.placeholder = placeholder.into();
+        self
+    }
+
+    /// Set the initial value.
+    ///
+    /// Equivalent to assigning `content` directly, but leaves the caret at
+    /// the end of the text. To replace the value later with a `Change`
+    /// event, use [`TextareaState::set_value`].
+    pub fn value(mut self, value: impl Into<SharedString>) -> Self {
+        self.content = value.into();
+        let len = self.content.len();
+        self.selected_range = len..len;
+        self
+    }
+
+    /// Set whether user interaction is disabled.
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
+    }
+
     pub fn content(&self) -> &str {
         &self.content
     }
@@ -1360,6 +1384,27 @@ mod tests {
 
     struct TestView {
         state: Entity<TextareaState>,
+    }
+
+    #[gpui::test]
+    fn builders_configure_common_state_options() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| {
+            cx.new(|cx| {
+                TextareaState::new(cx)
+                    .value("hello")
+                    .placeholder("p")
+                    .disabled(true)
+            })
+        });
+
+        app.update(|cx| {
+            let state = state.read(cx);
+            assert_eq!(state.content(), "hello");
+            assert_eq!(state.placeholder, "p");
+            assert!(state.disabled);
+        });
     }
 
     impl Render for TestView {

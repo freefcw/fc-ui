@@ -333,6 +333,36 @@ impl InputState {
         self
     }
 
+    /// Set the initial value.
+    ///
+    /// Equivalent to assigning `content` directly, but leaves the caret at
+    /// the end of the text. To replace the value later with filtering,
+    /// validation, and a `Change` event, use [`InputState::set_value`].
+    pub fn value(mut self, value: impl Into<SharedString>) -> Self {
+        self.content = value.into();
+        let len = self.content.len();
+        self.selected_range = len..len;
+        self
+    }
+
+    /// Set whether user interaction is disabled.
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
+    }
+
+    /// Set whether the whole value is selected when the input gains focus.
+    pub fn select_on_focus(mut self, select_on_focus: bool) -> Self {
+        self.select_on_focus = select_on_focus;
+        self
+    }
+
+    /// Set whether surrounding whitespace is trimmed on blur (default `true`).
+    pub fn trim_on_blur(mut self, trim_on_blur: bool) -> Self {
+        self.trim_on_blur = trim_on_blur;
+        self
+    }
+
     /// Set the placeholder text
     pub fn set_placeholder(
         &mut self,
@@ -1906,6 +1936,31 @@ mod tests {
         fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
             div()
         }
+    }
+
+    #[gpui::test]
+    fn builders_configure_common_state_options() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| {
+            cx.new(|cx| {
+                InputState::new(cx)
+                    .value("  hello  ")
+                    .placeholder("p")
+                    .disabled(true)
+                    .select_on_focus(true)
+                    .trim_on_blur(false)
+            })
+        });
+
+        app.update(|cx| {
+            let state = state.read(cx);
+            assert_eq!(state.content(), "  hello  ");
+            assert_eq!(state.placeholder, "p");
+            assert!(state.disabled);
+            assert!(state.select_on_focus);
+            assert!(!state.trim_on_blur);
+        });
     }
 
     #[gpui::test]
