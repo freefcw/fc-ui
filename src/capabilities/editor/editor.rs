@@ -4779,8 +4779,12 @@ impl RenderOnce for Editor {
             .font_family_override
             .clone()
             .unwrap_or_else(|| theme.tokens.font_mono.clone());
-        let min_height = self.min_lines.map(|lines| px(lines as f32 * 20.0));
-        let max_height = self.max_lines.map(|lines| px(lines as f32 * 20.0));
+        // Track the state's line height instead of a literal 20px so that
+        // `set_font_size` keeps min/max line counts and line-based wheel
+        // scrolling consistent with the rendered layout.
+        let line_height = self.state.read(cx).line_height;
+        let min_height = self.min_lines.map(|lines| line_height * lines as f32);
+        let max_height = self.max_lines.map(|lines| line_height * lines as f32);
         let scroll_handle = self.state.read(cx).scroll_handle.clone();
 
         let mut base = div()
@@ -4894,7 +4898,7 @@ impl RenderOnce for Editor {
                 move |event: &ScrollWheelEvent, _window: &mut Window, cx: &mut App| {
                     let delta_x = match event.delta {
                         ScrollDelta::Pixels(p) => p.x,
-                        ScrollDelta::Lines(l) => px(l.x * 20.0),
+                        ScrollDelta::Lines(l) => line_height * l.x,
                     };
                     if delta_x.abs() > px(0.5) {
                         state.update(cx, |s, cx| {
@@ -5018,119 +5022,6 @@ impl RenderOnce for HorizontalScrollbar {
                     .bottom(px(2.0))
                     .left(relative(self.thumb_left_pct / 100.0))
                     .w(relative(self.thumb_width_pct / 100.0))
-                    .bg(theme.tokens.muted_foreground.opacity(0.6))
-                    .rounded(px(3.0))
-                    .hover(|s| s.bg(theme.tokens.muted_foreground.opacity(0.8))),
-            )
-            .into_any_element()
-    }
-}
-
-#[allow(dead_code)]
-#[derive(IntoElement)]
-struct VerticalScrollbar {
-    state: Entity<EditorState>,
-    needs_scrollbar: bool,
-    thumb_height_pct: f32,
-    thumb_top_pct: f32,
-}
-
-impl VerticalScrollbar {
-    #[allow(dead_code)]
-    fn new(state: Entity<EditorState>, cx: &App) -> Self {
-        let s = state.read(cx);
-        let line_height = s.line_height;
-        let padding = px(24.0);
-        let num_lines = s.display_line_count();
-        let content_height = padding + (line_height * num_lines as f32);
-        let viewport_height = s.scroll_handle.bounds().size.height;
-        let needs_scrollbar = content_height > viewport_height && viewport_height > px(0.0);
-
-        let (thumb_height_pct, thumb_top_pct) = if needs_scrollbar {
-            let visible_ratio = (viewport_height / content_height).min(1.0);
-            let thp = (visible_ratio * 100.0).max(5.0);
-            let scroll_y = -s.scroll_handle.offset().y;
-            let overscroll = if viewport_height > line_height * 5.0 {
-                viewport_height / 2.0
-            } else {
-                px(100.0)
-            };
-            let max_scroll = content_height + overscroll - viewport_height;
-            let ttp = if max_scroll > px(0.0) {
-                ((scroll_y / max_scroll) * (100.0 - thp))
-                    .max(0.0)
-                    .min(100.0 - thp)
-            } else {
-                0.0
-            };
-            (thp, ttp)
-        } else {
-            (0.0, 0.0)
-        };
-
-        Self {
-            state,
-            needs_scrollbar,
-            thumb_height_pct,
-            thumb_top_pct,
-        }
-    }
-}
-
-impl RenderOnce for VerticalScrollbar {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        if !self.needs_scrollbar {
-            return div().w(px(0.0)).into_any_element();
-        }
-
-        let theme = use_theme(cx);
-        let editor_state = self.state.clone();
-
-        div()
-            .id("v-scrollbar")
-            .h_full()
-            .w(px(12.0))
-            .bg(theme.tokens.muted.opacity(0.3))
-            .cursor(CursorStyle::PointingHand)
-            .on_mouse_down(MouseButton::Left, {
-                let state = editor_state.clone();
-                move |event: &MouseDownEvent, _window, cx| {
-                    cx.stop_propagation();
-                    state.update(cx, |s, cx| {
-                        let vp = s.scroll_handle.bounds();
-                        let track_height = vp.size.height;
-                        let click_ratio = (event.position.y - vp.top()) / track_height;
-
-                        let line_height = s.line_height;
-                        let padding = px(24.0);
-                        let content_height =
-                            padding + (line_height * s.display_line_count() as f32);
-                        let overscroll = if track_height > line_height * 5.0 {
-                            track_height / 2.0
-                        } else {
-                            px(100.0)
-                        };
-                        let max_scroll = content_height + overscroll - track_height;
-
-                        if max_scroll > px(0.0) {
-                            let new_scroll = max_scroll * click_ratio;
-                            let offset = s.scroll_handle.offset();
-                            s.scroll_handle.set_offset(point(
-                                offset.x,
-                                -new_scroll.max(px(0.0)).min(max_scroll),
-                            ));
-                        }
-                        cx.notify();
-                    });
-                }
-            })
-            .child(
-                div()
-                    .absolute()
-                    .left(px(2.0))
-                    .right(px(2.0))
-                    .top(relative(self.thumb_top_pct / 100.0))
-                    .h(relative(self.thumb_height_pct / 100.0))
                     .bg(theme.tokens.muted_foreground.opacity(0.6))
                     .rounded(px(3.0))
                     .hover(|s| s.bg(theme.tokens.muted_foreground.opacity(0.8))),
