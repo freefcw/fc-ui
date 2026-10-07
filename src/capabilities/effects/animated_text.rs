@@ -103,51 +103,42 @@ impl RenderOnce for AnimatedText {
         for (i, ch) in chars.into_iter().enumerate() {
             let s: SharedString = ch.to_string().into();
             let char_id: ElementId = ElementId::Name(format!("{}-char-{}", self.id, i).into());
-            let delay = stagger.as_millis() as u64 * i as u64;
-            let total_duration = Duration::from_millis(duration.as_millis() as u64 + delay);
+            let delay = Duration::from_millis(stagger.as_millis() as u64 * i as u64);
 
             let char_el = div().id(char_id.clone()).child(s);
 
             let anim_el = char_el.with_animation(
                 char_id,
-                Animation::new(total_duration).with_easing(easings::ease_out_cubic),
-                move |el, delta| {
-                    let char_t = if total_duration.as_millis() > 0 {
-                        let delay_fraction = delay as f32 / total_duration.as_millis() as f32;
-                        ((delta - delay_fraction) / (1.0 - delay_fraction).max(f32::EPSILON))
-                            .clamp(0.0, 1.0)
-                    } else {
-                        1.0
-                    };
-
-                    match animation_type {
-                        TextAnimation::FadeUp => {
-                            let offset = (1.0 - char_t) * 12.0;
-                            el.opacity(char_t).mt(px(offset))
-                        }
-                        TextAnimation::FadeDown => {
-                            let offset = (1.0 - char_t) * -12.0;
-                            el.opacity(char_t).mt(px(offset))
-                        }
-                        TextAnimation::SlideUp => {
-                            let offset = (1.0 - char_t) * 20.0;
-                            el.mt(px(offset))
-                        }
-                        TextAnimation::SlideDown => {
-                            let offset = (1.0 - char_t) * -20.0;
-                            el.mt(px(offset))
-                        }
-                        TextAnimation::Scale => {
-                            let size_px = 8.0 + char_t * 8.0;
-                            el.opacity(char_t).text_size(px(size_px))
-                        }
-                        TextAnimation::Wave => {
-                            let wave_offset =
-                                (char_t * std::f32::consts::PI * 2.0 + i as f32 * 0.5).sin()
-                                    * 6.0
-                                    * (1.0 - char_t);
-                            el.mt(px(wave_offset))
-                        }
+                Animation::new(duration)
+                    .with_easing(easings::ease_out_cubic)
+                    .with_delay(delay),
+                move |el, char_t| match animation_type {
+                    TextAnimation::FadeUp => {
+                        let offset = (1.0 - char_t) * 12.0;
+                        el.opacity(char_t).mt(px(offset))
+                    }
+                    TextAnimation::FadeDown => {
+                        let offset = (1.0 - char_t) * -12.0;
+                        el.opacity(char_t).mt(px(offset))
+                    }
+                    TextAnimation::SlideUp => {
+                        let offset = (1.0 - char_t) * 20.0;
+                        el.mt(px(offset))
+                    }
+                    TextAnimation::SlideDown => {
+                        let offset = (1.0 - char_t) * -20.0;
+                        el.mt(px(offset))
+                    }
+                    TextAnimation::Scale => {
+                        let size_px = 8.0 + char_t * 8.0;
+                        el.opacity(char_t).text_size(px(size_px))
+                    }
+                    TextAnimation::Wave => {
+                        let wave_offset = (char_t * std::f32::consts::PI * 2.0 + i as f32 * 0.5)
+                            .sin()
+                            * 6.0
+                            * (1.0 - char_t);
+                        el.mt(px(wave_offset))
                     }
                 },
             );

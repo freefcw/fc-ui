@@ -29,9 +29,8 @@ impl AnimationPreset {
         self
     }
 
-    /// Set a start delay. Reserved: GPUI's `Animation` has no delay support,
-    /// so [`AnimationPreset::to_animation`] does not apply it (only
-    /// `StaggerConfig` scheduling reads this value).
+    /// Set a start delay. The animation holds its initial value for the delay
+    /// before starting (see [`AnimationPreset::to_animation`]).
     pub fn delay(mut self, delay: Duration) -> Self {
         self.delay = delay;
         self
@@ -47,9 +46,8 @@ impl AnimationPreset {
         self
     }
 
-    /// Set a start delay. Reserved: GPUI's `Animation` has no delay support,
-    /// so [`AnimationPreset::to_animation`] does not apply it (only
-    /// `StaggerConfig` scheduling reads this value).
+    /// Set a start delay. The animation holds its initial value for the delay
+    /// before starting (see [`AnimationPreset::to_animation`]).
     pub fn with_delay(mut self, delay: Duration) -> Self {
         self.delay = delay;
         self
@@ -63,14 +61,15 @@ impl AnimationPreset {
         self.easing
     }
 
-    /// Returns the reserved start delay (not applied by
-    /// [`AnimationPreset::to_animation`]; see [`AnimationPreset::delay`]).
+    /// Returns the start delay applied by [`AnimationPreset::to_animation`].
     pub fn get_delay(&self) -> Duration {
         self.delay
     }
 
     pub fn to_animation(&self) -> Animation {
-        Animation::new(self.duration).with_easing(self.easing)
+        Animation::new(self.duration)
+            .with_easing(self.easing)
+            .with_delay(self.delay)
     }
 }
 
@@ -109,11 +108,7 @@ pub fn slide_in_right() -> AnimationPreset {
 #[derive(Clone, Debug, PartialEq)]
 pub enum AnimationRepeat {
     Once,
-    /// Finite repeat count. **Treated as infinite repeat** because GPUI's
-    /// `Animation` has no finite-repeat support: the animation loops forever.
-    /// To emulate a finite count, cancel it with a timer after
-    /// `count * duration` (e.g. `AnimationHandle::cancel` from
-    /// `with_cancellable_animation`, or stop rendering the animated element).
+    /// Finite repeat count. A count of zero is treated as one pass.
     Count(u32),
     Infinite,
 }
@@ -219,7 +214,7 @@ impl KeyframeAnimation {
         match &self.repeat {
             AnimationRepeat::Once => anim,
             AnimationRepeat::Infinite => anim.repeat(),
-            AnimationRepeat::Count(_) => anim.repeat(),
+            AnimationRepeat::Count(n) => anim.repeat_n(*n),
         }
     }
 }
@@ -311,8 +306,8 @@ impl Transition {
         self
     }
 
-    /// Set a start delay. Reserved: GPUI's `Animation` has no delay support,
-    /// so [`Transition::to_animation`] does not apply it.
+    /// Set a start delay. The animation holds its initial value for the delay
+    /// before starting (see [`Transition::to_animation`]).
     pub fn delay(mut self, delay: Duration) -> Self {
         self.delay = delay;
         self
@@ -330,13 +325,14 @@ impl Transition {
         self.easing
     }
 
-    /// Returns the reserved start delay (not applied by
-    /// [`Transition::to_animation`]; see [`Transition::delay`]).
+    /// Returns the start delay applied by [`Transition::to_animation`].
     pub fn get_delay(&self) -> Duration {
         self.delay
     }
 
     pub fn to_animation(&self) -> Animation {
-        Animation::new(self.duration).with_easing(self.easing)
+        Animation::new(self.duration)
+            .with_easing(self.easing)
+            .with_delay(self.delay)
     }
 }

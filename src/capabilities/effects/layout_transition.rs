@@ -89,12 +89,6 @@ impl RenderOnce for LayoutTransition {
                     .enumerate()
                     .map(move |(idx, child)| {
                         let delay = Duration::from_millis(stagger.as_millis() as u64 * idx as u64);
-                        let total_duration = duration + delay;
-                        let delay_fraction = if total_duration.as_secs_f32() > 0.0 {
-                            delay.as_secs_f32() / total_duration.as_secs_f32()
-                        } else {
-                            0.0
-                        };
 
                         div()
                             .id(ElementId::Name(
@@ -105,35 +99,27 @@ impl RenderOnce for LayoutTransition {
                                 ElementId::Name(
                                     format!("{}-lt-anim-{}-{}", id, idx, version).into(),
                                 ),
-                                Animation::new(total_duration).with_easing(easings::ease_out_cubic),
-                                move |el, raw_delta| {
-                                    let delta = if raw_delta <= delay_fraction {
-                                        0.0
-                                    } else {
-                                        ((raw_delta - delay_fraction)
-                                            / (1.0 - delay_fraction).max(f32::EPSILON))
-                                        .min(1.0)
-                                    };
-
-                                    match animation {
-                                        LayoutAnimation::FadeUp => {
-                                            el.opacity(delta).mt(px(-12.0 * (1.0 - delta)))
-                                        }
-                                        LayoutAnimation::FadeDown => {
-                                            el.opacity(delta).mt(px(12.0 * (1.0 - delta)))
-                                        }
-                                        LayoutAnimation::SlideLeft => {
-                                            el.opacity(delta).ml(px(20.0 * (1.0 - delta)))
-                                        }
-                                        LayoutAnimation::SlideRight => {
-                                            el.opacity(delta).ml(px(-20.0 * (1.0 - delta)))
-                                        }
-                                        LayoutAnimation::Scale => {
-                                            let scale_val = 0.8 + 0.2 * delta;
-                                            el.opacity(delta)
-                                                .w(relative(scale_val))
-                                                .h(relative(scale_val))
-                                        }
+                                Animation::new(duration)
+                                    .with_easing(easings::ease_out_cubic)
+                                    .with_delay(delay),
+                                move |el, delta| match animation {
+                                    LayoutAnimation::FadeUp => {
+                                        el.opacity(delta).mt(px(-12.0 * (1.0 - delta)))
+                                    }
+                                    LayoutAnimation::FadeDown => {
+                                        el.opacity(delta).mt(px(12.0 * (1.0 - delta)))
+                                    }
+                                    LayoutAnimation::SlideLeft => {
+                                        el.opacity(delta).ml(px(20.0 * (1.0 - delta)))
+                                    }
+                                    LayoutAnimation::SlideRight => {
+                                        el.opacity(delta).ml(px(-20.0 * (1.0 - delta)))
+                                    }
+                                    LayoutAnimation::Scale => {
+                                        let scale_val = 0.8 + 0.2 * delta;
+                                        el.opacity(delta)
+                                            .w(relative(scale_val))
+                                            .h(relative(scale_val))
                                     }
                                 },
                             )

@@ -190,7 +190,9 @@
     "default": [
       "accessibility",
       "http",
-      "bundled-fonts"
+      "bundled-fonts",
+      "image-format-png",
+      "image-format-jpeg"
     ],
     "editor": [
       "dep:ropey",

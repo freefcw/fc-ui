@@ -261,19 +261,10 @@ impl RenderOnce for FloatingActionButton {
                                         format!("fab-action-anim-{}-{}", idx, animation_version)
                                             .into(),
                                     ),
-                                    Animation::new(durations::FAST + delay)
-                                        .with_easing(easings::ease_out_cubic),
-                                    move |el, delta| {
-                                        let adjusted = (delta
-                                            - delay.as_secs_f32()
-                                                / (durations::FAST + delay).as_secs_f32())
-                                        .max(0.0)
-                                            / (1.0
-                                                - delay.as_secs_f32()
-                                                    / (durations::FAST + delay).as_secs_f32())
-                                            .max(0.001);
-                                        el.opacity(adjusted).mt(px(-8.0 * (1.0 - adjusted)))
-                                    },
+                                    Animation::new(durations::FAST)
+                                        .with_easing(easings::ease_out_cubic)
+                                        .with_delay(delay),
+                                    move |el, delta| el.opacity(delta).mt(px(-8.0 * (1.0 - delta))),
                                 )
                         }),
                 )

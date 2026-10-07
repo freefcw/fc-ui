@@ -26,4 +26,9 @@ jobs:
         run: cargo install cargo-audit --locked
 
       - name: Run cargo-audit
-        run: cargo audit
+        # Fail on unsound advisories, which are actionable in this repo.
+        # `unmaintained` is left as a warning: all current entries come from the
+        # fc-gpui dependency chain and cannot be resolved here. `yanked` is left
+        # as a warning too: `spin 0.9.8` is reachable only through
+        # fc-gpui-linux/fc-gpui-windows, so it never affects macOS builds.
+        run: cargo audit --deny unsound

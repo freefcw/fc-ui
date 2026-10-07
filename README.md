@@ -53,7 +53,7 @@ Add fc-ui to your `Cargo.toml`:
 ```toml
 [dependencies]
 fc-ui = { git = "https://github.com/freefcw/fc-ui" }
-gpui = { package = "fc-gpui", version = "0.10.0" }
+gpui = { package = "fc-gpui", version = "0.11.0" }
 ```
 
 Optional heavier components are feature-gated. Enable them only when needed:
@@ -67,6 +67,10 @@ fc-ui = { git = "https://github.com/freefcw/fc-ui", features = ["editor", "edito
 - `editor-languages`: adds the bundled tree-sitter grammars for syntax highlighting
 - `qrcode`: enables `QRCodeComponent`
 - `accessibility`: enables GPUI's native AccessKit adapters; enabled by default
+- `image-format-png`, `image-format-jpeg`: image decoders for `Avatar`, `ImageViewer`,
+  `VideoPlayer`, and `FileUpload`; both are enabled by default. Add the other
+  `image-format-*` flags (or `image-default-formats`) if you need more formats —
+  without a decoder for a given format, images of that format render blank.
 
 ### Linux audio dependency
 
@@ -107,7 +111,7 @@ Other components may provide keyboard interaction but do not yet carry the same 
 For local co-development, point `gpui` at your checked-out fork instead:
 
 ```toml
-gpui = { package = "fc-gpui", path = "../fc-gpui/crates/gpui-compat" }
+gpui = { package = "fc-gpui", path = "../fc-gpui/crates/gpui-compat", default-features = false, features = ["font-kit", "wayland", "x11", "windows-manifest"] }
 ```
 
 ## What's New in v0.8.0
@@ -133,7 +137,7 @@ See [CHANGELOG.md](CHANGELOG.md#070---2026-07-22) for migration notes.
 ### v0.6.0 - Smaller Footprint & Modernized Deps
 - New **font feature flags** (`bundled-fonts`, `bundled-fonts-inter`, `bundled-fonts-inter-minimal`, `bundled-fonts-mono`, `bundled-fonts-mono-full`, plus per-weight flags) — embed only the font weights you need, or skip the bundled ~2.1 MB entirely
 - Editor and QR rendering moved behind opt-in `editor` / `editor-languages` / `qrcode` Cargo features
-- GPUI default image formats disabled by default; pass-through `image-format-*` features let you opt into specific decoders
+- PNG and JPEG decoding are enabled by default; the remaining `image-format-*` decoders stay opt-in
 - HTTP backend switched from `isahc` to `zed-reqwest` (`reqwest::blocking` over `smol::unblock`)
 - Replaced direct `once_cell` usage with `std::sync::{OnceLock, LazyLock}`
 - Bumped `adabraka-gpui` and refreshed `Cargo.lock`
@@ -1522,6 +1526,12 @@ fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoEl
         // ... other content
 }
 ```
+
+Migrating from the deprecated `gpui::toast` (fc-gpui 0.11 deprecates it in favor of
+this crate): `ToastStack` → `ToastManager`, `Toast::body` → `ToastItem::description`,
+`with_position` → `position`. `ToastItem::new` takes a placeholder id that the manager
+reassigns. Variants, icons, manual dismiss, stacking caps, and theming have no upstream
+equivalent — they are covered here.
 
 ### Animation System
 

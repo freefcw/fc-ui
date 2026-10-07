@@ -123,8 +123,7 @@ impl RenderOnce for TextReveal {
 
         for (i, segment) in segments.into_iter().enumerate() {
             let seg_id: ElementId = ElementId::Name(format!("{}-seg-{}", self.id, i).into());
-            let delay = stagger.as_millis() as u64 * i as u64;
-            let total_duration = Duration::from_millis(duration.as_millis() as u64 + delay);
+            let delay = Duration::from_millis(stagger.as_millis() as u64 * i as u64);
 
             let display_text: SharedString = if mode == RevealMode::ByWord && i > 0 {
                 format!(" {}", segment).into()
@@ -134,16 +133,10 @@ impl RenderOnce for TextReveal {
 
             let seg_el = div().id(seg_id.clone()).child(display_text).with_animation(
                 seg_id,
-                Animation::new(total_duration).with_easing(easing),
-                move |el, delta| {
-                    let seg_t = if total_duration.as_millis() > 0 {
-                        let delay_fraction = delay as f32 / total_duration.as_millis() as f32;
-                        ((delta - delay_fraction) / (1.0 - delay_fraction).max(f32::EPSILON))
-                            .clamp(0.0, 1.0)
-                    } else {
-                        1.0
-                    };
-
+                Animation::new(duration)
+                    .with_easing(easing)
+                    .with_delay(delay),
+                move |el, seg_t| {
                     let offset = (1.0 - seg_t) * 8.0;
                     el.opacity(seg_t).mt(px(offset))
                 },
