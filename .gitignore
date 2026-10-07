@@ -2,6 +2,8 @@ target/
 .DS_Store
 .idea/
 .vscode/
+.mirasim/
+tmp/
 .env
 .env.local
 .env.development.local
