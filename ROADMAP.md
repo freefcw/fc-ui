@@ -332,7 +332,14 @@
 
 ## 2. GPUI FORK EXTENSIONS REQUIRED
 
-### Extension 1: Element Transforms on Quads [P0]
+> **Status — audited against fc-gpui 0.10.0**:
+> Extensions 1, 2, 3, 5, 6, and 7 have shipped in the fc-gpui fork (most in its 0.4.0 release).
+> Extension 4 (per-element Gaussian blur / backdrop blur) is still open — only window-level
+> blur (`WindowBackgroundAppearance::Blurred`) exists today. Framework-level work is now
+> planned in the fc-gpui repository; this section is kept as historical design notes for the
+> remaining item.
+
+### Extension 1: Element Transforms on Quads [P0] — ✅ Shipped (fc-gpui 0.4.0: `rotate` / `scale` / `scale_xy` / `transform_origin`; `skew`/`translate` builders not exposed)
 
 **What it enables**: rotate(), scale(), skewX(), skewY(), translate() on any quad element. This is the single biggest rendering gap vs the web platform.
 
@@ -357,7 +364,7 @@
 
 **Dependencies**: TiltCard (real), Dock (real scale), Carousel 3D, spinner rotation, all rotation-based animations.
 
-### Extension 2: Multi-stop Linear Gradients [P1]
+### Extension 2: Multi-stop Linear Gradients [P1] — ✅ Shipped (fc-gpui 0.4.0: `multi_stop_linear_gradient` + `LinearColorStop`)
 
 **What it enables**: Rich gradient backgrounds, shimmer effects, gradient progress bars, aurora backgrounds, heatmap color scales.
 
@@ -376,7 +383,7 @@
 
 **Dependencies**: Aurora (better), Shimmer (better), GradientText (better), gradient borders, animated backgrounds.
 
-### Extension 3: Radial Gradients [P1]
+### Extension 3: Radial Gradients [P1] — ✅ Shipped (fc-gpui 0.4.0: `radial_gradient`)
 
 **What it enables**: Spotlight effects, vignettes, circular progress indicators, radial menus, depth perception.
 
@@ -390,7 +397,7 @@
 
 **Dependencies**: Spotlight (true), Gauge (gradient fill), vignette overlay, circular progress.
 
-### Extension 4: Per-element Gaussian Blur [P1]
+### Extension 4: Per-element Gaussian Blur [P1] — ❌ Open (only window-level blur exists; the most invasive remaining item — needs off-screen render targets and multi-pass rendering)
 
 **What it enables**: True frosted glass (backdrop-filter), depth-of-field, blur-behind overlays, image background blur, focus/defocus transitions.
 
@@ -411,7 +418,7 @@
 
 **Dependencies**: True GlassMorphism, frosted sidebars, overlay backdrop blur, depth-of-field effects.
 
-### Extension 5: Per-element Opacity [P1]
+### Extension 5: Per-element Opacity [P1] — ✅ Shipped (simple route: `.opacity()` propagates alpha to descendants; the render-to-texture "correct" route is still blocked on Extension 4)
 
 **What it enables**: Opacity on container elements affecting all children uniformly.
 
@@ -429,7 +436,7 @@
 
 **Dependencies**: AnimatedPresence (fade entire subtrees), overlay transitions, disabled state dimming, drag ghost elements.
 
-### Extension 6: Conic Gradients [P2]
+### Extension 6: Conic Gradients [P2] — ✅ Shipped (fc-gpui 0.4.0: `conic_gradient`)
 
 **What it enables**: Sweep-style progress indicators, color wheels, pie-chart-without-Path.
 
@@ -442,7 +449,7 @@
 
 **Dependencies**: Gauge (sweep variant), color wheel, circular progress alternatives.
 
-### Extension 7: Blend Modes [P2]
+### Extension 7: Blend Modes [P2] — ✅ Shipped (fc-gpui 0.4.0: per-element `BlendMode`)
 
 **What it enables**: Duotone images, texture overlays, creative compositing, difference blending for contrast-adaptive text.
 
