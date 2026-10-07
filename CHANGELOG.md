@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-08
+
 ### Changed
-- The GPUI dependency moves to `fc-gpui` 0.11.0 with zero source changes required for the upgrade itself (APIs in use are unchanged; the crate never used `Animation.oneshot`, `.loop_()`, or `gpui::toast`). The lockfile shrinks from 852 to 836 packages: 0.11 makes the `keyring` (Secret Service) chain opt-in, removing `oo7` and its crypto deps (`aes`, `cbc`, `hmac`, `hkdf`, `pbkdf2`, `md-5`, `num-bigint-dig`, …) from the graph; `flume` 0.11 → 0.12 and `xkbcommon` 0.8 → 0.9 move along with it. `cargo audit` results are unchanged (0 vulnerabilities) and the MSRV stays 1.90 (verified with `cargo +1.90.0 check --all-features --all-targets`). The crate's `default-features = false` pin on `gpui` is what keeps the keyring chain out; do not drop it. fc-gpui 0.11 deprecates `gpui::toast` in favor of this crate's toast component (see the README migration note); note for downstream users: `gpui` 0.11 now also exports an `AnimationRepeat`, which can collide with `adabraka_ui::prelude::AnimationRepeat` under double glob imports — import one of them explicitly if you use both.
+- **Breaking**: renamed the crate root from `adabraka_ui` to `fc_ui`, dropping the explicit `[lib] name` override that 0.8.x kept for compatibility. The downstream import becomes `use fc_ui::*;`; update mechanically via `s/adabraka_ui/fc_ui/g`. There is no compatibility shim. The published package was already `fc-ui` since 0.8.x and is unchanged. The `authors` metadata moves from "Adabraka Team" to "fc-ui Team".
+- The GPUI dependency moves to `fc-gpui` 0.11.0 with zero source changes required for the upgrade itself (APIs in use are unchanged; the crate never used `Animation.oneshot`, `.loop_()`, or `gpui::toast`). The lockfile shrinks from 852 to 836 packages: 0.11 makes the `keyring` (Secret Service) chain opt-in, removing `oo7` and its crypto deps (`aes`, `cbc`, `hmac`, `hkdf`, `pbkdf2`, `md-5`, `num-bigint-dig`, …) from the graph; `flume` 0.11 → 0.12 and `xkbcommon` 0.8 → 0.9 move along with it. `cargo audit` results are unchanged (0 vulnerabilities) and the MSRV stays 1.90 (verified with `cargo +1.90.0 check --all-features --all-targets`). The crate's `default-features = false` pin on `gpui` is what keeps the keyring chain out; do not drop it. fc-gpui 0.11 deprecates `gpui::toast` in favor of this crate's toast component (see the README migration note); note for downstream users: `gpui` 0.11 now also exports an `AnimationRepeat`, which can collide with `fc_ui::prelude::AnimationRepeat` under double glob imports — import one of them explicitly if you use both.
 - `AnimationPreset::delay`/`with_delay` and `Transition::delay` now take effect: `to_animation()` applies the delay via fc-gpui 0.11's `Animation::with_delay`, so the value is held (initial state, no frames requested) for the delay before the animation starts, and `StaggerConfig` orchestration works end to end. Previously the fields were documented "Reserved" and silently ignored.
 - `AnimationRepeat::Count(n)` (`KeyframeAnimation`) now renders as a finite repeat via `Animation::repeat_n` (a count of 0 plays once), instead of looping forever.
 - Stagger entry animations in `FloatingActionButton` (action reveal) and the `AnimatedText`, `TextReveal`, `LayoutTransition`, and `TextHighlight` effects now use the native `Animation::with_delay` instead of stretching the duration and reverse-mapping the eased delta inside the animator. This fixes timing: under the old math an ease-out curve held for only about a third of the declared stagger delay (a declared 100 ms hold actually held ~38 ms), and the post-delay motion was a linear remap of the eased value rather than the easing curve itself. Completion times are unchanged; the declared stagger is now honored exactly.
@@ -74,7 +77,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 - `capabilities::controls::text_field` (`TextField`, `TextFieldState`, `TextFieldSize`) — deprecated as incomplete and never constructed anywhere in the crate; use `Input` instead.
-- `capabilities::scroll::variable_virtual_list` — every public item was deprecated and it had no callers. The `adabraka_ui::navigation::virtual_list` path is kept and now aliases `uniform_virtual_list`, but `VirtualList`/`v_virtual_list` and the module path itself are gone.
+- `capabilities::scroll::variable_virtual_list` — every public item was deprecated and it had no callers. The `fc_ui::navigation::virtual_list` path is kept and now aliases `uniform_virtual_list`, but `VirtualList`/`v_virtual_list` and the module path itself are gone.
 - The editor's internal `VerticalScrollbar`, which carried `#[allow(dead_code)]` because only `HorizontalScrollbar` was ever constructed.
 
 ## [0.8.1] - 2026-09-05
@@ -512,12 +515,13 @@ Created comprehensive styled demonstration examples for every component showing 
 - Platform-aware UI elements
 - Responsive layout utilities (VStack, HStack, Grid)
 
-[Unreleased]: https://github.com/freefcw/fc-ui/compare/v0.8.1...HEAD
+[Unreleased]: https://github.com/freefcw/fc-ui/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/freefcw/fc-ui/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/freefcw/fc-ui/compare/v0.8.0...v0.8.1
-[0.8.0]: https://github.com/Augani/adabraka-ui/compare/v0.7.0...v0.8.0
-[0.7.0]: https://github.com/Augani/adabraka-ui/compare/v0.6.0...v0.7.0
-[0.6.0]: https://github.com/Augani/adabraka-ui/compare/v0.5.0...v0.6.0
-[0.5.0]: https://github.com/Augani/adabraka-ui/compare/v0.3.4...v0.5.0
+[0.8.0]: https://github.com/freefcw/fc-ui/compare/v0.7.0...v0.8.0
+[0.7.0]: https://github.com/freefcw/fc-ui/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/freefcw/fc-ui/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/freefcw/fc-ui/compare/v0.3.4...v0.5.0
 [0.3.4]: https://github.com/Augani/adabraka-ui/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/Augani/adabraka-ui/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/Augani/adabraka-ui/compare/v0.3.1...v0.3.2
