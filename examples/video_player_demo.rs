@@ -1,4 +1,4 @@
-use adabraka_ui::prelude::*;
+use fc_ui::prelude::*;
 use gpui::*;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -36,8 +36,8 @@ fn main() {
             base: PathBuf::from(env!("CARGO_MANIFEST_DIR")),
         })
         .run(|cx| {
-            adabraka_ui::init(cx);
-            adabraka_ui::set_icon_base_path("assets/icons");
+            fc_ui::init(cx);
+            fc_ui::set_icon_base_path("assets/icons");
             init_video_player(cx);
             install_theme(cx, Theme::dark());
 

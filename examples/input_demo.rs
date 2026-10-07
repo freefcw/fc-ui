@@ -1,4 +1,4 @@
-use adabraka_ui::{
+use fc_ui::{
     components::{
         button::{Button, ButtonSize, ButtonVariant},
         input::{Input, InputSize, InputVariant},
@@ -113,7 +113,7 @@ impl InputDemoApp {
 
 impl Render for InputDemoApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = adabraka_ui::theme::use_theme(cx);
+        let theme = fc_ui::theme::use_theme(cx);
 
         VStack::new()
             .size_full()
@@ -700,7 +700,7 @@ fn main() {
         install_theme(cx, Theme::dark());
 
         // Initialize input system
-        adabraka_ui::init(cx);
+        fc_ui::init(cx);
 
         cx.open_window(
             WindowOptions {

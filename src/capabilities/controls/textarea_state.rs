@@ -1319,7 +1319,7 @@ impl Element for TextareaTextElement {
 /// it and add the state as its child:
 ///
 /// ```rust,ignore
-/// use adabraka_ui::components::textarea_state::wire_actions;
+/// use fc_ui::components::textarea_state::wire_actions;
 ///
 /// fn render(state: &Entity<TextareaState>, window: &mut Window, cx: &App) -> impl IntoElement {
 ///     wire_actions(state, window, cx)
@@ -1331,7 +1331,7 @@ impl Element for TextareaTextElement {
 /// ```
 ///
 /// The key bindings are registered by `components::textarea::init`, which
-/// `adabraka_ui::init` calls at startup; applications that skip crate init
+/// `fc_ui::init` calls at startup; applications that skip crate init
 /// must call it themselves or no keystroke will match an action.
 pub fn wire_actions(state: &Entity<TextareaState>, window: &mut Window, cx: &App) -> Stateful<Div> {
     let disabled = state.read(cx).disabled;

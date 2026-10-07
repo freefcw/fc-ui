@@ -33,7 +33,7 @@ fn main() {
     target_os = "windows"
 ))]
 fn run() -> anyhow::Result<()> {
-    use adabraka_ui::{
+    use fc_ui::{
         components::input::{Input, InputState},
         overlays::popover::{Popover, PopoverContent},
         prelude::{Button, Checkbox, Select, SelectOption},
@@ -147,8 +147,8 @@ fn run() -> anyhow::Result<()> {
     }
 
     let capabilities = VisualTestCapabilities::detect();
-    let require_real_visual = std::env::var_os("CI").is_some()
-        || std::env::var_os("ADABRAKA_REQUIRE_REAL_VISUAL").is_some();
+    let require_real_visual =
+        std::env::var_os("CI").is_some() || std::env::var_os("FC_UI_REQUIRE_REAL_VISUAL").is_some();
     let Some(cx) = RealVisualTestContext::new_if_supported() else {
         anyhow::ensure!(
             !require_real_visual,
@@ -163,7 +163,7 @@ fn run() -> anyhow::Result<()> {
     let outcome_in_run = outcome.clone();
     cx.run(move |cx| {
         let result = (|| -> anyhow::Result<()> {
-            adabraka_ui::init(&mut cx.app.borrow_mut());
+            fc_ui::init(&mut cx.app.borrow_mut());
 
             let form_window = cx.open_offscreen_window(size(px(640.0), px(480.0)), |_, app| {
                 let input_state = app.new(InputState::new);

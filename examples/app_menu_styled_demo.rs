@@ -1,4 +1,4 @@
-use adabraka_ui::{layout::VStack, navigation::app_menu::*, theme::use_theme};
+use fc_ui::{layout::VStack, navigation::app_menu::*, theme::use_theme};
 use gpui::*;
 
 // Define all the actions our app will use
@@ -328,10 +328,10 @@ impl Render for AppMenuStyledDemo {
 fn main() {
     Application::new().run(move |cx: &mut App| {
         // Install dark theme
-        adabraka_ui::theme::install_theme(cx, adabraka_ui::theme::Theme::dark());
+        fc_ui::theme::install_theme(cx, fc_ui::theme::Theme::dark());
 
         // Initialize UI system
-        adabraka_ui::init(cx);
+        fc_ui::init(cx);
 
         // Register Quit action at app level
         cx.on_action(|_: &Quit, cx| {

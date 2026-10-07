@@ -1,6 +1,6 @@
 // Debug to see if into_element is being called
 
-use adabraka_ui::layout::{ScrollContainer, ScrollDirection};
+use fc_ui::layout::{ScrollContainer, ScrollDirection};
 use gpui::{
     div, prelude::*, px, rgb, size, AnyElement, App, Application, Bounds, Context,
     InteractiveElement, Interactivity, ParentElement, Stateful, StatefulInteractiveElement,

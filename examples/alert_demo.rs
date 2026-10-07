@@ -1,4 +1,4 @@
-use adabraka_ui::{
+use fc_ui::{
     components::{
         alert::Alert,
         scrollable::scrollable_vertical,
@@ -333,7 +333,7 @@ impl Render for AlertDemo {
 
 fn main() {
     Application::new().run(|cx: &mut App| {
-        adabraka_ui::init(cx);
+        fc_ui::init(cx);
         install_theme(cx, Theme::dark());
 
         let bounds = Bounds::centered(None, size(px(800.0), px(900.0)), cx);

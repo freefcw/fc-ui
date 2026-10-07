@@ -1,4 +1,4 @@
-use adabraka_ui::{
+use fc_ui::{
     components::inline_edit::{
         init as init_inline_edit, InlineEdit, InlineEditState, InlineEditTrigger,
     },
@@ -352,7 +352,7 @@ impl Render for InlineEditDemo {
 
 fn main() {
     Application::new().run(|cx: &mut App| {
-        adabraka_ui::init(cx);
+        fc_ui::init(cx);
         init_inline_edit(cx);
         install_theme(cx, Theme::dark());
 

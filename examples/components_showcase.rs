@@ -1,4 +1,4 @@
-use adabraka_ui::{
+use fc_ui::{
     charts::donut_chart::DonutChart,
     charts::gauge::Gauge,
     charts::pie_chart::PieChartSegment,
@@ -52,7 +52,7 @@ impl ShowcaseApp {
     fn new(cx: &mut Context<Self>) -> Self {
         let typewriter_state = cx.new(|_cx| {
             TypeWriterState::new(
-                "Welcome to adabraka-ui — a beautiful component library for GPUI desktop apps.",
+                "Welcome to fc-ui — a beautiful component library for GPUI desktop apps.",
             )
             .with_speed(Duration::from_millis(40))
         });
@@ -98,7 +98,7 @@ impl ShowcaseApp {
             segmented_state: cx.new(|_cx| SegmentedNavState::new("text")),
             typewriter_state,
             counter_state,
-            copy_state: cx.new(|_cx| CopyButtonState::new("cargo add adabraka-ui".into())),
+            copy_state: cx.new(|_cx| CopyButtonState::new("cargo add fc-ui".into())),
             confetti_state: cx.new(ConfettiState::new),
             expandable_state_1: cx.new(|_cx| ExpandableCardState::new()),
             expandable_state_2: cx.new(|_cx| ExpandableCardState::new()),
@@ -166,7 +166,7 @@ impl Render for ShowcaseApp {
                             .flex()
                             .items_center()
                             .gap(px(12.0))
-                            .child(h1("adabraka-ui"))
+                            .child(h1("fc-ui"))
                             .child(Badge::new("v0.3").variant(BadgeVariant::Default)),
                     )
                     .child(muted(
@@ -328,9 +328,7 @@ impl ShowcaseApp {
                             div()
                                 .flex()
                                 .gap(px(24.0))
-                                .child(body(
-                                    "Breaking: adabraka-ui v0.3 released with 85+ components",
-                                ))
+                                .child(body("Breaking: fc-ui v0.3 released with 85+ components"))
                                 .child(
                                     div().text_color(hsla(0.55, 0.8, 0.6, 1.0)).child(
                                         "New: Transforms, Gradients, Blend Modes in GPUI fork",
@@ -683,7 +681,7 @@ impl ShowcaseApp {
                                         div()
                                             .text_size(px(13.0))
                                             .font_family("monospace")
-                                            .child("cargo add adabraka-ui"),
+                                            .child("cargo add fc-ui"),
                                     )
                                     .child(CopyButton::new("copy-btn", copy_state)),
                             ),
@@ -703,15 +701,15 @@ impl ShowcaseApp {
                                             .flex()
                                             .items_center()
                                             .gap(px(8.0))
-                                            .child(h3("What is adabraka-ui?"))
+                                            .child(h3("What is fc-ui?"))
                                             .child(muted("Click to learn more")),
                                     )
                                     .expanded(
                                         col()
                                             .gap(px(8.0))
-                                            .child(h3("What is adabraka-ui?"))
+                                            .child(h3("What is fc-ui?"))
                                             .child(body(
-                                                "adabraka-ui is a comprehensive component library for building \
+                                                "fc-ui is a comprehensive component library for building \
                                                  beautiful desktop applications with GPUI. It provides 85+ \
                                                  components including buttons, inputs, charts, overlays, \
                                                  animations, and much more.",
@@ -734,7 +732,7 @@ impl ShowcaseApp {
                                             .gap(px(8.0))
                                             .child(h3("Getting Started"))
                                             .child(body(
-                                                "Add adabraka-ui to your Cargo.toml, call init() in your app \
+                                                "Add fc-ui to your Cargo.toml, call init() in your app \
                                                  setup, install a theme, and start building with the builder \
                                                  pattern API.",
                                             ))
@@ -956,12 +954,10 @@ impl ShowcaseApp {
                                 col()
                                     .items_center()
                                     .child(
-                                        QRCodeComponent::new(
-                                            "https://github.com/augani/adabraka-ui",
-                                        )
-                                        .size(px(150.0))
-                                        .fg_color(theme.tokens.foreground)
-                                        .bg_color(theme.tokens.card),
+                                        QRCodeComponent::new("https://github.com/freefcw/fc-ui")
+                                            .size(px(150.0))
+                                            .fg_color(theme.tokens.foreground)
+                                            .bg_color(theme.tokens.card),
                                     )
                                     .child(demo_label("GitHub Repo", theme)),
                             )
@@ -969,7 +965,7 @@ impl ShowcaseApp {
                                 col()
                                     .items_center()
                                     .child(
-                                        QRCodeComponent::new("adabraka-ui: 85+ GPUI components")
+                                        QRCodeComponent::new("fc-ui: 85+ GPUI components")
                                             .size(px(150.0))
                                             .fg_color(hsla(0.6, 0.7, 0.4, 1.0))
                                             .bg_color(theme.tokens.card),
@@ -988,7 +984,7 @@ fn main() {
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 titlebar: Some(TitlebarOptions {
-                    title: Some("adabraka-ui Component Showcase".into()),
+                    title: Some("fc-ui Component Showcase".into()),
                     ..Default::default()
                 }),
                 ..Default::default()

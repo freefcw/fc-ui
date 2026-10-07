@@ -1,4 +1,4 @@
-use adabraka_ui::prelude::*;
+use fc_ui::prelude::*;
 
 struct FileUploadDemoApp {
     upload_state1: Entity<FileUploadState>,
@@ -69,7 +69,7 @@ impl Render for FileUploadDemoApp {
 
 fn main() {
     Application::new().run(|cx| {
-        adabraka_ui::init(cx);
+        fc_ui::init(cx);
         install_theme(cx, Theme::dark());
 
         let bounds = Bounds::centered(None, size(px(600.0), px(500.0)), cx);

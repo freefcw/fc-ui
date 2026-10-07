@@ -1,7 +1,7 @@
 //! Interactive textarea demo with full editing capabilities
 
-use adabraka_ui::components::input::InputVariant;
-use adabraka_ui::prelude::*;
+use fc_ui::components::input::InputVariant;
+use fc_ui::prelude::*;
 use gpui::*;
 use std::path::PathBuf;
 
@@ -38,8 +38,8 @@ fn main() {
             base: PathBuf::from(env!("CARGO_MANIFEST_DIR")),
         })
         .run(|cx| {
-            adabraka_ui::init(cx);
-            adabraka_ui::set_icon_base_path("assets/icons");
+            fc_ui::init(cx);
+            fc_ui::set_icon_base_path("assets/icons");
             install_theme(cx, Theme::dark());
 
             cx.open_window(

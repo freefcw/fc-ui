@@ -25,7 +25,7 @@
 //!
 //! ## Usage
 //!
-//! Fonts are automatically registered when calling `adabraka_ui::init(cx)`.
+//! Fonts are automatically registered when calling `fc_ui::init(cx)`.
 //! Access font families through the theme system or utility functions.
 //!
 //! ```rust,ignore
@@ -81,7 +81,7 @@ const JETBRAINS_MONO_BOLD: &[u8] = include_bytes!("../../../assets/fonts/JetBrai
 ///
 /// # Example
 /// ```ignore
-/// use adabraka_ui::fonts;
+/// use fc_ui::fonts;
 ///
 /// Application::new().run(|cx| {
 ///     fonts::register_fonts(cx);
@@ -103,9 +103,7 @@ pub fn register_fonts(cx: &mut App) {
 
     if !inter_fonts.is_empty() {
         if let Err(error) = cx.text_system().add_fonts(inter_fonts) {
-            eprintln!(
-                "adabraka-ui: failed to load Inter fonts, falling back to system fonts: {error}"
-            );
+            eprintln!("fc-ui: failed to load Inter fonts, falling back to system fonts: {error}");
         }
     }
 
@@ -119,7 +117,9 @@ pub fn register_fonts(cx: &mut App) {
 
     if !mono_fonts.is_empty() {
         if let Err(error) = cx.text_system().add_fonts(mono_fonts) {
-            eprintln!("adabraka-ui: failed to load JetBrains Mono fonts, falling back to system fonts: {error}");
+            eprintln!(
+                "fc-ui: failed to load JetBrains Mono fonts, falling back to system fonts: {error}"
+            );
         }
     }
 }

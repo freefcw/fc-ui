@@ -1,11 +1,11 @@
 blank_issues_enabled: true
 contact_links:
   - name: 💬 Discussions
-    url: https://github.com/Augani/adabraka-ui/discussions
+    url: https://github.com/freefcw/fc-ui/discussions
     about: Ask questions and discuss ideas with the community
   - name: 📚 Documentation
-    url: https://docs.rs/adabraka-ui
+    url: https://docs.rs/fc-ui
     about: Read the API documentation
   - name: 💡 Examples
-    url: https://github.com/Augani/adabraka-ui/tree/main/examples
+    url: https://github.com/freefcw/fc-ui/tree/main/examples
     about: Browse example applications

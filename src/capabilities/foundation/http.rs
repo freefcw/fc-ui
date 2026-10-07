@@ -6,7 +6,7 @@ use gpui::http_client::{AsyncBody, HttpClient, Request, Response};
 use std::{fmt, sync::Arc};
 
 /// User agent used by the built-in HTTP client.
-pub const DEFAULT_USER_AGENT: &str = concat!("adabraka-ui/", env!("CARGO_PKG_VERSION"));
+pub const DEFAULT_USER_AGENT: &str = concat!("fc-ui/", env!("CARGO_PKG_VERSION"));
 
 /// Controls how root initialization handles GPUI's application-wide HTTP client.
 #[cfg(feature = "http")]
@@ -68,7 +68,7 @@ impl SimpleHttpClient {
             .map_err(HttpInitError::from)?;
 
         let user_agent_header = gpui::http_client::http::HeaderValue::from_str(user_agent)
-            .unwrap_or_else(|_| gpui::http_client::http::HeaderValue::from_static("adabraka-ui"));
+            .unwrap_or_else(|_| gpui::http_client::http::HeaderValue::from_static("fc-ui"));
 
         Ok(Arc::new(Self {
             client,
@@ -197,7 +197,7 @@ pub fn try_init_http_with_user_agent(
 
 #[cfg(feature = "http")]
 fn report_initialization_error(error: &HttpInitError) {
-    eprintln!("adabraka-ui: {error}");
+    eprintln!("fc-ui: {error}");
 }
 
 pub fn init_http(cx: &mut gpui::App) {

@@ -24,7 +24,7 @@ A clear and concise description of what you want to happen.
 
 ```rust
 // Show how you envision using this feature
-use adabraka_ui::prelude::*;
+use fc_ui::prelude::*;
 
 // Example code demonstrating the proposed API
 MyNewComponent::new()
@@ -68,7 +68,7 @@ Would this feature require any breaking changes to the existing API?
 ## Checklist
 
 - [ ] I have searched existing issues to avoid duplicates
-- [ ] This feature aligns with the goals of adabraka-ui
+- [ ] This feature aligns with the goals of fc-ui
 - [ ] I have provided a clear use case
 - [ ] I have considered backwards compatibility
 - [ ] I am willing to help implement this feature (optional)

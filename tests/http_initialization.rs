@@ -1,6 +1,6 @@
 #![cfg(feature = "http")]
 
-use adabraka_ui::{HttpSetup, InitError};
+use fc_ui::{HttpSetup, InitError};
 use gpui::{
     http_client::{FakeHttpClient, HttpClient},
     TestApp,
@@ -11,13 +11,13 @@ use std::{error::Error as _, sync::Arc};
 fn explicit_default_http_uses_package_version_in_user_agent() {
     let mut app = TestApp::new();
 
-    app.update(|cx| adabraka_ui::try_init_with(cx, HttpSetup::Default))
+    app.update(|cx| fc_ui::try_init_with(cx, HttpSetup::Default))
         .unwrap();
 
     app.read(|cx| {
         assert_eq!(
             cx.http_client().user_agent().unwrap().to_str().unwrap(),
-            concat!("adabraka-ui/", env!("CARGO_PKG_VERSION"))
+            concat!("fc-ui/", env!("CARGO_PKG_VERSION"))
         );
     });
 }
@@ -26,10 +26,8 @@ fn explicit_default_http_uses_package_version_in_user_agent() {
 fn explicit_http_accepts_a_custom_user_agent() {
     let mut app = TestApp::new();
 
-    app.update(|cx| {
-        adabraka_ui::try_init_with(cx, HttpSetup::UserAgent("example-app/1.2.3".into()))
-    })
-    .unwrap();
+    app.update(|cx| fc_ui::try_init_with(cx, HttpSetup::UserAgent("example-app/1.2.3".into())))
+        .unwrap();
 
     app.read(|cx| {
         assert_eq!(
@@ -46,7 +44,7 @@ fn root_init_preserves_the_callers_http_client_by_default() {
 
     app.update(|cx| {
         cx.set_http_client(existing.clone());
-        adabraka_ui::init(cx);
+        fc_ui::init(cx);
     });
 
     app.read(|cx| assert!(Arc::ptr_eq(&cx.http_client(), &existing)));
@@ -59,7 +57,7 @@ fn explicit_preserve_keeps_the_callers_http_client() {
 
     app.update(|cx| {
         cx.set_http_client(existing.clone());
-        adabraka_ui::try_init_with(cx, HttpSetup::PreserveExisting)
+        fc_ui::try_init_with(cx, HttpSetup::PreserveExisting)
     })
     .unwrap();
 
@@ -73,11 +71,11 @@ fn a_second_explicit_root_initialization_returns_an_error() {
 
     app.update(|cx| {
         cx.set_http_client(existing.clone());
-        adabraka_ui::init(cx);
+        fc_ui::init(cx);
     });
 
     let result =
-        app.update(|cx| adabraka_ui::try_init_with(cx, HttpSetup::UserAgent("ignored/1.0".into())));
+        app.update(|cx| fc_ui::try_init_with(cx, HttpSetup::UserAgent("ignored/1.0".into())));
 
     assert!(matches!(result, Err(InitError::AlreadyInitialized)));
     app.read(|cx| assert!(Arc::ptr_eq(&cx.http_client(), &existing)));
@@ -90,7 +88,7 @@ fn invalid_user_agent_returns_library_error_without_modifying_the_app() {
 
     let result = app.update(|cx| {
         cx.set_http_client(existing.clone());
-        adabraka_ui::try_init_with(cx, HttpSetup::UserAgent("invalid\nuser-agent".into()))
+        fc_ui::try_init_with(cx, HttpSetup::UserAgent("invalid\nuser-agent".into()))
     });
 
     let error = result.unwrap_err();
@@ -98,7 +96,7 @@ fn invalid_user_agent_returns_library_error_without_modifying_the_app() {
     assert!(error.source().is_some());
     app.read(|cx| assert!(Arc::ptr_eq(&cx.http_client(), &existing)));
 
-    app.update(|cx| adabraka_ui::try_init_with(cx, HttpSetup::PreserveExisting))
+    app.update(|cx| fc_ui::try_init_with(cx, HttpSetup::PreserveExisting))
         .unwrap();
     app.read(|cx| assert!(Arc::ptr_eq(&cx.http_client(), &existing)));
 }

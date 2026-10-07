@@ -129,7 +129,7 @@ jobs:
 
       - name: Run real renderer smoke
         env:
-          ADABRAKA_REQUIRE_REAL_VISUAL: "1"
+          FC_UI_REQUIRE_REAL_VISUAL: "1"
         run: just ${{ matrix.target }}
 
   capabilities:

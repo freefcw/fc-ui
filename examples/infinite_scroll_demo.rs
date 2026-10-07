@@ -1,4 +1,4 @@
-use adabraka_ui::prelude::*;
+use fc_ui::prelude::*;
 use gpui::WeakEntity;
 
 fn main() {
@@ -301,7 +301,7 @@ mod tests {
 
     #[gpui::test]
     fn load_more_request_appends_one_batch_after_table_update(cx: &mut TestAppContext) {
-        cx.update(adabraka_ui::init);
+        cx.update(fc_ui::init);
         let (app, cx) = cx.add_window_view(|window, cx| {
             let app_entity = cx.entity().downgrade();
             InfiniteScrollApp::new(window, cx, app_entity)

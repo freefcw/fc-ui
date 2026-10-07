@@ -15,13 +15,13 @@ static ICON_BASE_PATH: OnceLock<RwLock<String>> = OnceLock::new();
 /// # Example
 ///
 /// ```rust
-/// use adabraka_ui::set_icon_base_path;
+/// use fc_ui::set_icon_base_path;
 ///
 /// // Set icons to be loaded from your application's assets directory
 /// set_icon_base_path("assets/icons");
 ///
 /// // Now icons will be loaded from assets/icons/{icon-name}.svg
-/// // instead of crates/adabraka-ui/assets/icons/{icon-name}.svg
+/// // instead of crates/fc-ui/assets/icons/{icon-name}.svg
 /// ```
 ///
 /// # Arguments
@@ -66,7 +66,7 @@ pub(crate) fn get_icon_base_path() -> String {
 /// # Example
 ///
 /// ```rust
-/// use adabraka_ui::icon_config::resolve_icon_path;
+/// use fc_ui::icon_config::resolve_icon_path;
 ///
 /// let path = resolve_icon_path("arrow-up");
 /// // Returns "assets/icons/arrow-up.svg" (or your configured path)

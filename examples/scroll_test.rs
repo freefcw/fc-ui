@@ -1,6 +1,6 @@
 //! Test example for the scroll component
 
-use adabraka_ui::components::scrollable::scrollable_vertical;
+use fc_ui::components::scrollable::scrollable_vertical;
 use gpui::*;
 
 struct ScrollTestApp;
@@ -35,8 +35,8 @@ impl Render for ScrollTestApp {
 
 fn main() {
     Application::new().run(|cx| {
-        // Initialize adabraka-ui
-        adabraka_ui::init(cx);
+        // Initialize fc-ui
+        fc_ui::init(cx);
 
         cx.open_window(
             WindowOptions {

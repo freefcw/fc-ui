@@ -1,4 +1,4 @@
-use adabraka_ui::{
+use fc_ui::{
     components::{
         scrollable::scrollable_vertical,
         sparkline::{Sparkline, SparklineSize},
@@ -690,7 +690,7 @@ impl Render for SparklineDemo {
 
 fn main() {
     Application::new().run(|cx: &mut App| {
-        adabraka_ui::init(cx);
+        fc_ui::init(cx);
         install_theme(cx, Theme::dark());
 
         let bounds = Bounds::centered(None, size(px(1000.0), px(800.0)), cx);

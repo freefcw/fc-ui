@@ -1,4 +1,4 @@
-use adabraka_ui::{
+use fc_ui::{
     components::scrollable::scrollable_vertical,
     prelude::{LineChart, LineChartPoint, LineChartSeries},
     theme::{install_theme, use_theme, Theme},
@@ -558,7 +558,7 @@ impl Render for LineChartDemo {
 
 fn main() {
     Application::new().run(|cx: &mut App| {
-        adabraka_ui::init(cx);
+        fc_ui::init(cx);
         install_theme(cx, Theme::dark());
 
         let bounds = Bounds::centered(None, size(px(900.0), px(800.0)), cx);

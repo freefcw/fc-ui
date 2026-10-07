@@ -1,4 +1,4 @@
-use adabraka_ui::{
+use fc_ui::{
     components::{
         navigation_menu::{NavigationMenu, NavigationMenuItem, NavigationMenuOrientation},
         scrollable::scrollable_vertical,
@@ -451,9 +451,9 @@ fn main() {
             base: PathBuf::from(env!("CARGO_MANIFEST_DIR")),
         })
         .run(move |cx: &mut App| {
-            adabraka_ui::theme::install_theme(cx, adabraka_ui::theme::Theme::dark());
-            adabraka_ui::init(cx);
-            adabraka_ui::set_icon_base_path("assets/icons");
+            fc_ui::theme::install_theme(cx, fc_ui::theme::Theme::dark());
+            fc_ui::init(cx);
+            fc_ui::set_icon_base_path("assets/icons");
 
             cx.open_window(
                 WindowOptions {

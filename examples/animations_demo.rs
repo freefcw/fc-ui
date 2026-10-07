@@ -1,4 +1,4 @@
-use adabraka_ui::{
+use fc_ui::{
     animations::{presets, pulse_opacity, pulse_scale, shake_offset},
     components::{
         button::{Button, ButtonVariant},
@@ -518,7 +518,7 @@ impl Render for AnimationsDemo {
 fn main() {
     Application::new().run(|cx: &mut App| {
         // Initialize the UI library
-        adabraka_ui::init(cx);
+        fc_ui::init(cx);
 
         // Install dark theme
         install_theme(cx, Theme::dark());

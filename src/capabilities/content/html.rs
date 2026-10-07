@@ -191,7 +191,7 @@ fn max_nesting_depth(source: &str) -> usize {
 fn parse_html(source: &str) -> Vec<RichBlock> {
     if source.len() > MAX_SOURCE_LEN || max_nesting_depth(source) > MAX_NESTING_DEPTH {
         eprintln!(
-            "adabraka-ui: html-render refused to parse {} bytes with nesting deeper than {} \
+            "fc-ui: html-render refused to parse {} bytes with nesting deeper than {} \
              (html5ever has no depth cap and degrades quadratically)",
             source.len(),
             MAX_NESTING_DEPTH

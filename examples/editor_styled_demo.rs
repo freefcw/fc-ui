@@ -4,7 +4,7 @@
 //! styling methods (`.bg()`, `.border_2()`, `.rounded_lg()`, `.shadow_lg()`,
 //! width/padding helpers, etc.) can be applied directly to it.
 
-use adabraka_ui::{
+use fc_ui::{
     components::editor::{Editor, EditorState},
     prelude::*,
 };
@@ -44,8 +44,8 @@ fn main() {
             base: PathBuf::from(env!("CARGO_MANIFEST_DIR")),
         })
         .run(|cx| {
-            adabraka_ui::init(cx);
-            adabraka_ui::set_icon_base_path("assets/icons");
+            fc_ui::init(cx);
+            fc_ui::set_icon_base_path("assets/icons");
             install_theme(cx, Theme::dark());
 
             cx.open_window(

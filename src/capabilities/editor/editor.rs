@@ -5167,7 +5167,7 @@ mod tests {
     #[gpui::test]
     fn loading_a_file_invalidates_an_older_parse_revision() {
         let path = std::env::temp_dir().join(format!(
-            "adabraka-editor-parse-revision-{}.txt",
+            "fc-editor-parse-revision-{}.txt",
             std::process::id()
         ));
         std::fs::write(&path, "fresh file content").expect("write editor test file");
@@ -5613,10 +5613,8 @@ mod tests {
 
     #[gpui::test]
     fn editing_after_load_and_save_updates_modified_state() {
-        let path = std::env::temp_dir().join(format!(
-            "adabraka-editor-save-state-{}.txt",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("fc-editor-save-state-{}.txt", std::process::id()));
         std::fs::write(&path, "saved").expect("write editor test file");
 
         let mut app = TestApp::new();

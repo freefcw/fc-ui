@@ -1,11 +1,11 @@
-use adabraka_ui::prelude::*;
+use fc_ui::prelude::*;
 
 fn main() {
     Application::new().run(|cx| {
         cx.open_window(
             WindowOptions {
                 titlebar: Some(gpui::TitlebarOptions {
-                    title: Some("adabraka-ui Demo".into()),
+                    title: Some("fc-ui Demo".into()),
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -507,7 +507,7 @@ impl Render for DemoApp {
                             .text_size(px(24.0))
                             .font_weight(FontWeight::BOLD)
                             .text_color(theme.tokens.foreground)
-                            .child("adabraka-ui Components Demo"),
+                            .child("fc-ui Components Demo"),
                     )
                     .child(
                         div()

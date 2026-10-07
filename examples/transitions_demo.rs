@@ -1,4 +1,4 @@
-use adabraka_ui::{
+use fc_ui::{
     components::button::{Button, ButtonVariant},
     theme::use_theme,
     transitions::Transition,
@@ -9,8 +9,8 @@ actions!(transitions_demo, [Quit]);
 
 fn main() {
     Application::new().run(|cx| {
-        // Initialize adabraka-ui
-        adabraka_ui::init(cx);
+        // Initialize fc-ui
+        fc_ui::init(cx);
 
         // Set up actions
         cx.on_action(|_: &Quit, cx| cx.quit());

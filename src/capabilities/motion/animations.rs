@@ -22,7 +22,7 @@
 //!
 //! ### Basic Animation
 //! ```rust,ignore
-//! use adabraka_ui::animations::*;
+//! use fc_ui::animations::*;
 //!
 //! // Fade in with smooth easing
 //! div()

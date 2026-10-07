@@ -1,4 +1,4 @@
-use adabraka_ui::{
+use fc_ui::{
     overlays::sheet::{Sheet, SheetSide, SheetSize},
     prelude::*,
 };
@@ -38,8 +38,8 @@ fn main() {
             base: PathBuf::from(env!("CARGO_MANIFEST_DIR")),
         })
         .run(|cx| {
-            adabraka_ui::init(cx);
-            adabraka_ui::set_icon_base_path("assets/icons");
+            fc_ui::init(cx);
+            fc_ui::set_icon_base_path("assets/icons");
             install_theme(cx, Theme::dark());
 
             // Example 1: Default Sheet (Right Side)

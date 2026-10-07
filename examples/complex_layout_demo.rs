@@ -1,7 +1,7 @@
 //! # Complex Layout Demo
 //!
 //! Demonstrates building complex desktop application layouts using the layout
-//! components from adabraka-ui. Shows how to combine ScrollContainer, Panel,
+//! components from fc-ui. Shows how to combine ScrollContainer, Panel,
 //! Container, VStack, HStack, and other layout primitives to create
 //! sophisticated UIs with minimal boilerplate.
 //!
@@ -12,7 +12,7 @@
 //! - Card-style panels
 //! - Programmatic scroll control
 
-use adabraka_ui::layout::*;
+use fc_ui::layout::*;
 use gpui::*;
 
 fn main() {

@@ -1,11 +1,11 @@
-use adabraka_ui::display::accordion::Accordion;
+use fc_ui::display::accordion::Accordion;
 use gpui::*;
 use std::collections::HashSet;
 
 fn main() {
     Application::new().run(|cx| {
-        // Initialize adabraka-ui
-        adabraka_ui::init(cx);
+        // Initialize fc-ui
+        fc_ui::init(cx);
 
         cx.open_window(
             WindowOptions {
@@ -153,7 +153,7 @@ impl Render for AccordionDemo {
                                 item.title("Component Library")
                                     .content(
                                         div()
-                                            .child("This is adabraka-ui, a comprehensive component library for GPUI ")
+                                            .child("This is fc-ui, a comprehensive component library for GPUI ")
                                             .child("with components like buttons, inputs, tables, and more.")
                                     )
                                     .open(self.multiple_open.contains(&1))
@@ -193,7 +193,7 @@ impl Render for AccordionDemo {
                                 item.title("Getting Started")
                                     .content(
                                         div()
-                                            .child("Install adabraka-ui and add it to your dependencies.")
+                                            .child("Install fc-ui and add it to your dependencies.")
                                     )
                                     .open(self.borderless_open.contains(&0))
                             })

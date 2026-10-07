@@ -1069,6 +1069,6 @@ mod tests {
 
     #[test]
     fn a_missing_file_is_an_error_rather_than_a_panic() {
-        assert!(open_decoder("/nonexistent/adabraka-ui.mp3").is_err());
+        assert!(open_decoder("/nonexistent/fc-ui.mp3").is_err());
     }
 }

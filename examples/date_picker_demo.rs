@@ -1,4 +1,4 @@
-use adabraka_ui::{
+use fc_ui::{
     components::{date_picker::DateSelectionMode, scrollable::scrollable_vertical},
     prelude::*,
 };
@@ -449,14 +449,14 @@ fn main() {
             base: PathBuf::from(env!("CARGO_MANIFEST_DIR")),
         })
         .run(|cx| {
-            adabraka_ui::init(cx);
-            adabraka_ui::set_icon_base_path("assets/icons");
+            fc_ui::init(cx);
+            fc_ui::set_icon_base_path("assets/icons");
             install_theme(cx, Theme::dark());
 
             cx.open_window(
                 WindowOptions {
                     titlebar: Some(TitlebarOptions {
-                        title: Some("DatePicker Demo - Adabraka UI".into()),
+                        title: Some("DatePicker Demo - fc-ui".into()),
                         ..Default::default()
                     }),
                     window_bounds: Some(WindowBounds::Windowed(Bounds {

@@ -1,7 +1,7 @@
 //! External-consumer compatibility contract for the legacy public API.
 
 #[allow(unused_imports)]
-use adabraka_ui::{
+use fc_ui::{
     animate, animated_state, animation_coordinator, animations, charts, components,
     content_transition, display, fonts, gestures, gpui_ext, http, icon_config, layout, navigation,
     overlays, prelude, responsive, scroll_physics, spring, styled_ext, theme, transitions, util,
@@ -10,10 +10,10 @@ use adabraka_ui::{
 
 #[test]
 fn legacy_root_modules_and_functions_remain_public() {
-    let _ = std::any::type_name_of_val(&adabraka_ui::init);
-    let _ = std::any::type_name_of_val(&adabraka_ui::init_http);
-    let _ = std::any::type_name_of_val(&adabraka_ui::init_http_with_user_agent);
-    let set_icon_base_path: fn(String) = adabraka_ui::set_icon_base_path;
+    let _ = std::any::type_name_of_val(&fc_ui::init);
+    let _ = std::any::type_name_of_val(&fc_ui::init_http);
+    let _ = std::any::type_name_of_val(&fc_ui::init_http_with_user_agent);
+    let set_icon_base_path: fn(String) = fc_ui::set_icon_base_path;
     let _ = set_icon_base_path;
     let _ = std::any::type_name::<prelude::Button>();
 }
@@ -22,16 +22,15 @@ fn legacy_root_modules_and_functions_remain_public() {
 #[test]
 fn explicit_http_initialization_api_is_public() {
     #[allow(unused_imports)]
-    use adabraka_ui::prelude::{
+    use fc_ui::prelude::{
         try_init_http, try_init_http_with_user_agent, HttpInitError, HttpSetup, InitError,
         DEFAULT_USER_AGENT,
     };
     use std::sync::Arc;
 
-    let try_init: fn(&mut gpui::App, HttpSetup) -> Result<(), InitError> =
-        adabraka_ui::try_init_with;
-    let new_client: fn(&str) -> Result<Arc<adabraka_ui::http::SimpleHttpClient>, HttpInitError> =
-        adabraka_ui::http::SimpleHttpClient::new;
+    let try_init: fn(&mut gpui::App, HttpSetup) -> Result<(), InitError> = fc_ui::try_init_with;
+    let new_client: fn(&str) -> Result<Arc<fc_ui::http::SimpleHttpClient>, HttpInitError> =
+        fc_ui::http::SimpleHttpClient::new;
     let _ = try_init;
     let _ = new_client;
     let _ = std::any::type_name_of_val(&try_init_http);
@@ -39,7 +38,7 @@ fn explicit_http_initialization_api_is_public() {
     let _ = std::any::type_name::<HttpInitError>();
     assert_eq!(
         DEFAULT_USER_AGENT,
-        concat!("adabraka-ui/", env!("CARGO_PKG_VERSION"))
+        concat!("fc-ui/", env!("CARGO_PKG_VERSION"))
     );
 }
 
@@ -170,7 +169,7 @@ fn category_facades_and_direct_aliases_remain_public() {
 
 #[test]
 fn gpui_09_reexports_remain_public_without_replacing_the_crate_spring() {
-    use adabraka_ui::prelude::{
+    use fc_ui::prelude::{
         container_query, div, sampled_easing, AnimationPhase, ContainerQuery, Interpolate,
         ParentElement, QuitMode, Spring, SpringAnimation, SpringConfig, SpringPlayback,
         SpringState, SpringTarget,
@@ -195,12 +194,12 @@ fn gpui_09_reexports_remain_public_without_replacing_the_crate_spring() {
     let _ = query;
 
     // The prelude's `Spring` stays the crate-local one rather than a GPUI type.
-    assert!(std::any::type_name::<Spring>().starts_with("adabraka_ui::"));
+    assert!(std::any::type_name::<Spring>().starts_with("fc_ui::"));
 }
 
 #[allow(unused_imports)]
 mod prelude_export_contract {
-    use adabraka_ui::prelude::{
+    use fc_ui::prelude::{
         alert, animate_bounce_in, animate_fade_in, animate_fade_out, animate_scale_in,
         animate_slide_down, animate_slide_in_left, animate_slide_in_right, animate_slide_up, body,
         body_large, body_small, bounce, caption, code, code_small, current_breakpoint, ease_in_out,
@@ -281,7 +280,7 @@ mod prelude_export_contract {
     };
 
     #[cfg(feature = "qrcode")]
-    use adabraka_ui::prelude::QRCodeComponent;
+    use fc_ui::prelude::QRCodeComponent;
     #[cfg(feature = "editor")]
-    use adabraka_ui::prelude::{Editor, EditorLanguage, EditorState};
+    use fc_ui::prelude::{Editor, EditorLanguage, EditorState};
 }

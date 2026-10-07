@@ -1,4 +1,4 @@
-use adabraka_ui::{components::icon::Icon, prelude::*};
+use fc_ui::{components::icon::Icon, prelude::*};
 use gpui::*;
 use std::path::PathBuf;
 
@@ -35,13 +35,13 @@ fn main() {
             base: PathBuf::from(env!("CARGO_MANIFEST_DIR")),
         })
         .run(|cx| {
-            adabraka_ui::init(cx);
-            adabraka_ui::set_icon_base_path("assets/icons");
+            fc_ui::init(cx);
+            fc_ui::set_icon_base_path("assets/icons");
 
             cx.open_window(
                 WindowOptions {
                     titlebar: Some(TitlebarOptions {
-                        title: Some("Icon Showcase - adabraka-ui".into()),
+                        title: Some("Icon Showcase - fc-ui".into()),
                         ..Default::default()
                     }),
                     window_bounds: Some(WindowBounds::Windowed(Bounds::centered(

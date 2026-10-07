@@ -1,6 +1,4 @@
-use adabraka_ui::{
-    components::scrollable::scrollable_vertical, navigation::toolbar::*, prelude::*,
-};
+use fc_ui::{components::scrollable::scrollable_vertical, navigation::toolbar::*, prelude::*};
 use gpui::*;
 use std::path::PathBuf;
 
@@ -37,8 +35,8 @@ fn main() {
             base: PathBuf::from(env!("CARGO_MANIFEST_DIR")),
         })
         .run(|cx| {
-            adabraka_ui::init(cx);
-            adabraka_ui::set_icon_base_path("assets/icons");
+            fc_ui::init(cx);
+            fc_ui::set_icon_base_path("assets/icons");
             install_theme(cx, Theme::dark());
 
             cx.open_window(

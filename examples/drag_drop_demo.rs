@@ -1,4 +1,4 @@
-use adabraka_ui::{
+use fc_ui::{
     components::drag_drop::{DragData, Draggable, DropZone, DropZoneStyle},
     theme::{install_theme, Theme},
 };
@@ -83,7 +83,7 @@ impl DragDropDemo {
 
 impl Render for DragDropDemo {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = adabraka_ui::theme::use_theme(cx);
+        let theme = fc_ui::theme::use_theme(cx);
         let files = Self::sample_files();
 
         div()
@@ -360,7 +360,7 @@ impl Render for DragDropDemo {
 fn main() {
     Application::new().run(|cx: &mut App| {
         // Initialize the UI library
-        adabraka_ui::init(cx);
+        fc_ui::init(cx);
 
         // Install dark theme
         install_theme(cx, Theme::dark());

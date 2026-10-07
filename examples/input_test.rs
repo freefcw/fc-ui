@@ -1,4 +1,4 @@
-use adabraka_ui::components::input::{self, Input, InputSize, InputState, InputVariant};
+use fc_ui::components::input::{self, Input, InputSize, InputState, InputVariant};
 use gpui::{prelude::*, *};
 
 struct InputTestApp {

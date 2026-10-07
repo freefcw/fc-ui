@@ -1,4 +1,4 @@
-use adabraka_ui::{
+use fc_ui::{
     charts::pie_chart::{PieChart, PieChartLabelPosition, PieChartSegment, PieChartSize},
     components::{
         scrollable::scrollable_vertical,
@@ -366,7 +366,7 @@ impl Render for PieChartDemo {
 
 fn main() {
     Application::new().run(|cx: &mut App| {
-        adabraka_ui::init(cx);
+        fc_ui::init(cx);
         install_theme(cx, Theme::dark());
 
         let bounds = Bounds::centered(None, size(px(1200.0), px(900.0)), cx);

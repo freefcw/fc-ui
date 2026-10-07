@@ -1,4 +1,4 @@
-use adabraka_ui::{
+use fc_ui::{
     components::input::{Input, InputState},
     prelude::{Button, Checkbox, Dialog, Select, SelectOption},
 };
@@ -75,7 +75,7 @@ fn draw_accessibility_tree(
     cx: &mut TestAppContext,
     build: impl FnOnce(&mut TestAppContext),
 ) -> Value {
-    cx.update(adabraka_ui::init);
+    cx.update(fc_ui::init);
     build(cx);
 
     let window = cx.windows()[0];
@@ -259,7 +259,7 @@ fn unselected_select_exposes_placeholder_without_claiming_a_value(cx: &mut TestA
 
 #[gpui::test]
 fn select_expand_action_exposes_options_and_focuses_the_combobox(cx: &mut TestAppContext) {
-    cx.update(adabraka_ui::init);
+    cx.update(fc_ui::init);
     let (_, cx) = cx.add_window_view(|_, cx| {
         Select::new(cx)
             .options(vec![
@@ -293,7 +293,7 @@ fn select_expand_action_exposes_options_and_focuses_the_combobox(cx: &mut TestAp
 
 #[gpui::test]
 fn select_option_action_updates_the_value_and_collapses_the_list(cx: &mut TestAppContext) {
-    cx.update(adabraka_ui::init);
+    cx.update(fc_ui::init);
     let (_, cx) = cx.add_window_view(|_, cx| {
         Select::new(cx)
             .options(vec![
@@ -335,7 +335,7 @@ fn select_option_action_updates_the_value_and_collapses_the_list(cx: &mut TestAp
 
 #[gpui::test]
 fn select_collapse_action_closes_the_dropdown(cx: &mut TestAppContext) {
-    cx.update(adabraka_ui::init);
+    cx.update(fc_ui::init);
     let (_, cx) = cx.add_window_view(|_, cx| {
         Select::new(cx)
             .options(vec![SelectOption::new("dark", "Dark")])
@@ -420,7 +420,7 @@ fn password_input_does_not_expose_its_raw_value(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn settings_dialog_supports_a_complete_assistive_action_flow(cx: &mut TestAppContext) {
-    cx.update(adabraka_ui::init);
+    cx.update(fc_ui::init);
     let updates_enabled = Rc::new(Cell::new(false));
     let saved = Rc::new(Cell::new(false));
     let closed = Rc::new(Cell::new(false));
@@ -522,7 +522,7 @@ fn settings_dialog_supports_a_complete_assistive_action_flow(cx: &mut TestAppCon
 
 #[gpui::test]
 fn dialog_on_close_runs_once_across_later_redraws(cx: &mut TestAppContext) {
-    cx.update(adabraka_ui::init);
+    cx.update(fc_ui::init);
     let close_count = Rc::new(Cell::new(0));
     let (host, cx) = cx.add_window_view(|_, _| SettingsHost { dialog: None });
     cx.simulate_accessibility_activation();

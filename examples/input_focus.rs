@@ -1,4 +1,4 @@
-use adabraka_ui::{
+use fc_ui::{
     components::{
         input::{Input, InputType, InputVariant},
         input_state::{InputEvent, InputState},
@@ -93,7 +93,7 @@ impl FocusTestApp {
 
 impl Render for FocusTestApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = adabraka_ui::theme::use_theme(cx);
+        let theme = fc_ui::theme::use_theme(cx);
 
         div()
             .size_full()
@@ -415,7 +415,7 @@ fn main() {
         install_theme(cx, Theme::dark());
 
         // Initialize input system
-        adabraka_ui::init(cx);
+        fc_ui::init(cx);
 
         cx.open_window(
             WindowOptions {

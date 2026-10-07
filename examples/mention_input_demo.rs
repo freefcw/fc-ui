@@ -1,5 +1,5 @@
-use adabraka_ui::components::scrollable::scrollable_vertical;
-use adabraka_ui::prelude::*;
+use fc_ui::components::scrollable::scrollable_vertical;
+use fc_ui::prelude::*;
 use gpui::{prelude::FluentBuilder, *};
 use std::path::PathBuf;
 
@@ -36,15 +36,15 @@ fn main() {
             base: PathBuf::from(env!("CARGO_MANIFEST_DIR")),
         })
         .run(|cx| {
-            adabraka_ui::init(cx);
-            adabraka_ui::set_icon_base_path("assets/icons");
+            fc_ui::init(cx);
+            fc_ui::set_icon_base_path("assets/icons");
             init_mention_input(cx);
             install_theme(cx, Theme::dark());
 
             cx.open_window(
                 WindowOptions {
                     titlebar: Some(TitlebarOptions {
-                        title: Some("MentionInput Demo - Adabraka UI".into()),
+                        title: Some("MentionInput Demo - fc-ui".into()),
                         ..Default::default()
                     }),
                     window_bounds: Some(WindowBounds::Windowed(Bounds {

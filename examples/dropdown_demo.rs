@@ -1,4 +1,4 @@
-use adabraka_ui::{
+use fc_ui::{
     components::dropdown::{Dropdown, DropdownAlign, DropdownItem, DropdownState},
     layout::VStack,
     prelude::Button,
@@ -232,7 +232,7 @@ impl Render for DropdownDemo {
 
 fn main() {
     Application::new().run(|cx: &mut App| {
-        adabraka_ui::init(cx);
+        fc_ui::init(cx);
         install_theme(cx, Theme::dark());
 
         let bounds = Bounds::centered(None, size(px(700.0), px(500.0)), cx);

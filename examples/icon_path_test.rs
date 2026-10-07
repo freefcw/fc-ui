@@ -6,7 +6,7 @@ fn main() {
 
     // Test the paths
     let test_paths = vec![
-        "crates/adabraka-ui/assets/icons/heart.svg",
+        "crates/fc-ui/assets/icons/heart.svg",
         "assets/icons/heart.svg",
         "src/icons/heart.svg",
     ];

@@ -1,4 +1,4 @@
-use adabraka_ui::{
+use fc_ui::{
     components::{
         scrollable::scrollable_vertical,
         text::{caption, h1, h2, h3},
@@ -643,7 +643,7 @@ impl TimelineDemo {
 
 fn main() {
     Application::new().run(|cx: &mut App| {
-        adabraka_ui::init(cx);
+        fc_ui::init(cx);
         install_theme(cx, Theme::dark());
 
         let bounds = Bounds::centered(None, size(px(1100.0), px(900.0)), cx);

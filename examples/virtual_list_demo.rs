@@ -1,10 +1,10 @@
-use adabraka_ui::layout::VStack;
-use adabraka_ui::theme::use_theme;
+use fc_ui::layout::VStack;
+use fc_ui::theme::use_theme;
 use gpui::*;
 
 use std::ops::Range;
 
-use adabraka_ui::virtual_list::{vlist_uniform, vlist_variable, ItemExtentProvider};
+use fc_ui::virtual_list::{vlist_uniform, vlist_variable, ItemExtentProvider};
 
 struct UniformDemo {
     scroll: ScrollHandle,
@@ -193,9 +193,9 @@ fn main() {
             base: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")),
         })
         .run(move |cx: &mut App| {
-            adabraka_ui::theme::install_theme(cx, adabraka_ui::theme::Theme::dark());
-            adabraka_ui::init(cx);
-            adabraka_ui::set_icon_base_path("assets/icons");
+            fc_ui::theme::install_theme(cx, fc_ui::theme::Theme::dark());
+            fc_ui::init(cx);
+            fc_ui::set_icon_base_path("assets/icons");
 
             cx.open_window(
                 WindowOptions {

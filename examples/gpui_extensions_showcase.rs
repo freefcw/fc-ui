@@ -1,4 +1,4 @@
-use adabraka_ui::{
+use fc_ui::{
     components::scrollable::scrollable_vertical,
     components::text::{caption, h1, h2, h3, muted},
     theme::{install_theme, use_theme, Theme},

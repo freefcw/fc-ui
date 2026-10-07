@@ -1,9 +1,9 @@
-use adabraka_ui::prelude::*;
+use fc_ui::prelude::*;
 
 fn main() {
     Application::new().run(|cx| {
-        // Initialize adabraka-ui (registers input key bindings)
-        adabraka_ui::init(cx);
+        // Initialize fc-ui (registers input key bindings)
+        fc_ui::init(cx);
 
         cx.open_window(
             WindowOptions {
@@ -58,7 +58,7 @@ impl DataTableDemoApp {
 
         // Create small table with row selection and callbacks
         let small_table = cx.new(|cx| {
-            use adabraka_ui::display::data_table::RowAction;
+            use fc_ui::display::data_table::RowAction;
 
             DataTable::new(small_data, small_columns, cx)
                 .show_selection(true)

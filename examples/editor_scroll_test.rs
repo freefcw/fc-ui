@@ -1,6 +1,6 @@
 //! Test example for editor with scrollbars
 
-use adabraka_ui::components::editor::{Editor, EditorState};
+use fc_ui::components::editor::{Editor, EditorState};
 use gpui::*;
 
 struct EditorScrollTestApp {
@@ -52,8 +52,8 @@ impl Render for EditorScrollTestApp {
 
 fn main() {
     Application::new().run(|cx| {
-        // Initialize adabraka-ui
-        adabraka_ui::init(cx);
+        // Initialize fc-ui
+        fc_ui::init(cx);
 
         cx.open_window(
             WindowOptions {

@@ -1,4 +1,4 @@
-use adabraka_ui::{
+use fc_ui::{
     components::{
         button::{Button, ButtonSize, ButtonVariant},
         input::{Input, InputSize, InputType, InputVariant},
@@ -158,7 +158,7 @@ impl ValidationDemoApp {
 
         if !password.is_empty() && !confirm.is_empty() && password != confirm {
             self.confirm_password_input.update(cx, |state, cx| {
-                state.validation_error = Some(adabraka_ui::components::input::ValidationError {
+                state.validation_error = Some(fc_ui::components::input::ValidationError {
                     message: "Passwords do not match".into(),
                     field_name: None,
                 });
@@ -203,7 +203,7 @@ impl ValidationDemoApp {
 
 impl Render for ValidationDemoApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = adabraka_ui::theme::use_theme(cx);
+        let theme = fc_ui::theme::use_theme(cx);
 
         VStack::new()
             .size_full()
@@ -645,8 +645,8 @@ fn main() {
             install_theme(cx, Theme::dark());
 
             // Initialize input system
-            adabraka_ui::init(cx);
-            adabraka_ui::set_icon_base_path("assets/icons");
+            fc_ui::init(cx);
+            fc_ui::set_icon_base_path("assets/icons");
 
             cx.open_window(
                 WindowOptions {

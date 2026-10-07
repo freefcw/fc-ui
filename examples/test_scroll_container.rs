@@ -1,6 +1,6 @@
 // Direct test of ScrollContainer vs raw GPUI
 
-use adabraka_ui::prelude::*;
+use fc_ui::prelude::*;
 use gpui::{
     div, px, rgb, size, App, Application, Bounds, Context, FontWeight, Window, WindowBounds,
     WindowOptions,

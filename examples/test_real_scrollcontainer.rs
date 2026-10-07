@@ -1,6 +1,6 @@
 // Test using the ACTUAL ScrollContainer from our library
 
-use adabraka_ui::layout::ScrollContainer;
+use fc_ui::layout::ScrollContainer;
 use gpui::{
     div, prelude::*, px, rgb, size, App, Application, Bounds, Context, Window, WindowBounds,
     WindowOptions,

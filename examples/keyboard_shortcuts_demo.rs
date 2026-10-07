@@ -1,4 +1,4 @@
-use adabraka_ui::{
+use fc_ui::{
     components::keyboard_shortcuts::{KeyboardShortcuts, ShortcutItem},
     layout::VStack,
     theme::use_theme,
@@ -159,10 +159,10 @@ impl Render for KeyboardShortcutsDemo {
 fn main() {
     Application::new().run(move |cx: &mut App| {
         // Install dark theme
-        adabraka_ui::theme::install_theme(cx, adabraka_ui::theme::Theme::dark());
+        fc_ui::theme::install_theme(cx, fc_ui::theme::Theme::dark());
 
         // Initialize UI system
-        adabraka_ui::init(cx);
+        fc_ui::init(cx);
 
         // Set up actions
         cx.on_action(|_: &Quit, cx| cx.quit());

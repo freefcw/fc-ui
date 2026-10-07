@@ -1,4 +1,4 @@
-use adabraka_ui::prelude::*;
+use fc_ui::prelude::*;
 
 fn main() {
     Application::new().run(|cx| {

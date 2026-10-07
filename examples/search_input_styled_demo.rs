@@ -1,4 +1,4 @@
-use adabraka_ui::{
+use fc_ui::{
     components::search_input::{SearchFilter, SearchInput},
     layout::VStack,
     theme::use_theme,
@@ -277,11 +277,11 @@ fn main() {
         })
         .run(move |cx: &mut App| {
             // Install dark theme
-            adabraka_ui::theme::install_theme(cx, adabraka_ui::theme::Theme::dark());
+            fc_ui::theme::install_theme(cx, fc_ui::theme::Theme::dark());
 
             // Initialize UI system
-            adabraka_ui::init(cx);
-            adabraka_ui::set_icon_base_path("assets/icons");
+            fc_ui::init(cx);
+            fc_ui::set_icon_base_path("assets/icons");
 
             // Set up actions
             cx.on_action(|_: &Quit, cx| cx.quit());

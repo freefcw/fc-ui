@@ -1,4 +1,4 @@
-use adabraka_ui::{
+use fc_ui::{
     components::{
         button::{Button, ButtonSize, ButtonVariant},
         scrollable::scrollable_vertical,
@@ -82,8 +82,8 @@ impl SelectTooltipDemoApp {
         let theme = Theme::dark();
         install_theme(cx, theme.clone());
 
-        adabraka_ui::init(cx);
-        adabraka_ui::set_icon_base_path("assets/icons");
+        fc_ui::init(cx);
+        fc_ui::set_icon_base_path("assets/icons");
 
         let app = Self {
             country_select: cx.new(|cx| {

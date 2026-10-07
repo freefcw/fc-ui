@@ -1,4 +1,4 @@
-use adabraka_ui::prelude::*;
+use fc_ui::prelude::*;
 
 struct OTPInputDemoApp {
     otp_state1: Entity<OTPState>,
@@ -81,7 +81,7 @@ impl Render for OTPInputDemoApp {
 
 fn main() {
     Application::new().run(|cx| {
-        adabraka_ui::init(cx);
+        fc_ui::init(cx);
         install_theme(cx, Theme::dark());
 
         let bounds = Bounds::centered(None, size(px(500.0), px(500.0)), cx);

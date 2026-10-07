@@ -1,6 +1,6 @@
 #![allow(missing_docs)]
 
-//! # adabraka-ui: Professional UI Component Library for GPUI
+//! # fc-ui: Professional UI Component Library for GPUI
 //!
 //! A comprehensive, themeable component library inspired by shadcn/ui, designed specifically
 //! for building polished desktop applications using GPUI. Provides a complete set of
@@ -38,12 +38,12 @@
 //! ## Usage Example
 //!
 //! ```rust,ignore
-//! use adabraka_ui::{prelude::*, theme};
+//! use fc_ui::{prelude::*, theme};
 //!
 //! // Initialize theme and components
 //! fn init_app(cx: &mut gpui::App) {
 //!     theme::install_theme(cx, theme::Theme::dark());
-//!     adabraka_ui::init(cx);
+//!     fc_ui::init(cx);
 //! }
 //!
 //! // Use components in your views
@@ -118,7 +118,7 @@ pub enum InitError {
 impl std::fmt::Display for InitError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::AlreadyInitialized => formatter.write_str("adabraka-ui is already initialized"),
+            Self::AlreadyInitialized => formatter.write_str("fc-ui is already initialized"),
             Self::Http(error) => write!(formatter, "{error}"),
         }
     }
@@ -161,7 +161,7 @@ fn init_capabilities(cx: &mut gpui::App) {
 /// This registers all necessary keybindings, fonts, and component systems. Use
 /// [`try_init_with`] when the built-in HTTP client is required for remote images.
 pub fn init(cx: &mut gpui::App) {
-    if !capabilities::foundation::initialization::begin(cx, "adabraka-ui") {
+    if !capabilities::foundation::initialization::begin(cx, "fc-ui") {
         return;
     }
 
@@ -174,13 +174,13 @@ pub fn init(cx: &mut gpui::App) {
 /// completed, so a requested HTTP policy is never silently ignored.
 #[cfg(feature = "http")]
 pub fn try_init_with(cx: &mut gpui::App, http: HttpSetup) -> Result<(), InitError> {
-    if capabilities::foundation::initialization::is_initialized(cx, "adabraka-ui") {
+    if capabilities::foundation::initialization::is_initialized(cx, "fc-ui") {
         return Err(InitError::AlreadyInitialized);
     }
 
     http::try_init_http_with_setup(cx, http)?;
 
-    if !capabilities::foundation::initialization::begin(cx, "adabraka-ui") {
+    if !capabilities::foundation::initialization::begin(cx, "fc-ui") {
         return Err(InitError::AlreadyInitialized);
     }
 
