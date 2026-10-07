@@ -7,7 +7,7 @@
 [![Rust](https://img.shields.io/badge/rust-1.90%2B-orange.svg)](https://www.rust-lang.org/)
 [![GitHub Stars](https://img.shields.io/github/stars/freefcw/fc-ui?style=social)](https://github.com/freefcw/fc-ui)
 
-A comprehensive, professional UI component library for [GPUI](https://github.com/zed-industries/zed), the GPU-accelerated UI framework powering the Zed editor. Inspired by [shadcn/ui](https://ui.shadcn.com/), adabraka-ui provides 85+ polished components for building beautiful desktop applications in Rust.
+A comprehensive, professional UI component library built on [fc-gpui](https://github.com/freefcw/fc-gpui), a GPU-accelerated UI framework forked from [Zed's GPUI](https://github.com/zed-industries/zed). Inspired by [shadcn/ui](https://ui.shadcn.com/), fc-ui provides 85+ polished components for building beautiful desktop applications in Rust.
 
 **[📖 Documentation](https://freefcw.github.io/fc-ui/)** · **[🚀 Getting Started](#-installation)** · **[📦 Components](#components)** · **[💡 Examples](#examples)**
 
@@ -52,15 +52,18 @@ Add fc-ui to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-fc-ui = { git = "https://github.com/freefcw/fc-ui" }
+fc-ui = "0.8"
 gpui = { package = "fc-gpui", version = "0.11.0" }
 ```
+
+To track the development branch instead of a release, use
+`fc-ui = { git = "https://github.com/freefcw/fc-ui" }`.
 
 Optional heavier components are feature-gated. Enable them only when needed:
 
 ```toml
 [dependencies]
-fc-ui = { git = "https://github.com/freefcw/fc-ui", features = ["editor", "editor-languages", "qrcode"] }
+fc-ui = { version = "0.8", features = ["editor", "editor-languages", "qrcode"] }
 ```
 
 - `editor`: enables the editor component and pulls in `ropey` plus core `tree-sitter`
