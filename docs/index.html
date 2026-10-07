@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>adabraka-ui - Professional UI Components for GPUI</title>
+    <title>fc-ui - Professional UI Components for GPUI</title>
     <meta name="description" content="A comprehensive, professional UI component library for GPUI. 85+ polished components for building beautiful desktop applications in Rust.">
 
     <!-- Fonts -->
@@ -451,7 +451,7 @@
     <!-- Sidebar -->
     <aside class="sidebar">
         <div class="logo">
-            <h1>adabraka-ui</h1>
+            <h1>fc-ui</h1>
             <p>GPUI Components</p>
         </div>
 
@@ -559,7 +559,7 @@
 
         <!-- App Showcase -->
         <section id="showcase" class="showcase">
-            <h2 class="section-title">Built with adabraka-ui</h2>
+            <h2 class="section-title">Built with fc-ui</h2>
             <p class="section-subtitle">Real applications showcasing the power and flexibility of the library</p>
 
             <div class="showcase-grid">
@@ -570,7 +570,7 @@
                         <p>
                             A beautiful desktop music player with offline playing capabilities.
                             Features smooth animations, responsive UI, and a polished user experience
-                            built entirely with adabraka-ui components.
+                            built entirely with fc-ui components.
                         </p>
                     </div>
                 </div>
@@ -591,7 +591,7 @@
 
         <!-- Features -->
         <section class="features">
-            <h2 class="section-title">Why adabraka-ui?</h2>
+            <h2 class="section-title">Why fc-ui?</h2>
             <p class="section-subtitle">Everything you need to build professional desktop applications</p>
 
             <div class="features-grid">
@@ -662,7 +662,7 @@ gpui = { package = "fc-gpui", version = "0.11.0" }</code></pre>
 
             <div class="code-block">
                 <div class="code-title">main.rs</div>
-                <pre><code><span class="keyword">use</span> adabraka_ui::prelude::*;
+                <pre><code><span class="keyword">use</span> fc_ui::prelude::*;
 <span class="keyword">use</span> gpui::*;
 <span class="keyword">use</span> std::path::PathBuf;
 
@@ -698,10 +698,10 @@ gpui = { package = "fc-gpui", version = "0.11.0" }</code></pre>
         })
         .<span class="function">run</span>(|cx| {
             <span class="comment">// Initialize the UI library</span>
-            adabraka_ui::<span class="function">init</span>(cx);
+            fc_ui::<span class="function">init</span>(cx);
 
             <span class="comment">// Configure icon base path (for named icons)</span>
-            adabraka_ui::<span class="function">set_icon_base_path</span>(<span class="string">"assets/icons"</span>);
+            fc_ui::<span class="function">set_icon_base_path</span>(<span class="string">"assets/icons"</span>);
 
             <span class="comment">// Install theme</span>
             <span class="function">install_theme</span>(cx, Theme::<span class="function">dark</span>());
@@ -762,8 +762,8 @@ gpui = { package = "fc-gpui", version = "0.11.0" }</code></pre>
 
             <div class="code-block">
                 <div class="code-title">Basic Component Customization</div>
-                <pre><code><span class="keyword">use</span> adabraka_ui::prelude::*;
-<span class="keyword">use</span> adabraka_ui::components::input::{Input, InputState};
+                <pre><code><span class="keyword">use</span> fc_ui::prelude::*;
+<span class="keyword">use</span> fc_ui::components::input::{Input, InputState};
 <span class="comment">// Style supported components with GPUI's styling methods</span>
 Button::<span class="function">new</span>(<span class="string">"save-changes"</span>, <span class="string">"Save Changes"</span>)
     .<span class="function">variant</span>(ButtonVariant::Default)
@@ -801,7 +801,7 @@ Input::<span class="function">new</span>(&amp;email_input)
 
             <div class="code-block">
                 <div class="code-title">Advanced Customization Example</div>
-                <pre><code><span class="keyword">use</span> adabraka_ui::prelude::*;
+                <pre><code><span class="keyword">use</span> fc_ui::prelude::*;
 
 <span class="comment">// Build a fully customized card component</span>
 <span class="keyword">let</span> theme = <span class="function">use_theme</span>(cx);
@@ -858,7 +858,7 @@ Card::<span class="function">new</span>()
 
             <div class="code-block">
                 <div class="code-title">Creating a Button</div>
-                <pre><code><span class="keyword">use</span> adabraka_ui::components::button::*;
+                <pre><code><span class="keyword">use</span> fc_ui::components::button::*;
 
 Button::<span class="function">new</span>(<span class="string">"click-me"</span>, <span class="string">"Click me"</span>)
     .<span class="function">variant</span>(ButtonVariant::Default)
@@ -870,7 +870,7 @@ Button::<span class="function">new</span>(<span class="string">"click-me"</span>
 
             <div class="code-block">
                 <div class="code-title">Building Layouts</div>
-                <pre><code><span class="keyword">use</span> adabraka_ui::layout::*;
+                <pre><code><span class="keyword">use</span> fc_ui::layout::*;
 
 VStack::<span class="function">new</span>()
     .<span class="function">p</span>(<span class="function">px</span>(32.0))
@@ -886,7 +886,7 @@ VStack::<span class="function">new</span>()
 
             <div class="code-block">
                 <div class="code-title">Using the Theme System</div>
-                <pre><code><span class="keyword">use</span> adabraka_ui::theme::*;
+                <pre><code><span class="keyword">use</span> fc_ui::theme::*;
 
 <span class="keyword">fn</span> <span class="function">render</span>(&<span class="keyword">mut self</span>, _: &<span class="keyword">mut</span> Window, cx: &<span class="keyword">mut</span> Context&lt;<span class="keyword">Self</span>&gt;) -&gt; <span class="keyword">impl</span> IntoElement {
     <span class="keyword">let</span> theme = <span class="function">use_theme</span>(cx);
@@ -902,7 +902,7 @@ VStack::<span class="function">new</span>()
 
             <div class="code-block">
                 <div class="code-title">Data Tables</div>
-                <pre><code><span class="keyword">use</span> adabraka_ui::prelude::*;
+                <pre><code><span class="keyword">use</span> fc_ui::prelude::*;
 
 <span class="comment">// Define a row type for the table</span>
 <span class="keyword">struct</span> <span class="type">User</span> { name: <span class="keyword">String</span>, email: <span class="keyword">String</span>, role: <span class="keyword">String</span> }
@@ -925,7 +925,7 @@ DataTable::<span class="function">new</span>(data, columns, cx)
 
             <div class="code-block">
                 <div class="code-title">Using Icons</div>
-                <pre><code><span class="keyword">use</span> adabraka_ui::components::icon::*;
+                <pre><code><span class="keyword">use</span> fc_ui::components::icon::*;
 
 <span class="comment">// Named icons (resolved using configured base path)</span>
 Icon::<span class="function">new</span>(<span class="string">"search"</span>)
@@ -952,7 +952,7 @@ IconSource::FilePath(<span class="string">"assets/custom/logo.svg"</span>.<span 
             <div style="background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1.5rem; margin-bottom: 2rem;">
                 <h3 style="font-size: 1rem; font-weight: 600; margin-bottom: 1rem;">Important: Icon Assets Not Bundled</h3>
                 <p style="font-size: 0.875rem; color: var(--text-secondary); line-height: 1.6; margin-bottom: 1rem;">
-                    To keep the library size small (95% reduction!), adabraka-ui does not bundle icon assets.
+                    To keep the library size small (95% reduction!), fc-ui does not bundle icon assets.
                     You need to provide your own icon files.
                 </p>
                 <p style="font-size: 0.875rem; color: var(--text-secondary); line-height: 1.6; margin: 0;">
@@ -1223,7 +1223,7 @@ Icon::new("loader")
                 Icons by <a href="https://lucide.dev" target="_blank">Lucide</a> •
                 Inspired by <a href="https://ui.shadcn.com" target="_blank">shadcn/ui</a>
             </p>
-            <p style="margin-top: 0.5rem;">MIT License © 2025-2026 adabraka-ui</p>
+            <p style="margin-top: 0.5rem;">MIT License © 2025-2026 fc-ui</p>
         </footer>
     </main>
 

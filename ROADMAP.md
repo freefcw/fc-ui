@@ -1,6 +1,6 @@
-# adabraka-ui: Visual Excellence Roadmap
+# fc-ui: Visual Excellence Roadmap
 
-**Goal**: Close the visual gap between native GPUI apps and Electron/web apps, making adabraka-ui the definitive choice for beautiful desktop applications in Rust.
+**Goal**: Close the visual gap between native GPUI apps and Electron/web apps, making fc-ui the definitive choice for beautiful desktop applications in Rust.
 
 **Current state**: 85+ components, 18 themes, 30+ easings, spring physics, gesture detection, scroll physics, content transitions, animation coordinator, GPUI fork with inset shadows/letter spacing/squircle corners/text shadows/animation cancellation.
 
@@ -609,7 +609,7 @@ New components using gradients:
 
 ### What Becomes Possible
 
-After this roadmap, adabraka-ui enables native desktop applications with visual richness that matches or exceeds Electron, while delivering performance that web cannot touch.
+After this roadmap, fc-ui enables native desktop applications with visual richness that matches or exceeds Electron, while delivering performance that web cannot touch.
 
 **Performance that web cannot match:**
 - Guaranteed 60fps without garbage collection pauses, layout thrashing, or style recalculation
@@ -625,7 +625,7 @@ After this roadmap, adabraka-ui enables native desktop applications with visual 
 - **Communication apps**: Chat, email, collaboration tools - smooth animations, glassmorphic overlays, instant response. What Slack and Discord could be without Electron overhead.
 - **Enterprise applications**: CRM, ERP, project management - complex data-heavy UIs that stay responsive with 100k+ row data grids, real-time updates, rich visualizations.
 
-**Why developers choose adabraka-ui:**
+**Why developers choose fc-ui:**
 1. **Same vocabulary**: 128+ components, shadcn-style builder pattern, familiar names (Button, Input, Select, Dialog, Sheet, Toast, DataGrid). React developers feel at home.
 2. **Single binary**: Ship a 10-20MB binary, not a 200MB Electron installer bundling Chromium + Node.js.
 3. **Rust safety**: No null pointer crashes, no "Cannot read property of undefined", no memory leaks. Type-safe component APIs with compile-time guarantees.
@@ -635,7 +635,7 @@ After this roadmap, adabraka-ui enables native desktop applications with visual 
 
 ### The Bottom Line
 
-The web won the UI war through ecosystem, not rendering quality. HTML/CSS/JS are mediocre rendering technologies hidden behind great tooling. adabraka-ui attacks from the other direction: build the component library first (128+ components), make the DX familiar (shadcn patterns, theme tokens, builder APIs), and deliver visual richness that feels premium - because every pixel is GPU-rendered without a browser engine in the way.
+The web won the UI war through ecosystem, not rendering quality. HTML/CSS/JS are mediocre rendering technologies hidden behind great tooling. fc-ui attacks from the other direction: build the component library first (128+ components), make the DX familiar (shadcn patterns, theme tokens, builder APIs), and deliver visual richness that feels premium - because every pixel is GPU-rendered without a browser engine in the way.
 
 ---
 

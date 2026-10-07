@@ -1,6 +1,6 @@
-# Contributing to adabraka-ui
+# Contributing to fc-ui
 
-Thank you for your interest in contributing to adabraka-ui! We welcome contributions from the community and are grateful for your support in making this library better.
+Thank you for your interest in contributing to fc-ui! We welcome contributions from the community and are grateful for your support in making this library better.
 
 ## Table of Contents
 
@@ -42,7 +42,7 @@ Enhancement suggestions are tracked as GitHub issues. When creating an enhanceme
 - **Provide a detailed description** of the proposed feature
 - **Explain why this enhancement would be useful**
 - **Provide examples** of how it would be used
-- **Consider if this fits the scope** of adabraka-ui
+- **Consider if this fits the scope** of fc-ui
 
 Use our [feature request template](.github/ISSUE_TEMPLATE/feature_request.md) when creating suggestions.
 
@@ -92,7 +92,7 @@ We love pull requests! Here's how to contribute:
 ### Project Structure
 
 ```
-adabraka-ui/
+fc-ui/
 ├── src/
 │   ├── capabilities/   # Canonical implementations (foundation, layout, controls, scroll, ...)
 │   ├── components/     # Compatibility facades
@@ -420,7 +420,7 @@ Place integration tests in the `tests/` directory:
 
 ```rust
 // tests/button_tests.rs
-use adabraka_ui::components::button::*;
+use fc_ui::components::button::*;
 
 #[test]
 fn test_button_builder_pattern() {
@@ -446,7 +446,7 @@ fn enter_from_single_line_input_reaches_form_submit() {
     let mut app = TestApp::new();
     app.update(|cx| {
         install_theme(cx, Theme::light());
-        // Binds the keystrokes to actions; adabraka_ui::init does this for the
+        // Binds the keystrokes to actions; fc_ui::init does this for the
         // whole crate, a single component's init is enough for a focused test.
         crate::capabilities::controls::input::init(cx);
     });
@@ -492,7 +492,7 @@ Create a dedicated example for new components:
 
 ```rust
 // examples/my_component_demo.rs
-use adabraka_ui::prelude::*;
+use fc_ui::prelude::*;
 use gpui::*;
 
 fn main() {
@@ -555,8 +555,8 @@ All contributors will be recognized in our README and release notes. We apprecia
 
 ## License
 
-By contributing to adabraka-ui, you agree that your contributions will be licensed under the MIT License.
+By contributing to fc-ui, you agree that your contributions will be licensed under the MIT License.
 
 ---
 
-Thank you for contributing to adabraka-ui! 🎉
+Thank you for contributing to fc-ui! 🎉

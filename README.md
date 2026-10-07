@@ -26,12 +26,12 @@ A comprehensive, professional UI component library built on [fc-gpui](https://gi
 
 ## 🎬 Showcase
 
-See adabraka-ui in action in real applications:
+See fc-ui in action in real applications:
 
 ### Desktop Music Player
 ![Music Player App](docs/assets/images/music-player.png)
 
-A beautiful desktop music player with offline playing capabilities. Features smooth animations, responsive UI, and a polished user experience built entirely with adabraka-ui components.
+A beautiful desktop music player with offline playing capabilities. Features smooth animations, responsive UI, and a polished user experience built entirely with fc-ui components.
 
 ### Project Task Manager
 ![Task Manager App](docs/assets/images/task-manager.png)
@@ -42,17 +42,16 @@ A powerful task management application used to track the development of this UI 
 
 > **Note:** Requires Rust 1.90 or newer on the stable toolchain. Install with: `rustup toolchain install stable`
 
-This crate publishes as `fc-ui`. The GitHub repository is now named
-`freefcw/fc-ui` (renamed from `freefcw/adabraka-ui`), and the crate root is
-still `adabraka_ui`, so `use adabraka_ui::*;` keeps working. The crates.io
-package named `adabraka-ui` is the unrelated upstream Augani release line
-(still at 0.3.9) and does not track this fork.
+This crate publishes as `fc-ui` from the `freefcw/fc-ui` repository. The crate
+root is `fc_ui`, so `use fc_ui::*;` imports from it. The crates.io package
+named `adabraka-ui` is the unrelated upstream Augani release line (still at
+0.3.9) and does not track this fork.
 
 Add fc-ui to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-fc-ui = "0.8"
+fc-ui = "0.9"
 gpui = { package = "fc-gpui", version = "0.11.0" }
 ```
 
@@ -63,7 +62,7 @@ Optional heavier components are feature-gated. Enable them only when needed:
 
 ```toml
 [dependencies]
-fc-ui = { version = "0.8", features = ["editor", "editor-languages", "qrcode"] }
+fc-ui = { version = "0.9", features = ["editor", "editor-languages", "qrcode"] }
 ```
 
 - `editor`: enables the editor component and pulls in `ropey` plus core `tree-sitter`
@@ -124,7 +123,7 @@ gpui = { package = "fc-gpui", path = "../fc-gpui/crates/gpui-compat", default-fe
 - Select supports assistive expand, collapse, and option-selection actions through a complete settings-dialog flow
 - Dialog slots now use render builders so header, body, and footer content survive redraws; migrate `.child(...)` and `.footer(...)` calls to closures
 - macOS and Windows real-renderer smoke jobs verify nonblank form and Popover/Select scenes
-- The GPUI dependency now targets the official `adabraka-gpui` v0.8.1 release
+- The GPUI dependency now targets the official `fc-gpui` v0.11.0 release
 
 See [CHANGELOG.md](CHANGELOG.md#080---2026-07-28) for migration notes.
 
@@ -143,12 +142,12 @@ See [CHANGELOG.md](CHANGELOG.md#070---2026-07-22) for migration notes.
 - PNG and JPEG decoding are enabled by default; the remaining `image-format-*` decoders stay opt-in
 - HTTP backend switched from `isahc` to `zed-reqwest` (`reqwest::blocking` over `smol::unblock`)
 - Replaced direct `once_cell` usage with `std::sync::{OnceLock, LazyLock}`
-- Bumped `adabraka-gpui` and refreshed `Cargo.lock`
+- Bumped `fc-gpui` and refreshed `Cargo.lock`
 
 See [CHANGELOG.md](CHANGELOG.md#060---2026-05-10) for migration notes.
 
 ### v0.5.0 - GPUI 0.6 Alignment
-- Updated the repository baseline to `adabraka-gpui v0.6.0`
+- Updated the repository baseline to `fc-gpui v0.6.0`
 - Kept the installation flow on `git` dependencies so the current branch matches the upstream fork before a crates.io release
 - Refreshed README, changelog, and docs site snippets to match the current install path
 
@@ -163,20 +162,20 @@ See [CHANGELOG.md](CHANGELOG.md#060---2026-05-10) for migration notes.
 - Fixed UTF-8 backspace/delete handling in the editor
 
 ### v0.3.0 - Major Release
-Published full adabraka-gpui ecosystem to crates.io, GPUI fork enhancements (inset shadows, letter spacing, squircle corners, text shadows, animation cancellation), 5 new components (Form, InfiniteScroll, SortableList, DataGrid, Animation Builder), comprehensive animation/polish system with 30+ easings, spring physics, gestures, and exit animations.
+Published full fc-gpui ecosystem to crates.io, GPUI fork enhancements (inset shadows, letter spacing, squircle corners, text shadows, animation cancellation), 5 new components (Form, InfiniteScroll, SortableList, DataGrid, Animation Builder), comprehensive animation/polish system with 30+ easings, spring physics, gestures, and exit animations.
 
 ---
 
 ## Quick Start
 
 ```rust
-use adabraka_ui::prelude::*;
+use fc_ui::prelude::*;
 use gpui::*;
 
 fn main() {
     Application::new().run(|cx| {
         // Initialize the UI library
-        adabraka_ui::init(cx);
+        fc_ui::init(cx);
 
         // Install a theme
         install_theme(cx, Theme::dark());
@@ -211,7 +210,7 @@ impl Render for MyApp {
                 div()
                     .text_size(px(24.0))
                     .font_weight(FontWeight::BOLD)
-                    .child("Welcome to adabraka-ui!")
+                    .child("Welcome to fc-ui!")
             )
             .child(
                 Button::new("get-started", "Get Started")
@@ -226,23 +225,23 @@ impl Render for MyApp {
 
 ## HTTP Initialization
 
-`adabraka_ui::init(cx)` initializes the UI library without changing GPUI's application-wide HTTP client. This is the safe default for applications that already configure networking, proxies, authentication, or certificates.
+`fc_ui::init(cx)` initializes the UI library without changing GPUI's application-wide HTTP client. This is the safe default for applications that already configure networking, proxies, authentication, or certificates.
 
-With the default `http` feature, opt into the built-in client when remote images need it. Its user agent is generated from the crate version, for example `adabraka-ui/0.8.1`:
+With the default `http` feature, opt into the built-in client when remote images need it. Its user agent is generated from the crate version, for example `fc-ui/0.8.1`:
 
 ```rust
-adabraka_ui::try_init_with(
+fc_ui::try_init_with(
     cx,
-    adabraka_ui::HttpSetup::Default,
-).expect("adabraka-ui initialization should succeed");
+    fc_ui::HttpSetup::Default,
+).expect("fc-ui initialization should succeed");
 ```
 
 A caller can supply its own user agent instead:
 
 ```rust
-adabraka_ui::try_init_with(
+fc_ui::try_init_with(
     cx,
-    adabraka_ui::HttpSetup::UserAgent(
+    fc_ui::HttpSetup::UserAgent(
         concat!("my-app/", env!("CARGO_PKG_VERSION")).into(),
     ),
 ).expect("HTTP client initialization should succeed");
@@ -252,7 +251,7 @@ An application that has already installed its own HTTP client can use the regula
 
 ```rust
 cx.set_http_client(app_http_client);
-adabraka_ui::init(cx);
+fc_ui::init(cx);
 ```
 
 For an explicit fallible path, pass `HttpSetup::PreserveExisting` to `try_init_with` instead. Root initialization entry points are alternatives: `init` is idempotent, while `try_init_with` returns `InitError::AlreadyInitialized` if an earlier root initialization would cause its HTTP policy to be ignored. The compatibility helpers `init_http` and `init_http_with_user_agent` explicitly replace the current client and report construction failures to standard error; their `try_*` counterparts return `HttpInitError`.
@@ -311,7 +310,7 @@ Following the [shadcn/ui philosophy](https://ui.shadcn.com/docs):
 
 > Components ship with sensible defaults that you can completely override.
 
-adabraka-ui provides **great defaults AND 100% control** over every component's styling!
+fc-ui provides **great defaults AND 100% control** over every component's styling!
 
 ### Examples
 
@@ -328,12 +327,12 @@ just run-example data_table_styled_demo
 
 ### Overview
 
-adabraka-ui provides a complete theming system with semantic color tokens inspired by shadcn/ui. Themes include both light and dark variants with carefully chosen colors for accessibility and visual hierarchy.
+fc-ui provides a complete theming system with semantic color tokens inspired by shadcn/ui. Themes include both light and dark variants with carefully chosen colors for accessibility and visual hierarchy.
 
 ### Basic Usage
 
 ```rust
-use adabraka_ui::theme::{install_theme, Theme, use_theme};
+use fc_ui::theme::{install_theme, Theme, use_theme};
 
 // In your app initialization
 install_theme(cx, Theme::dark()); // or Theme::light()
@@ -428,7 +427,7 @@ Grid::new()
 The Text component provides consistent typography with built-in theming and font handling.
 
 ```rust
-use adabraka_ui::components::text::*;
+use fc_ui::components::text::*;
 
 // Semantic heading variants
 h1("Page Title")
@@ -660,7 +659,7 @@ Textarea::new(&textarea_state)
 Advanced search input with filters, case sensitivity, and results count:
 
 ```rust
-use adabraka_ui::components::search_input::*;
+use fc_ui::components::search_input::*;
 
 // Create search input with filters
 let search = cx.new(|cx| SearchInput::new(cx)
@@ -706,7 +705,7 @@ let case_sensitive = search.read(cx).state().read(cx).case_sensitive();
 Full-featured color picker with multiple color modes and recent color history:
 
 ```rust
-use adabraka_ui::components::color_picker::*;
+use fc_ui::components::color_picker::*;
 
 // Create color picker state
 let color_state = cx.new(|_| ColorPickerState::new(hsla(210.0, 0.7, 0.5, 1.0)));
@@ -750,8 +749,8 @@ ColorPicker::new("custom-picker", color_state.clone())
 Advanced date picker with single date and date range selection:
 
 ```rust
-use adabraka_ui::components::date_picker::*;
-use adabraka_ui::components::calendar::*;
+use fc_ui::components::date_picker::*;
+use fc_ui::components::calendar::*;
 
 // Single date picker
 let single_state = cx.new(|cx| DatePickerState::new(cx));
@@ -804,7 +803,7 @@ DatePicker::new(picker_state.clone())
 Searchable dropdown with single and multi-select support:
 
 ```rust
-use adabraka_ui::components::combobox::*;
+use fc_ui::components::combobox::*;
 
 // Create combobox state
 let combobox_state = cx.new(|_| ComboboxState::new());
@@ -943,7 +942,7 @@ Display progress for long-running operations with progress bars and spinners.
 Linear progress indicators with determinate and indeterminate modes:
 
 ```rust
-use adabraka_ui::components::progress::*;
+use fc_ui::components::progress::*;
 
 // Determinate progress (0.0 to 1.0)
 ProgressBar::new(0.75)  // 75% complete
@@ -1289,7 +1288,7 @@ ToolbarItem::Spacer          // Flexible space (push to right)
 Bottom application status bar with three sections (left, center, right) for displaying app state and contextual information:
 
 ```rust
-use adabraka_ui::navigation::status_bar::*;
+use fc_ui::navigation::status_bar::*;
 
 // Create status bar with sections (capturing entity for callbacks)
 let entity = cx.entity().clone();
@@ -1369,7 +1368,7 @@ StatusItem::text("Clickable")
 Display and organize keyboard shortcuts by category with platform-specific key formatting:
 
 ```rust
-use adabraka_ui::components::keyboard_shortcuts::*;
+use fc_ui::components::keyboard_shortcuts::*;
 
 cx.new(|_| {
     KeyboardShortcuts::new()
@@ -1538,10 +1537,10 @@ equivalent — they are covered here.
 
 ### Animation System
 
-adabraka-ui includes a professional animation system with smooth easing functions and spring physics:
+fc-ui includes a professional animation system with smooth easing functions and spring physics:
 
 ```rust
-use adabraka_ui::animations::*;
+use fc_ui::animations::*;
 
 // Fade animations with cubic easing
 div().with_animation("fade", presets::fade_in_normal(), |div, delta| {
@@ -1620,7 +1619,7 @@ div().with_animation("shake", presets::shake(), |div, delta| {
 Scrollable containers automatically include padding to ensure content at the bottom is fully visible.
 
 ```rust
-use adabraka_ui::components::{scrollable::*, scrollbar::*};
+use fc_ui::components::{scrollable::*, scrollbar::*};
 
 // Default scrolling with 24px padding (recommended)
 div()
@@ -1657,7 +1656,7 @@ scrollable_both_with_padding(content, px(16.0))
 
 ## Icon System
 
-adabraka-ui provides flexible icon support with both named icons and custom icon paths. **Note:** Icon assets are **not bundled** with the library to keep the bundle size small. You need to provide your own icon assets.
+fc-ui provides flexible icon support with both named icons and custom icon paths. **Note:** Icon assets are **not bundled** with the library to keep the bundle size small. You need to provide your own icon assets.
 
 ### Setting Up Icon Assets
 
@@ -1668,7 +1667,7 @@ To use icons in your application, you need to:
 3. **Set up GPUI's AssetSource** to load the icons
 
 ```rust
-use adabraka_ui::prelude::*;
+use fc_ui::prelude::*;
 use gpui::*;
 use std::path::PathBuf;
 
@@ -1706,11 +1705,11 @@ fn main() {
         })
         .run(|cx| {
             // Initialize the UI library
-            adabraka_ui::init(cx);
+            fc_ui::init(cx);
 
             // Configure where icons are located
             // This path is relative to your CARGO_MANIFEST_DIR
-            adabraka_ui::set_icon_base_path("assets/icons");
+            fc_ui::set_icon_base_path("assets/icons");
 
             // Install theme
             install_theme(cx, Theme::dark());
@@ -1729,7 +1728,7 @@ Once configured, you can use icons in two ways:
 Named icons are automatically resolved using the configured base path:
 
 ```rust
-use adabraka_ui::components::icon_source::IconSource;
+use fc_ui::components::icon_source::IconSource;
 
 // Named icons (resolved to: assets/icons/{name}.svg)
 IconSource::Named("search".to_string())
@@ -1795,7 +1794,7 @@ Example icon SVG:
 
 ### Icon Bundle Size
 
-By not bundling icons, adabraka-ui keeps its package size small (saves ~3,274 icon files). This allows you to:
+By not bundling icons, fc-ui keeps its package size small (saves ~3,274 icon files). This allows you to:
 
 - ✓ Include only the icons you actually use
 - ✓ Choose your preferred icon set
@@ -1811,7 +1810,7 @@ The Icon component now supports advanced styling and transformations:
 Use semantic size names instead of pixel values:
 
 ```rust
-use adabraka_ui::prelude::*;
+use fc_ui::prelude::*;
 
 Icon::new("search")
     .size(IconSize::XSmall)   // 12px
@@ -1872,7 +1871,7 @@ Icon::new("close")
 ### Resizable Panels
 
 ```rust
-use adabraka_ui::components::resizable::*;
+use fc_ui::components::resizable::*;
 
 h_resizable("layout", resizable_state)
     .child(resizable_panel().child(sidebar))
@@ -1902,7 +1901,7 @@ Input::new(&input_state)
 ### Drag and Drop
 
 ```rust
-use adabraka_ui::components::drag_drop::*;
+use fc_ui::components::drag_drop::*;
 
 Draggable::new("item-1")
     .child(div().child("Drag me"))
@@ -1998,7 +1997,7 @@ just list-examples
 
 ## Architecture
 
-adabraka-ui is a single-crate, capability-oriented modular monolith. Canonical source ownership lives under `src/capabilities/` across foundation, layout, motion, primitives, scroll, overlays, controls, navigation, data, content, editor, media, and effects. Generic composition belongs to `layout`; scrolling and virtualization belong to `scroll`. Existing public paths such as `components`, `display`, `charts`, `navigation`, and `overlays` remain compatibility facades, so downstream imports and the root prelude stay stable.
+fc-ui is a single-crate, capability-oriented modular monolith. Canonical source ownership lives under `src/capabilities/` across foundation, layout, motion, primitives, scroll, overlays, controls, navigation, data, content, editor, media, and effects. Generic composition belongs to `layout`; scrolling and virtualization belong to `scroll`. Existing public paths such as `components`, `display`, `charts`, `navigation`, and `overlays` remain compatibility facades, so downstream imports and the root prelude stay stable.
 
 The architecture follows these key principles:
 
@@ -2052,7 +2051,7 @@ For detailed guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 This project wouldn't be possible without the amazing work of:
 
-- **[Zed Industries](https://zed.dev/)** - For creating [GPUI](https://github.com/zed-industries/zed), the powerful GPU-accelerated UI framework that powers the Zed editor and makes adabraka-ui possible
+- **[Zed Industries](https://zed.dev/)** - For creating [GPUI](https://github.com/zed-industries/zed), the powerful GPU-accelerated UI framework that powers the Zed editor and makes fc-ui possible
 - **[Lucide Icons](https://lucide.dev/)** - For providing the beautiful, consistent icon set used throughout the component library
 - **[shadcn/ui](https://ui.shadcn.com/)** - For the design inspiration and component patterns
 

@@ -1,8 +1,8 @@
-# adabraka-ui Gap Analysis & GPUI Extension Strategy
+# fc-ui Gap Analysis & GPUI Extension Strategy
 
 ## Executive Summary
 
-After comprehensive analysis of adabraka-ui's 85+ components, GPUI's rendering internals, and modern web framework capabilities, this document identifies what's missing and proposes a strategy to make adabraka-ui a self-sufficient UI framework where users never need to import GPUI directly.
+After comprehensive analysis of fc-ui's 85+ components, GPUI's rendering internals, and modern web framework capabilities, this document identifies what's missing and proposes a strategy to make fc-ui a self-sufficient UI framework where users never need to import GPUI directly.
 
 ---
 
@@ -142,7 +142,7 @@ After comprehensive analysis of adabraka-ui's 85+ components, GPUI's rendering i
 
 ## Part 4: GPUI Wrapper Strategy
 
-### Goal: Users import ONLY `adabraka_ui` — never `gpui` directly
+### Goal: Users import ONLY `fc_ui` — never `gpui` directly
 
 ### 4.1 Re-export Layer (`src/gpui_ext.rs`)
 
@@ -368,7 +368,7 @@ duration_slowest: Duration,  // 500ms
 ## Part 5: Implementation Roadmap
 
 ### Phase 1: Foundation (Self-Sufficiency)
-1. **GPUI re-export layer** (`src/gpui_ext.rs`) — Users import only `adabraka_ui`
+1. **GPUI re-export layer** (`src/gpui_ext.rs`) — Users import only `fc_ui`
 2. **StyledExt trait** (`src/styled_ext.rs`) — Spacing/typography/layout shortcuts
 3. **Design token enhancement** — Spacing, typography, z-index, duration scales in ThemeTokens
 
@@ -420,7 +420,7 @@ all already exist and were confirmed by the inventory analysis.
 
 ## Conclusion
 
-adabraka-ui is already the most comprehensive GPUI component library with **85+ components** across 62 component files, 11 overlay types, 11 navigation modules, and 18 theme variants. The biggest remaining gaps are:
+fc-ui is already the most comprehensive GPUI component library with **85+ components** across 62 component files, 11 overlay types, 11 navigation modules, and 18 theme variants. The biggest remaining gaps are:
 
 1. **Self-sufficiency** — Users still need `use gpui::*` for basic types
 2. **Design tokens** — Missing spacing/typography scales that web devs expect
@@ -430,4 +430,4 @@ adabraka-ui is already the most comprehensive GPUI component library with **85+ 
 
 The GPUI rendering limitations (no backdrop blur, no transforms on divs, no filters) are real but don't block 95% of real-world UIs. The simulated workarounds (glass effect, elevation shadows, stacked gradients) cover most use cases.
 
-**Strategy: Own the layer above GPUI.** Make adabraka-ui the only import users need. Wrap GPUI types, extend them with utilities, and fill every component gap until switching from web frameworks has zero friction.
+**Strategy: Own the layer above GPUI.** Make fc-ui the only import users need. Wrap GPUI types, extend them with utilities, and fill every component gap until switching from web frameworks has zero friction.

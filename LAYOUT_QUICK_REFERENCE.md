@@ -1,6 +1,6 @@
 # Layout Components Quick Reference
 
-Quick reference card for adabraka-ui layout components.
+Quick reference card for fc-ui layout components.
 
 ---
 
@@ -329,8 +329,8 @@ HStack::new()
 ## Import
 
 ```rust
-use adabraka_ui::layout::*;
-use adabraka_ui::prelude::*;
+use fc_ui::layout::*;
+use fc_ui::prelude::*;
 ```
 
 ---

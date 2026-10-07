@@ -1,6 +1,6 @@
 # Layout Components Guide
 
-Comprehensive guide to building complex desktop application layouts with adabraka-ui's layout components.
+Comprehensive guide to building complex desktop application layouts with fc-ui's layout components.
 
 ## Table of Contents
 
@@ -18,7 +18,7 @@ Comprehensive guide to building complex desktop application layouts with adabrak
 ### Basic Stack Layout
 
 ```rust
-use adabraka_ui::layout::*;
+use fc_ui::layout::*;
 
 // Vertical stack with spacing
 VStack::new()

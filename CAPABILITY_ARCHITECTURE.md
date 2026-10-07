@@ -2,7 +2,7 @@
 
 ## Purpose
 
-adabraka-ui is a single Rust package with capability-oriented internal ownership. The structure keeps implementation dependencies clear without breaking the public paths used by existing applications.
+fc-ui is a single Rust package with capability-oriented internal ownership. The structure keeps implementation dependencies clear without breaking the public paths used by existing applications.
 
 The canonical implementation lives under `src/capabilities/`. Public root and category modules remain compatibility facades.
 
@@ -50,7 +50,7 @@ The exact allowed dependency edges are defined and checked in `scripts/check_bou
 
 ## Initialization
 
-`adabraka_ui::init(cx)` remains the one-call public entry point. Capability modules own their registrations, while `src/lib.rs` coordinates the root order.
+`fc_ui::init(cx)` remains the one-call public entry point. Capability modules own their registrations, while `src/lib.rs` coordinates the root order.
 
 The current order is intentional. GPUI resolves same-depth keybinding conflicts in reverse registration order, so controls and media initialization remain interleaved. Do not consolidate or reorder these calls without tests proving that registration order is unobservable.
 

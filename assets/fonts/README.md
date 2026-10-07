@@ -1,6 +1,6 @@
 # Fonts Directory
 
-This directory contains the font files used by the adabraka-ui component library.
+This directory contains the font files used by the fc-ui component library.
 
 ## Bundled Fonts
 
@@ -43,15 +43,15 @@ Font embedding is controlled via Cargo feature flags, allowing downstream crates
 ```toml
 # Full fonts (default, ~2.1 MB embedded)
 [dependencies]
-adabraka-ui = "0.6"
+fc-ui = "0.9"
 
 # Lightweight: only Regular + SemiBold + Mono Regular (~1.07 MB, saves ~1 MB)
 [dependencies]
-adabraka-ui = { version = "0.6", default-features = false, features = ["http", "bundled-fonts-inter-minimal", "bundled-fonts-mono"] }
+fc-ui = { version = "0.9", default-features = false, features = ["http", "bundled-fonts-inter-minimal", "bundled-fonts-mono"] }
 
 # No bundled fonts (downstream registers its own fonts)
 [dependencies]
-adabraka-ui = { version = "0.6", default-features = false, features = ["http"] }
+fc-ui = { version = "0.9", default-features = false, features = ["http"] }
 ```
 
 ### Registering Custom Fonts (No Bundled Fonts)
@@ -61,7 +61,7 @@ must also point at the registered font family names. If you keep the default the
 your custom fonts need internal family names of `Inter` and `JetBrains Mono`.
 
 ```rust
-use adabraka_ui::theme::{install_theme, Theme};
+use fc_ui::theme::{install_theme, Theme};
 use gpui::*;
 
 Application::new().run(|cx| {
@@ -78,7 +78,7 @@ Application::new().run(|cx| {
     install_theme(cx, theme);
 
     // Then initialize UI
-    adabraka_ui::init(cx);
+    fc_ui::init(cx);
 });
 ```
 
@@ -100,15 +100,15 @@ Once fonts are registered, you can use them with GPUI's font APIs:
 use gpui::*;
 
 // Use the UI font (via theme - recommended)
-let theme = adabraka_ui::theme::use_theme(cx);
+let theme = fc_ui::theme::use_theme(cx);
 div().font_family(theme.tokens.font_family.clone())
 
 // Use the mono font
 div().font_family(theme.tokens.font_mono.clone())
 
 // Direct access to font family names
-adabraka_ui::fonts::ui_font_family()   // -> "Inter"
-adabraka_ui::fonts::mono_font_family() // -> "JetBrains Mono"
+fc_ui::fonts::ui_font_family()   // -> "Inter"
+fc_ui::fonts::mono_font_family() // -> "JetBrains Mono"
 ```
 
 The theme system will automatically use these fonts throughout the component library once registered.

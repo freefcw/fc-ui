@@ -2,7 +2,7 @@
 
 ## Project Summary
 
-fc-ui (crate root `adabraka_ui`, repository `freefcw/fc-ui`) is a Rust GPUI component library with reusable UI primitives, demos, and docs. It builds against `fc-gpui`, imported as `gpui`.
+fc-ui (crate root `fc_ui`, repository `freefcw/fc-ui`) is a Rust GPUI component library with reusable UI primitives, demos, and docs. It builds against `fc-gpui`, imported as `gpui`.
 
 ## Local Commands
 
