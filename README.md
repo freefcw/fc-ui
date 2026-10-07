@@ -53,7 +53,7 @@ Add fc-ui to your `Cargo.toml`:
 ```toml
 [dependencies]
 fc-ui = { git = "https://github.com/freefcw/fc-ui" }
-gpui = { package = "fc-gpui", version = "0.9.2" }
+gpui = { package = "fc-gpui", version = "0.10.0" }
 ```
 
 Optional heavier components are feature-gated. Enable them only when needed:

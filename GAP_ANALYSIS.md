@@ -45,9 +45,14 @@ After comprehensive analysis of adabraka-ui's 85+ components, GPUI's rendering i
 | Capability | Details |
 |-----------|---------|
 | **Flexbox + Grid** | Full Taffy layout engine |
-| **2-stop linear gradients** | `linear_gradient(angle, from, to)` |
-| **Box shadows** | Outset only: color, offset, blur, spread |
-| **Rounded corners** | Per-corner radii |
+| **Linear gradients** | 2-stop via `linear_gradient(angle, from, to)`, multi-stop via `multi_stop_linear_gradient(angle, stops)` |
+| **Radial / conic gradients** | `radial_gradient(...)`, `conic_gradient(...)` |
+| **Blend modes** | `Styled::blend_mode(BlendMode)` |
+| **Box shadows** | Outset and inset (`BoxShadow.inset`): color, offset, blur, spread |
+| **Rounded corners** | Per-corner radii; squircle via `Styled::continuous_corners()` |
+| **Text shadow** | `Styled::text_shadow` plus `text_shadow_sm/md/lg` presets |
+| **Container queries** | `container_query` element sizes content from assigned layout size |
+| **Letter spacing** | `Styled::letter_spacing` |
 | **Opacity** | Per-element, 0.0 - 1.0 |
 | **Transforms on sprites** | TransformationMatrix (rotate, scale, translate) for images/icons |
 | **Borders** | Per-side width + color + style |
@@ -58,23 +63,17 @@ After comprehensive analysis of adabraka-ui's 85+ components, GPUI's rendering i
 | **Text rendering** | SubpixelSprite with glyph atlas |
 | **Vibrancy** | macOS whole-window vibrancy |
 
-### What GPUI CANNOT Do (Hard Limits)
+### What GPUI CANNOT Do (Hard Limits, verified against fc-gpui 0.10.0)
 | Missing | Impact | Workaround Possible? |
 |---------|--------|---------------------|
 | **Backdrop blur** | No glassmorphism/frosted glass | Partial: semi-transparent bg simulates |
 | **CSS filters** | No blur(), brightness(), contrast(), saturate() | No |
 | **Clip-path** | No custom element shapes | No |
-| **Blend modes** | No multiply, screen, overlay etc. | No |
-| **Text shadow** | No shadow on text glyphs | Partial: layered text at offset |
-| **Multi-stop gradients** | Only 2 color stops | Partial: stack multiple 2-stop divs |
-| **Radial/conic gradients** | Only linear | No |
-| **Inset shadows** | Only outset BoxShadow | Partial: inner gradient overlay |
 | **Quad transforms** | No rotate/scale on div elements | Partial: bounds manipulation for scale |
 | **Sticky positioning** | No scroll-aware sticky | Partial: manual scroll position tracking |
 | **Scroll snap** | No snap points | Partial: programmatic snap on scroll end |
 | **Z-index** | No explicit z-index | Use deferred() with priority |
-| **Container queries** | No element-size responsive | Partial: measure element bounds |
-| **Aspect ratio** | No CSS aspect-ratio | Manual: set h = w * ratio |
+| **Aspect ratio** | `Style.aspect_ratio` field exists but is not `#[refineable]`, so the `Styled` builder chain cannot set it | Manual: set h = w * ratio |
 | **Keyframe animations** | No multi-step looping | Partial: chain with_animations |
 | **Animation interruption** | Can't cancel mid-animation | Partial: change animation ID |
 | **Reduced motion** | No OS preference detection | Can check platform API |
