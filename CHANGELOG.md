@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- `rodio` 0.19 → 0.22 for the `audio` feature. Playback now runs through a `Player` connected to a `MixerDeviceSink`'s mixer instead of a `Sink`/`OutputStream` pair, and files are decoded via `Decoder::try_from(file)`. That last detail matters: the older `Decoder::new(BufReader<File>)` still compiles but reports no duration, which would pin the progress bar and seek target at zero. On macOS the upgrade drops the `coreaudio-sys` → `bindgen` → `libclang` build chain (rodio 0.22 uses `objc2` and `coreaudio-rs` 0.14), and the lockfile no longer carries a second `bindgen` entry. Decoding is unchanged for mp3, wav, flac, and vorbis; `default-features = false` plus explicit `playback`/`flac`/`mp3`/`vorbis`/`wav` keeps the `recording` and `dither` paths out of the graph.
 - Form submission now receives Enter from single-line `Input` controls while multiline `Textarea` keeps Enter for newline insertion.
 - `ToastManager::add_toast` and `add_toast_no_dismiss` return the manager-assigned toast id; `Select` and `Combobox` expose dedicated clear callbacks instead of reporting the removed value as a new selection.
 - Data-table numeric sorting and virtual-data resets clear stale index-based row selections; cell-edit blur behavior now matches `use_edit_dialog` documentation.

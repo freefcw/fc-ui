@@ -68,6 +68,15 @@ fc-ui = { git = "https://github.com/freefcw/fc-ui", features = ["editor", "edito
 - `qrcode`: enables `QRCodeComponent`
 - `accessibility`: enables GPUI's native AccessKit adapters; enabled by default
 
+### Linux audio dependency
+
+The `audio` feature uses `cpal`, which on Linux links against ALSA. Install the
+development headers before building:
+
+```bash
+sudo apt-get install libasound2-dev
+```
+
 ### Font Feature Flags
 
 Bundled fonts are gated behind feature flags for binary size control:

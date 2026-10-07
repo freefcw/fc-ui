@@ -81,7 +81,7 @@ html5ever = { version = "0.38", optional = true }
 markup5ever_rcdom = { version = "0.38", optional = true }
 
 # Audio playback (optional)
-rodio = { version = "0.19", optional = true }
+rodio = { version = "0.22", default-features = false, features = ["playback", "flac", "mp3", "vorbis", "wav"], optional = true }
 
 [dev-dependencies]
 gpui = { package = "fc-gpui", version = "0.10.0", default-features = false, features = ["image-format-jpeg", "test-support"] }

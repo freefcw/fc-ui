@@ -1,8 +1,6 @@
 use crate::capabilities::foundation::icon_config::resolve_icon_path;
 use crate::capabilities::foundation::theme::use_theme;
 use gpui::{prelude::*, *};
-#[cfg(feature = "audio")]
-use std::io::BufReader;
 use std::rc::Rc;
 #[cfg(feature = "audio")]
 use std::sync::{Arc, Mutex};
@@ -62,22 +60,27 @@ impl PlaybackSpeed {
 
 #[cfg(feature = "audio")]
 pub struct AudioBackend {
-    sink: rodio::Sink,
-    _stream: rodio::OutputStream,
-    stream_handle: rodio::OutputStreamHandle,
+    // Fields drop in declaration order: `player` is dropped before
+    // `device_sink`, honouring the sink's rule that it must outlive every
+    // `Player` connected to its mixer.
+    player: rodio::Player,
+    /// Owns the output device. Dropping it stops playback.
+    device_sink: rodio::MixerDeviceSink,
     file_path: Option<String>,
 }
 
 #[cfg(feature = "audio")]
 impl AudioBackend {
     pub fn new() -> Option<Self> {
-        let (stream, stream_handle) = rodio::OutputStream::try_default().ok()?;
-        let sink = rodio::Sink::try_new(&stream_handle).ok()?;
-        sink.pause();
+        let mut device_sink = rodio::DeviceSinkBuilder::open_default_sink().ok()?;
+        // Playback ends silently when the sink is dropped; the library should
+        // not print rodio's own notice to stderr.
+        device_sink.log_on_drop(false);
+        let player = rodio::Player::connect_new(device_sink.mixer());
+        player.pause();
         Some(Self {
-            sink,
-            _stream: stream,
-            stream_handle,
+            device_sink,
+            player,
             file_path: None,
         })
     }
@@ -85,48 +88,59 @@ impl AudioBackend {
     pub fn load(&mut self, path: &str) -> Result<std::time::Duration, String> {
         use rodio::Source;
 
-        let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
-        let reader = BufReader::new(file);
-        let source = rodio::Decoder::new(reader).map_err(|e| e.to_string())?;
+        let source = open_decoder(path)?;
         let duration = source.total_duration().unwrap_or(std::time::Duration::ZERO);
 
-        self.sink.stop();
-        self.sink = rodio::Sink::try_new(&self.stream_handle).map_err(|e| e.to_string())?;
-        self.sink.append(source);
-        self.sink.pause();
+        // Reconnecting a fresh player drops the previous source and resets
+        // volume/speed state along with it, so reapply nothing here.
+        self.player = rodio::Player::connect_new(self.device_sink.mixer());
+        self.player.append(source);
+        self.player.pause();
         self.file_path = Some(path.to_string());
 
         Ok(duration)
     }
 
     pub fn play(&self) {
-        self.sink.play();
+        self.player.play();
     }
 
     pub fn pause(&self) {
-        self.sink.pause();
+        self.player.pause();
     }
 
     pub fn stop(&self) {
-        self.sink.pause();
-        let _ = self.sink.try_seek(std::time::Duration::ZERO);
+        self.player.pause();
+        let _ = self.player.try_seek(std::time::Duration::ZERO);
     }
 
     pub fn seek(&self, position: std::time::Duration) {
-        let _ = self.sink.try_seek(position);
+        let _ = self.player.try_seek(position);
     }
 
     pub fn set_volume(&self, volume: f32) {
-        self.sink.set_volume(volume);
+        self.player.set_volume(volume);
     }
 
     pub fn set_speed(&self, speed: f32) {
-        self.sink.set_speed(speed);
+        self.player.set_speed(speed);
     }
 
     pub fn is_empty(&self) -> bool {
-        self.sink.empty()
+        self.player.empty()
     }
+}
+
+/// Decodes `path` into a seekable source.
+///
+/// Converts the `File` itself rather than a `BufReader`: only that `TryFrom`
+/// impl records the byte length, which both `total_duration` and `try_seek`
+/// rely on. Wrapping the file in a `BufReader` first produces the same
+/// `Decoder<BufReader<File>>` type but silently reports no duration.
+#[cfg(feature = "audio")]
+fn open_decoder(path: &str) -> Result<rodio::Decoder<std::io::BufReader<std::fs::File>>, String> {
+    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    rodio::Decoder::try_from(file).map_err(|e| e.to_string())
 }
 
 pub struct AudioPlayerState {
@@ -1014,5 +1028,47 @@ impl AudioPlayer {
                     }
                 }))
             })
+    }
+}
+
+#[cfg(all(test, feature = "audio"))]
+mod tests {
+    use super::open_decoder;
+    use rodio::Source;
+
+    const SAMPLE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/audio/sample.mp3");
+
+    /// The `File` decoder path must report the real duration. Decoding through
+    /// a `BufReader` yields the same type but no duration, which would leave
+    /// the progress bar and seek target pinned at zero.
+    #[test]
+    fn decoding_a_file_reports_its_duration() {
+        let source = open_decoder(SAMPLE).expect("decode sample.mp3");
+        let duration = source.total_duration().expect("duration is known");
+
+        // `afinfo` reports 372.7s for this asset; allow a wide margin so the
+        // test tracks the decoder path, not the exact encoder settings.
+        assert!(
+            duration.as_secs_f64() > 300.0,
+            "expected a multi-minute duration, got {duration:?}"
+        );
+    }
+
+    /// Seeking must work on the decoded source. `rodio::Player::try_seek`
+    /// delegates here, so a regression shows up as a dead progress bar.
+    #[test]
+    fn a_decoded_file_can_be_seeked() {
+        let mut source = open_decoder(SAMPLE).expect("decode sample.mp3");
+        let _: Vec<_> = source.by_ref().take(44_100).collect();
+
+        assert!(
+            source.try_seek(std::time::Duration::from_secs(30)).is_ok(),
+            "seeking a decoded file failed"
+        );
+    }
+
+    #[test]
+    fn a_missing_file_is_an_error_rather_than_a_panic() {
+        assert!(open_decoder("/nonexistent/adabraka-ui.mp3").is_err());
     }
 }
