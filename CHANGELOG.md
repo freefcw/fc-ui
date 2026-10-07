@@ -58,6 +58,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `InputState` builders `value`, `disabled`, `select_on_focus`, and `trim_on_blur`, and `TextareaState` builders `value`, `placeholder`, and `disabled`, replacing direct public-field assignment at construction time.
 - `HotkeyInput` gains the `HotkeyInputSize` size variant (`Sm` 32px chip / `Md` 40px, the previous fixed size), a `clearable(bool)` option to hide the built-in clear button (default shown), and `recording_text(...)` to replace the hardcoded "Press a key..." recording placeholder (e.g. for i18n).
 
+### Security
+- `Html` rendering (`html-render`) now rejects input longer than 4 MiB or nested deeper than 4096 elements. html5ever's tree builder grows quadratically with nesting depth and imposes no cap of its own, so a few hundred KB of nested markup could occupy the UI thread for seconds to minutes ([servo/html5ever#788](https://github.com/servo/html5ever/issues/788)). The guard is a linear pre-scan that costs ~12 ms on a 1 MiB pathological input; refused input renders as empty and logs to stderr. Self-closing slashes on non-void elements count as nesting, since html5ever ignores them per HTML5 — a `<div/>` chain cannot evade the depth cap.
+
 ### Deprecated
 - `TextField` (use `Input`), the legacy `VirtualList` in `capabilities::scroll::variable_virtual_list` (use `uniform_virtual_list`), the crate-local `Spring` (use GPUI's `SpringAnimation`/`with_spring`), `Button::tooltip` (wrap with `overlays::tooltip`), `Label::for_id`, the `icon_button()` free function (use `IconButton`), and `ScrollContainer::no_auto_size()` (no-op).
 

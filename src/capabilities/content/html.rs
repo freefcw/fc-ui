@@ -53,6 +53,12 @@ static ALLOWED_TAGS: &[&str] = &[
     "div",
 ];
 
+/// Renders trusted-or-untrusted HTML source as rich text blocks, limited to
+/// the whitelisted tags in `ALLOWED_TAGS`.
+///
+/// Input is rejected before parsing when it exceeds 4 MiB or nests deeper
+/// than 4096 elements: html5ever has no depth cap and degrades quadratically
+/// (servo/html5ever#788). Rejected input renders as empty and logs to stderr.
 #[derive(IntoElement)]
 pub struct Html {
     base: Div,
@@ -85,8 +91,114 @@ impl Html {
     }
 }
 
+/// Upper bound on element nesting depth. html5ever's tree builder grows
+/// quadratically with nesting depth and imposes no cap of its own, so a few
+/// hundred KB of nested markup can occupy the UI thread for seconds to minutes
+/// (servo/html5ever#788). Chromium and WebKit stop nesting at 512; this is
+/// deliberately more permissive while still bounding the work.
+#[cfg(feature = "html-render")]
+const MAX_NESTING_DEPTH: usize = 4096;
+
+/// Upper bound on input length. Depth is the dominant cost, but bounding length
+/// keeps a single pathological document from monopolizing the parse.
+#[cfg(feature = "html-render")]
+const MAX_SOURCE_LEN: usize = 4 * 1024 * 1024;
+
+/// Scan `source` without building a tree and report the deepest element nesting
+/// it reaches. Only tags are counted, so text containing `<` is not charged as
+/// markup. Unbalanced closing tags are ignored rather than treated as errors —
+/// html5ever tolerates them and the caller only needs a safe upper bound.
+/// Self-closing slashes count as opening tags: HTML5 ignores them outside
+/// foreign content, so `<div/>` realises as nesting in the parsed tree.
+#[cfg(feature = "html-render")]
+fn max_nesting_depth(source: &str) -> usize {
+    const VOID_ELEMENTS: &[&str] = &[
+        "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param",
+        "source", "track", "wbr",
+    ];
+
+    let bytes = source.as_bytes();
+    let mut depth = 0usize;
+    let mut max_depth = 0usize;
+    let mut i = 0usize;
+
+    while i < bytes.len() {
+        if bytes[i] != b'<' {
+            i += 1;
+            continue;
+        }
+
+        // Skip comments and declarations wholesale.
+        if source[i..].starts_with("<!--") {
+            match source[i + 4..].find("-->") {
+                Some(offset) => {
+                    i += 4 + offset + 3;
+                    continue;
+                }
+                None => break,
+            }
+        }
+        if source[i..].starts_with("<!") || source[i..].starts_with("<?") {
+            match source[i..].find('>') {
+                Some(offset) => {
+                    i += offset + 1;
+                    continue;
+                }
+                None => break,
+            }
+        }
+
+        let closing = bytes.get(i + 1) == Some(&b'/');
+        let name_start = if closing { i + 2 } else { i + 1 };
+        let mut name_end = name_start;
+        while name_end < bytes.len()
+            && (bytes[name_end].is_ascii_alphanumeric() || bytes[name_end] == b'-')
+        {
+            name_end += 1;
+        }
+        if name_end == name_start {
+            // Not a tag after all (e.g. a bare `<`); move past it.
+            i += 1;
+            continue;
+        }
+        let name = source[name_start..name_end].to_ascii_lowercase();
+
+        let tag_end = match source[name_end..].find('>') {
+            Some(offset) => name_end + offset,
+            None => break,
+        };
+        if closing {
+            depth = depth.saturating_sub(1);
+        } else if !VOID_ELEMENTS.contains(&name.as_str()) {
+            // A trailing `/` does not exempt the tag: per HTML5, html5ever
+            // ignores the self-closing slash on non-void elements, so `<div/>`
+            // nests just like `<div>` and must be charged a level. Foreign
+            // content (SVG/MathML) self-closing tags are over-counted here,
+            // which fails safe.
+            depth += 1;
+            if depth > max_depth {
+                max_depth = depth;
+            }
+        }
+
+        i = tag_end + 1;
+    }
+
+    max_depth
+}
+
 #[cfg(feature = "html-render")]
 fn parse_html(source: &str) -> Vec<RichBlock> {
+    if source.len() > MAX_SOURCE_LEN || max_nesting_depth(source) > MAX_NESTING_DEPTH {
+        eprintln!(
+            "adabraka-ui: html-render refused to parse {} bytes with nesting deeper than {} \
+             (html5ever has no depth cap and degrades quadratically)",
+            source.len(),
+            MAX_NESTING_DEPTH
+        );
+        return Vec::new();
+    }
+
     let wrapped = format!("<html><body>{}</body></html>", source);
     let dom = parse_document(RcDom::default(), Default::default())
         .from_utf8()
@@ -863,7 +975,7 @@ impl Styled for Html {
 
 #[cfg(all(test, feature = "html-render"))]
 mod tests {
-    use super::Html;
+    use super::{max_nesting_depth, parse_html, Html, MAX_NESTING_DEPTH};
     use gpui::{
         point, px, Context, IntoElement, Modifiers, MouseButton, Render, TestAppContext, Window,
     };
@@ -946,5 +1058,51 @@ mod tests {
             }
             other => panic!("expected paragraph, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn nesting_depth_counts_only_open_elements() {
+        assert_eq!(max_nesting_depth("plain text"), 0);
+        assert_eq!(max_nesting_depth("<p>hello</p>"), 1);
+        assert_eq!(max_nesting_depth("<div><p><strong>x</strong></p></div>"), 3);
+        // Void elements do not open a level.
+        assert_eq!(max_nesting_depth("<p><br><hr><img src=\"x\"></p>"), 1);
+        // Self-closing slashes on non-void elements still open a level:
+        // html5ever ignores the slash (HTML5), so these nest in the real tree.
+        assert_eq!(max_nesting_depth("<p><span/></p>"), 2);
+        assert_eq!(max_nesting_depth(&"<div/>".repeat(10)), 10);
+        // Comments and declarations are skipped, including markup inside them.
+        assert_eq!(max_nesting_depth("<!-- <div><div><div> --><p>x</p>"), 1);
+        assert_eq!(max_nesting_depth("<!DOCTYPE html><p>x</p>"), 1);
+        // Sibling elements do not accumulate depth.
+        assert_eq!(max_nesting_depth("<p>a</p><p>b</p><p>c</p>"), 1);
+        // A bare `<` in text is not a tag.
+        assert_eq!(max_nesting_depth("1 < 2 and 3 < 4"), 0);
+        // Unbalanced closing tags saturate rather than underflow.
+        assert_eq!(max_nesting_depth("</div></div><p>x</p>"), 1);
+    }
+
+    #[test]
+    fn deeply_nested_input_is_refused_instead_of_parsed() {
+        let depth = MAX_NESTING_DEPTH + 1;
+        let deep = format!("{}x{}", "<div>".repeat(depth), "</div>".repeat(depth));
+        assert!(max_nesting_depth(&deep) > MAX_NESTING_DEPTH);
+        assert!(parse_html(&deep).is_empty());
+    }
+
+    #[test]
+    fn self_closing_chains_are_refused_like_explicit_nesting() {
+        // html5ever ignores the slash on non-void elements, so `<div/>` nests.
+        let deep = "<div/>".repeat(MAX_NESTING_DEPTH + 1);
+        assert!(max_nesting_depth(&deep) > MAX_NESTING_DEPTH);
+        assert!(parse_html(&deep).is_empty());
+    }
+
+    #[test]
+    fn nesting_within_the_limit_still_parses() {
+        let depth = 64;
+        let nested = format!("{}x{}", "<div>".repeat(depth), "</div>".repeat(depth));
+        assert_eq!(max_nesting_depth(&nested), depth);
+        assert!(!parse_html(&nested).is_empty());
     }
 }
