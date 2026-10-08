@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-10-08
+
 ### Changed
 - The GPUI dependency moves to `fc-gpui` 0.11.1. Upstream replaced the frozen `zed-reqwest` fork with `reqwest` 0.12.28 (dropping the unmaintained `rustls-pemfile`, RUSTSEC-2025-0134) and removed the never-used SOCKS feature, deleting the `tokio-socks` subtree; only `ALL_PROXY=socks5://…` setups are affected, HTTP/HTTPS proxies are not. Following the upstream guidance for `zed-reqwest` consumers, the crate's own HTTP dependency for the `http` feature switches from `zed-reqwest` 0.12.15-zed to `reqwest` 0.12.16 with the same enabled features, so the whole graph now shares a single reqwest instance instead of compiling two HTTP stacks. `SimpleHttpClient` and the `HttpSetup` initialization API are unchanged and no source changes were required; the lockfile shrinks from 836 to 833 packages.
 
@@ -518,7 +520,8 @@ Created comprehensive styled demonstration examples for every component showing 
 - Platform-aware UI elements
 - Responsive layout utilities (VStack, HStack, Grid)
 
-[Unreleased]: https://github.com/freefcw/fc-ui/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/freefcw/fc-ui/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/freefcw/fc-ui/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/freefcw/fc-ui/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/freefcw/fc-ui/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/freefcw/fc-ui/compare/v0.7.0...v0.8.0
