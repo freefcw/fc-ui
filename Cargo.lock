@@ -1738,9 +1738,9 @@ checksum = "caf1079563223d5d59d83c85886a56e586cfd5c1a26292e971a0fa266531ac5a"
 
 [[package]]
 name = "fc-gpui"
-version = "0.11.1"
+version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e626facecd7dd51b3aa3f2e103b13d7a89568624606a767c3604220c905a471"
+checksum = "38469a38e627b0e5b81d7532c10f3a11c6e0884e0c9e3ba6751686de24026a37"
 dependencies = [
  "fc-gpui-core",
  "fc-gpui-platform",
@@ -1759,9 +1759,9 @@ dependencies = [
 
 [[package]]
 name = "fc-gpui-core"
-version = "0.11.1"
+version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13b755e142975df96724b4cbf9def5874c801a3bafd76dfbd7db10276a78c181"
+checksum = "54ab8f7753f02d1795d00122df0654d9d193008b9e654901c0a0a8f159406214"
 dependencies = [
  "accesskit",
  "anyhow",
@@ -1855,9 +1855,9 @@ dependencies = [
 
 [[package]]
 name = "fc-gpui-linux"
-version = "0.11.1"
+version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b0433b72fabcce8cf1c50a744c17d5b2249b6972287d202245219cdac19150c"
+checksum = "e59e1e68d20220e6f9f7cb3aa7615400f6c77eaf1a6150480162fa0fc35ee72e"
 dependencies = [
  "accesskit",
  "accesskit_unix",
@@ -1910,9 +1910,9 @@ dependencies = [
 
 [[package]]
 name = "fc-gpui-macos"
-version = "0.11.1"
+version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "809aad9ebd378b47a8118e9bb3a01476d7ae9e597b6b074a16a3cb8f569b5ead"
+checksum = "6b028309d2e2e339bb6cf6b217ff012e12aac51180f3c1471b59d43a466f6bd6"
 dependencies = [
  "accesskit",
  "accesskit_macos",
@@ -1960,9 +1960,9 @@ dependencies = [
 
 [[package]]
 name = "fc-gpui-macros"
-version = "0.11.1"
+version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "979026cbbfee63b50eb46a06bbf8db75cc2d146f9648e58ecf8d285645a9174a"
+checksum = "d9f7bea1f926a8148c3495df80afe3590e09f4ffa18510c3d2882c939704bbfb"
 dependencies = [
  "heck",
  "proc-macro-crate",
@@ -1986,9 +1986,9 @@ dependencies = [
 
 [[package]]
 name = "fc-gpui-platform"
-version = "0.11.1"
+version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "101edd5e702552ca282103cebd082601b0f011d33c02589e1583777e0dcd9956"
+checksum = "db6bbbe0d7c5bde0d771e2cb6e7c8ebf0b703634cc20622f29299c244d35a843"
 dependencies = [
  "fc-gpui-core",
  "fc-gpui-linux",
@@ -2077,9 +2077,9 @@ dependencies = [
 
 [[package]]
 name = "fc-gpui-wgpu"
-version = "0.11.1"
+version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1571be4d0b746a08bdc24e788c42a4ffe5703fb1b8ce4b4e616ba5769b7b6e1a"
+checksum = "4fe713471682a8b37c2c04b706b9fdd8bc91fa09623aa83f992bbf4815f6ec99"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -2098,9 +2098,9 @@ dependencies = [
 
 [[package]]
 name = "fc-gpui-windows"
-version = "0.11.1"
+version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dfe1e086f389b687a0b36302e643e25f7fd1102790c11634d35b9b6d7706031a"
+checksum = "ada58b1a015609dc9ad70497dfe42d6981ea9fc022b1d9339d189aa6c40db34e"
 dependencies = [
  "accesskit",
  "accesskit_windows",
@@ -2130,7 +2130,7 @@ dependencies = [
 
 [[package]]
 name = "fc-ui"
-version = "0.9.1"
+version = "0.9.2"
 dependencies = [
  "anyhow",
  "fc-gpui",
