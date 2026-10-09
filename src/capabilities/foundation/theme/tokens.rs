@@ -70,6 +70,34 @@ pub struct ThemeTokens {
     pub z_modal: u32,
     pub z_popover: u32,
     pub z_tooltip: u32,
+
+    // Typography scale (font sizes)
+    pub text_xs: Pixels,
+    pub text_sm: Pixels,
+    pub text_base: Pixels,
+    pub text_lg: Pixels,
+    pub text_xl: Pixels,
+    pub text_2xl: Pixels,
+    pub text_3xl: Pixels,
+    pub text_4xl: Pixels,
+    pub text_5xl: Pixels,
+
+    // Line-height multipliers (unitless, applied via `relative(...)`)
+    pub leading_none: f32,
+    pub leading_tight: f32,
+    pub leading_snug: f32,
+    pub leading_normal: f32,
+    pub leading_relaxed: f32,
+    pub leading_loose: f32,
+}
+
+impl Default for ThemeTokens {
+    /// The light theme's tokens. Custom themes can start from here and
+    /// override individual fields via struct update syntax, e.g.
+    /// `ThemeTokens { primary: my_brand_color.into(), ..Default::default() }`.
+    fn default() -> Self {
+        Self::light()
+    }
 }
 
 impl ThemeTokens {
@@ -172,6 +200,23 @@ impl ThemeTokens {
         self.z_modal = zm;
         self.z_popover = zp;
         self.z_tooltip = zt;
+
+        self.text_xs = px(12.0);
+        self.text_sm = px(14.0);
+        self.text_base = px(16.0);
+        self.text_lg = px(18.0);
+        self.text_xl = px(20.0);
+        self.text_2xl = px(24.0);
+        self.text_3xl = px(30.0);
+        self.text_4xl = px(36.0);
+        self.text_5xl = px(48.0);
+
+        self.leading_none = 1.0;
+        self.leading_tight = 1.25;
+        self.leading_snug = 1.375;
+        self.leading_normal = 1.5;
+        self.leading_relaxed = 1.625;
+        self.leading_loose = 2.0;
         self
     }
 
@@ -269,6 +314,21 @@ impl ThemeTokens {
             z_modal: 0,
             z_popover: 0,
             z_tooltip: 0,
+            text_xs: px(0.0),
+            text_sm: px(0.0),
+            text_base: px(0.0),
+            text_lg: px(0.0),
+            text_xl: px(0.0),
+            text_2xl: px(0.0),
+            text_3xl: px(0.0),
+            text_4xl: px(0.0),
+            text_5xl: px(0.0),
+            leading_none: 0.0,
+            leading_tight: 0.0,
+            leading_snug: 0.0,
+            leading_normal: 0.0,
+            leading_relaxed: 0.0,
+            leading_loose: 0.0,
         }
         .apply_standard()
     }
@@ -345,28 +405,7 @@ impl ThemeTokens {
             font_family: UI_FONT_FAMILY.into(),
             font_mono: UI_MONO_FONT_FAMILY.into(),
 
-            spacing_1: px(0.0),
-            spacing_2: px(0.0),
-            spacing_3: px(0.0),
-            spacing_4: px(0.0),
-            spacing_5: px(0.0),
-            spacing_6: px(0.0),
-            spacing_8: px(0.0),
-            spacing_10: px(0.0),
-            spacing_12: px(0.0),
-            spacing_16: px(0.0),
-            duration_fastest: Duration::ZERO,
-            duration_faster: Duration::ZERO,
-            duration_fast: Duration::ZERO,
-            duration_normal: Duration::ZERO,
-            duration_slow: Duration::ZERO,
-            duration_slower: Duration::ZERO,
-            duration_slowest: Duration::ZERO,
-            z_dropdown: 0,
-            z_sticky: 0,
-            z_modal: 0,
-            z_popover: 0,
-            z_tooltip: 0,
+            ..Default::default()
         }
         .apply_standard()
     }
@@ -443,28 +482,7 @@ impl ThemeTokens {
             font_family: UI_FONT_FAMILY.into(),
             font_mono: UI_MONO_FONT_FAMILY.into(),
 
-            spacing_1: px(0.0),
-            spacing_2: px(0.0),
-            spacing_3: px(0.0),
-            spacing_4: px(0.0),
-            spacing_5: px(0.0),
-            spacing_6: px(0.0),
-            spacing_8: px(0.0),
-            spacing_10: px(0.0),
-            spacing_12: px(0.0),
-            spacing_16: px(0.0),
-            duration_fastest: Duration::ZERO,
-            duration_faster: Duration::ZERO,
-            duration_fast: Duration::ZERO,
-            duration_normal: Duration::ZERO,
-            duration_slow: Duration::ZERO,
-            duration_slower: Duration::ZERO,
-            duration_slowest: Duration::ZERO,
-            z_dropdown: 0,
-            z_sticky: 0,
-            z_modal: 0,
-            z_popover: 0,
-            z_tooltip: 0,
+            ..Default::default()
         }
         .apply_standard()
     }
@@ -541,28 +559,7 @@ impl ThemeTokens {
             font_family: UI_FONT_FAMILY.into(),
             font_mono: UI_MONO_FONT_FAMILY.into(),
 
-            spacing_1: px(0.0),
-            spacing_2: px(0.0),
-            spacing_3: px(0.0),
-            spacing_4: px(0.0),
-            spacing_5: px(0.0),
-            spacing_6: px(0.0),
-            spacing_8: px(0.0),
-            spacing_10: px(0.0),
-            spacing_12: px(0.0),
-            spacing_16: px(0.0),
-            duration_fastest: Duration::ZERO,
-            duration_faster: Duration::ZERO,
-            duration_fast: Duration::ZERO,
-            duration_normal: Duration::ZERO,
-            duration_slow: Duration::ZERO,
-            duration_slower: Duration::ZERO,
-            duration_slowest: Duration::ZERO,
-            z_dropdown: 0,
-            z_sticky: 0,
-            z_modal: 0,
-            z_popover: 0,
-            z_tooltip: 0,
+            ..Default::default()
         }
         .apply_standard()
     }
@@ -639,28 +636,7 @@ impl ThemeTokens {
             font_family: UI_FONT_FAMILY.into(),
             font_mono: UI_MONO_FONT_FAMILY.into(),
 
-            spacing_1: px(0.0),
-            spacing_2: px(0.0),
-            spacing_3: px(0.0),
-            spacing_4: px(0.0),
-            spacing_5: px(0.0),
-            spacing_6: px(0.0),
-            spacing_8: px(0.0),
-            spacing_10: px(0.0),
-            spacing_12: px(0.0),
-            spacing_16: px(0.0),
-            duration_fastest: Duration::ZERO,
-            duration_faster: Duration::ZERO,
-            duration_fast: Duration::ZERO,
-            duration_normal: Duration::ZERO,
-            duration_slow: Duration::ZERO,
-            duration_slower: Duration::ZERO,
-            duration_slowest: Duration::ZERO,
-            z_dropdown: 0,
-            z_sticky: 0,
-            z_modal: 0,
-            z_popover: 0,
-            z_tooltip: 0,
+            ..Default::default()
         }
         .apply_standard()
     }
@@ -737,28 +713,7 @@ impl ThemeTokens {
             font_family: UI_FONT_FAMILY.into(),
             font_mono: UI_MONO_FONT_FAMILY.into(),
 
-            spacing_1: px(0.0),
-            spacing_2: px(0.0),
-            spacing_3: px(0.0),
-            spacing_4: px(0.0),
-            spacing_5: px(0.0),
-            spacing_6: px(0.0),
-            spacing_8: px(0.0),
-            spacing_10: px(0.0),
-            spacing_12: px(0.0),
-            spacing_16: px(0.0),
-            duration_fastest: Duration::ZERO,
-            duration_faster: Duration::ZERO,
-            duration_fast: Duration::ZERO,
-            duration_normal: Duration::ZERO,
-            duration_slow: Duration::ZERO,
-            duration_slower: Duration::ZERO,
-            duration_slowest: Duration::ZERO,
-            z_dropdown: 0,
-            z_sticky: 0,
-            z_modal: 0,
-            z_popover: 0,
-            z_tooltip: 0,
+            ..Default::default()
         }
         .apply_standard()
     }
@@ -835,28 +790,7 @@ impl ThemeTokens {
             font_family: UI_FONT_FAMILY.into(),
             font_mono: UI_MONO_FONT_FAMILY.into(),
 
-            spacing_1: px(0.0),
-            spacing_2: px(0.0),
-            spacing_3: px(0.0),
-            spacing_4: px(0.0),
-            spacing_5: px(0.0),
-            spacing_6: px(0.0),
-            spacing_8: px(0.0),
-            spacing_10: px(0.0),
-            spacing_12: px(0.0),
-            spacing_16: px(0.0),
-            duration_fastest: Duration::ZERO,
-            duration_faster: Duration::ZERO,
-            duration_fast: Duration::ZERO,
-            duration_normal: Duration::ZERO,
-            duration_slow: Duration::ZERO,
-            duration_slower: Duration::ZERO,
-            duration_slowest: Duration::ZERO,
-            z_dropdown: 0,
-            z_sticky: 0,
-            z_modal: 0,
-            z_popover: 0,
-            z_tooltip: 0,
+            ..Default::default()
         }
         .apply_standard()
     }
@@ -933,28 +867,7 @@ impl ThemeTokens {
             font_family: UI_FONT_FAMILY.into(),
             font_mono: UI_MONO_FONT_FAMILY.into(),
 
-            spacing_1: px(0.0),
-            spacing_2: px(0.0),
-            spacing_3: px(0.0),
-            spacing_4: px(0.0),
-            spacing_5: px(0.0),
-            spacing_6: px(0.0),
-            spacing_8: px(0.0),
-            spacing_10: px(0.0),
-            spacing_12: px(0.0),
-            spacing_16: px(0.0),
-            duration_fastest: Duration::ZERO,
-            duration_faster: Duration::ZERO,
-            duration_fast: Duration::ZERO,
-            duration_normal: Duration::ZERO,
-            duration_slow: Duration::ZERO,
-            duration_slower: Duration::ZERO,
-            duration_slowest: Duration::ZERO,
-            z_dropdown: 0,
-            z_sticky: 0,
-            z_modal: 0,
-            z_popover: 0,
-            z_tooltip: 0,
+            ..Default::default()
         }
         .apply_standard()
     }
@@ -1031,28 +944,7 @@ impl ThemeTokens {
             font_family: UI_FONT_FAMILY.into(),
             font_mono: UI_MONO_FONT_FAMILY.into(),
 
-            spacing_1: px(0.0),
-            spacing_2: px(0.0),
-            spacing_3: px(0.0),
-            spacing_4: px(0.0),
-            spacing_5: px(0.0),
-            spacing_6: px(0.0),
-            spacing_8: px(0.0),
-            spacing_10: px(0.0),
-            spacing_12: px(0.0),
-            spacing_16: px(0.0),
-            duration_fastest: Duration::ZERO,
-            duration_faster: Duration::ZERO,
-            duration_fast: Duration::ZERO,
-            duration_normal: Duration::ZERO,
-            duration_slow: Duration::ZERO,
-            duration_slower: Duration::ZERO,
-            duration_slowest: Duration::ZERO,
-            z_dropdown: 0,
-            z_sticky: 0,
-            z_modal: 0,
-            z_popover: 0,
-            z_tooltip: 0,
+            ..Default::default()
         }
         .apply_standard()
     }
@@ -1129,28 +1021,7 @@ impl ThemeTokens {
             font_family: UI_FONT_FAMILY.into(),
             font_mono: UI_MONO_FONT_FAMILY.into(),
 
-            spacing_1: px(0.0),
-            spacing_2: px(0.0),
-            spacing_3: px(0.0),
-            spacing_4: px(0.0),
-            spacing_5: px(0.0),
-            spacing_6: px(0.0),
-            spacing_8: px(0.0),
-            spacing_10: px(0.0),
-            spacing_12: px(0.0),
-            spacing_16: px(0.0),
-            duration_fastest: Duration::ZERO,
-            duration_faster: Duration::ZERO,
-            duration_fast: Duration::ZERO,
-            duration_normal: Duration::ZERO,
-            duration_slow: Duration::ZERO,
-            duration_slower: Duration::ZERO,
-            duration_slowest: Duration::ZERO,
-            z_dropdown: 0,
-            z_sticky: 0,
-            z_modal: 0,
-            z_popover: 0,
-            z_tooltip: 0,
+            ..Default::default()
         }
         .apply_standard()
     }
@@ -1227,28 +1098,7 @@ impl ThemeTokens {
             font_family: UI_FONT_FAMILY.into(),
             font_mono: UI_MONO_FONT_FAMILY.into(),
 
-            spacing_1: px(0.0),
-            spacing_2: px(0.0),
-            spacing_3: px(0.0),
-            spacing_4: px(0.0),
-            spacing_5: px(0.0),
-            spacing_6: px(0.0),
-            spacing_8: px(0.0),
-            spacing_10: px(0.0),
-            spacing_12: px(0.0),
-            spacing_16: px(0.0),
-            duration_fastest: Duration::ZERO,
-            duration_faster: Duration::ZERO,
-            duration_fast: Duration::ZERO,
-            duration_normal: Duration::ZERO,
-            duration_slow: Duration::ZERO,
-            duration_slower: Duration::ZERO,
-            duration_slowest: Duration::ZERO,
-            z_dropdown: 0,
-            z_sticky: 0,
-            z_modal: 0,
-            z_popover: 0,
-            z_tooltip: 0,
+            ..Default::default()
         }
         .apply_standard()
     }
@@ -1325,28 +1175,7 @@ impl ThemeTokens {
             font_family: UI_FONT_FAMILY.into(),
             font_mono: UI_MONO_FONT_FAMILY.into(),
 
-            spacing_1: px(0.0),
-            spacing_2: px(0.0),
-            spacing_3: px(0.0),
-            spacing_4: px(0.0),
-            spacing_5: px(0.0),
-            spacing_6: px(0.0),
-            spacing_8: px(0.0),
-            spacing_10: px(0.0),
-            spacing_12: px(0.0),
-            spacing_16: px(0.0),
-            duration_fastest: Duration::ZERO,
-            duration_faster: Duration::ZERO,
-            duration_fast: Duration::ZERO,
-            duration_normal: Duration::ZERO,
-            duration_slow: Duration::ZERO,
-            duration_slower: Duration::ZERO,
-            duration_slowest: Duration::ZERO,
-            z_dropdown: 0,
-            z_sticky: 0,
-            z_modal: 0,
-            z_popover: 0,
-            z_tooltip: 0,
+            ..Default::default()
         }
         .apply_standard()
     }
@@ -1423,28 +1252,7 @@ impl ThemeTokens {
             font_family: UI_FONT_FAMILY.into(),
             font_mono: UI_MONO_FONT_FAMILY.into(),
 
-            spacing_1: px(0.0),
-            spacing_2: px(0.0),
-            spacing_3: px(0.0),
-            spacing_4: px(0.0),
-            spacing_5: px(0.0),
-            spacing_6: px(0.0),
-            spacing_8: px(0.0),
-            spacing_10: px(0.0),
-            spacing_12: px(0.0),
-            spacing_16: px(0.0),
-            duration_fastest: Duration::ZERO,
-            duration_faster: Duration::ZERO,
-            duration_fast: Duration::ZERO,
-            duration_normal: Duration::ZERO,
-            duration_slow: Duration::ZERO,
-            duration_slower: Duration::ZERO,
-            duration_slowest: Duration::ZERO,
-            z_dropdown: 0,
-            z_sticky: 0,
-            z_modal: 0,
-            z_popover: 0,
-            z_tooltip: 0,
+            ..Default::default()
         }
         .apply_standard()
     }
@@ -1521,28 +1329,7 @@ impl ThemeTokens {
             font_family: UI_FONT_FAMILY.into(),
             font_mono: UI_MONO_FONT_FAMILY.into(),
 
-            spacing_1: px(0.0),
-            spacing_2: px(0.0),
-            spacing_3: px(0.0),
-            spacing_4: px(0.0),
-            spacing_5: px(0.0),
-            spacing_6: px(0.0),
-            spacing_8: px(0.0),
-            spacing_10: px(0.0),
-            spacing_12: px(0.0),
-            spacing_16: px(0.0),
-            duration_fastest: Duration::ZERO,
-            duration_faster: Duration::ZERO,
-            duration_fast: Duration::ZERO,
-            duration_normal: Duration::ZERO,
-            duration_slow: Duration::ZERO,
-            duration_slower: Duration::ZERO,
-            duration_slowest: Duration::ZERO,
-            z_dropdown: 0,
-            z_sticky: 0,
-            z_modal: 0,
-            z_popover: 0,
-            z_tooltip: 0,
+            ..Default::default()
         }
         .apply_standard()
     }
@@ -1619,28 +1406,7 @@ impl ThemeTokens {
             font_family: UI_FONT_FAMILY.into(),
             font_mono: UI_MONO_FONT_FAMILY.into(),
 
-            spacing_1: px(0.0),
-            spacing_2: px(0.0),
-            spacing_3: px(0.0),
-            spacing_4: px(0.0),
-            spacing_5: px(0.0),
-            spacing_6: px(0.0),
-            spacing_8: px(0.0),
-            spacing_10: px(0.0),
-            spacing_12: px(0.0),
-            spacing_16: px(0.0),
-            duration_fastest: Duration::ZERO,
-            duration_faster: Duration::ZERO,
-            duration_fast: Duration::ZERO,
-            duration_normal: Duration::ZERO,
-            duration_slow: Duration::ZERO,
-            duration_slower: Duration::ZERO,
-            duration_slowest: Duration::ZERO,
-            z_dropdown: 0,
-            z_sticky: 0,
-            z_modal: 0,
-            z_popover: 0,
-            z_tooltip: 0,
+            ..Default::default()
         }
         .apply_standard()
     }
@@ -1717,28 +1483,7 @@ impl ThemeTokens {
             font_family: UI_FONT_FAMILY.into(),
             font_mono: UI_MONO_FONT_FAMILY.into(),
 
-            spacing_1: px(0.0),
-            spacing_2: px(0.0),
-            spacing_3: px(0.0),
-            spacing_4: px(0.0),
-            spacing_5: px(0.0),
-            spacing_6: px(0.0),
-            spacing_8: px(0.0),
-            spacing_10: px(0.0),
-            spacing_12: px(0.0),
-            spacing_16: px(0.0),
-            duration_fastest: Duration::ZERO,
-            duration_faster: Duration::ZERO,
-            duration_fast: Duration::ZERO,
-            duration_normal: Duration::ZERO,
-            duration_slow: Duration::ZERO,
-            duration_slower: Duration::ZERO,
-            duration_slowest: Duration::ZERO,
-            z_dropdown: 0,
-            z_sticky: 0,
-            z_modal: 0,
-            z_popover: 0,
-            z_tooltip: 0,
+            ..Default::default()
         }
         .apply_standard()
     }
@@ -1815,28 +1560,7 @@ impl ThemeTokens {
             font_family: UI_FONT_FAMILY.into(),
             font_mono: UI_MONO_FONT_FAMILY.into(),
 
-            spacing_1: px(0.0),
-            spacing_2: px(0.0),
-            spacing_3: px(0.0),
-            spacing_4: px(0.0),
-            spacing_5: px(0.0),
-            spacing_6: px(0.0),
-            spacing_8: px(0.0),
-            spacing_10: px(0.0),
-            spacing_12: px(0.0),
-            spacing_16: px(0.0),
-            duration_fastest: Duration::ZERO,
-            duration_faster: Duration::ZERO,
-            duration_fast: Duration::ZERO,
-            duration_normal: Duration::ZERO,
-            duration_slow: Duration::ZERO,
-            duration_slower: Duration::ZERO,
-            duration_slowest: Duration::ZERO,
-            z_dropdown: 0,
-            z_sticky: 0,
-            z_modal: 0,
-            z_popover: 0,
-            z_tooltip: 0,
+            ..Default::default()
         }
         .apply_standard()
     }
@@ -1913,28 +1637,7 @@ impl ThemeTokens {
             font_family: UI_FONT_FAMILY.into(),
             font_mono: UI_MONO_FONT_FAMILY.into(),
 
-            spacing_1: px(0.0),
-            spacing_2: px(0.0),
-            spacing_3: px(0.0),
-            spacing_4: px(0.0),
-            spacing_5: px(0.0),
-            spacing_6: px(0.0),
-            spacing_8: px(0.0),
-            spacing_10: px(0.0),
-            spacing_12: px(0.0),
-            spacing_16: px(0.0),
-            duration_fastest: Duration::ZERO,
-            duration_faster: Duration::ZERO,
-            duration_fast: Duration::ZERO,
-            duration_normal: Duration::ZERO,
-            duration_slow: Duration::ZERO,
-            duration_slower: Duration::ZERO,
-            duration_slowest: Duration::ZERO,
-            z_dropdown: 0,
-            z_sticky: 0,
-            z_modal: 0,
-            z_popover: 0,
-            z_tooltip: 0,
+            ..Default::default()
         }
         .apply_standard()
     }
@@ -2107,5 +1810,72 @@ impl ThemeTokens {
             ));
         }
         layers
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Precise imports instead of `super::*`: the parent module glob-imports
+    // gpui, whose `test` attribute would clash with the built-in `#[test]`.
+    use super::ThemeTokens;
+    use gpui::px;
+    use std::time::Duration;
+
+    #[test]
+    fn standard_tokens_match_shared_scale() {
+        let themes = [
+            ThemeTokens::light(),
+            ThemeTokens::dark(),
+            ThemeTokens::midnight_blue(),
+            ThemeTokens::forest_grove(),
+            ThemeTokens::sunset_amber(),
+            ThemeTokens::ocean_breeze(),
+            ThemeTokens::dracula(),
+            ThemeTokens::nord(),
+            ThemeTokens::monokai_pro(),
+            ThemeTokens::tokyo_night(),
+            ThemeTokens::catppuccin_mocha(),
+            ThemeTokens::rose_pine(),
+            ThemeTokens::coral_reef(),
+            ThemeTokens::lavender_dreams(),
+            ThemeTokens::mint_fresh(),
+            ThemeTokens::peachy_keen(),
+            ThemeTokens::sky_blue(),
+            ThemeTokens::cherry_blossom(),
+        ];
+
+        for tokens in themes {
+            // Standard groups every built-in theme must inherit from
+            // `apply_standard` (guards against a new token silently falling
+            // back to `Default` values).
+            assert_eq!(tokens.spacing_1, px(4.0));
+            assert_eq!(tokens.spacing_4, px(16.0));
+            assert_eq!(tokens.spacing_16, px(64.0));
+            assert_eq!(tokens.duration_fastest, Duration::from_millis(50));
+            assert_eq!(tokens.duration_normal, Duration::from_millis(200));
+            assert_eq!(tokens.duration_slowest, Duration::from_millis(500));
+            assert_eq!(tokens.z_dropdown, 1000);
+            assert_eq!(tokens.z_sticky, 900);
+            assert_eq!(tokens.z_modal, 1300);
+            assert_eq!(tokens.z_popover, 1400);
+            assert_eq!(tokens.z_tooltip, 1500);
+
+            assert_eq!(tokens.text_xs, px(12.0));
+            assert_eq!(tokens.text_sm, px(14.0));
+            assert_eq!(tokens.text_base, px(16.0));
+            assert_eq!(tokens.text_lg, px(18.0));
+            assert_eq!(tokens.text_xl, px(20.0));
+            assert_eq!(tokens.text_2xl, px(24.0));
+            assert_eq!(tokens.text_3xl, px(30.0));
+            assert_eq!(tokens.text_4xl, px(36.0));
+            assert_eq!(tokens.text_5xl, px(48.0));
+
+            assert_eq!(tokens.leading_none, 1.0);
+            assert_eq!(tokens.leading_tight, 1.25);
+            assert_eq!(tokens.leading_snug, 1.375);
+            assert_eq!(tokens.leading_normal, 1.5);
+            assert_eq!(tokens.leading_relaxed, 1.625);
+            assert_eq!(tokens.leading_loose, 2.0);
+        }
     }
 }

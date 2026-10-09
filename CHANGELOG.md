@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `ThemeTokens` implements `Default` (light theme values), so downstream custom themes can be written as `ThemeTokens { primary: brand.into(), ..Default::default() }` instead of filling every field; the built-in theme constructors now use this internally.
+- Typography design tokens on `ThemeTokens`: `text_xs`..`text_5xl` (12/14/16/18/20/24/30/36/48 px) and `leading_none`/`leading_tight`/`leading_snug`/`leading_normal`/`leading_relaxed`/`leading_loose` (1.0/1.25/1.375/1.5/1.625/2.0), filled by `apply_standard` for all 18 built-in themes. This completes the design-token scale planned in `GAP_ANALYSIS.md` (spacing/duration/z-index landed earlier).
+
 ## [0.9.2] - 2026-10-08
 
 ### Changed
