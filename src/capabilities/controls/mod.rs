@@ -33,6 +33,7 @@ pub mod textarea_state;
 pub mod time_picker;
 pub mod toggle;
 pub mod toggle_group;
+pub mod validation;
 
 /// Register controls that historically precede image viewer keybindings.
 pub(crate) fn init_before_image_viewer(cx: &mut gpui::App) {

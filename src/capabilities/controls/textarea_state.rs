@@ -8,6 +8,8 @@ use gpui::{prelude::*, *};
 use std::ops::Range;
 
 use crate::capabilities::controls::text_util;
+use crate::capabilities::controls::validation;
+pub use crate::capabilities::controls::validation::{ValidationError, ValidationRules};
 
 pub fn init(cx: &mut App) {
     if !crate::capabilities::foundation::initialization::begin(cx, "textarea-state") {
@@ -107,6 +109,7 @@ pub enum TextareaEvent {
     ShiftEnter,
     Tab,
     ShiftTab,
+    Validate(Result<(), ValidationError>),
 }
 
 impl EventEmitter<TextareaEvent> for TextareaState {}
@@ -131,6 +134,13 @@ pub struct TextareaState {
     cursor_visible: bool,
     _blink_task: Option<Task<()>>,
     event_subscription: Option<Subscription>,
+
+    // Validation (shared machinery with `InputState`)
+    pub validation_rules: ValidationRules,
+    pub validation_error: Option<ValidationError>,
+    pub success_message: Option<SharedString>,
+    pub validate_on_blur: bool,
+    pub validate_on_change: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -163,6 +173,11 @@ impl TextareaState {
             cursor_visible: true,
             _blink_task: None,
             event_subscription: None,
+            validation_rules: ValidationRules::default(),
+            validation_error: None,
+            success_message: None,
+            validate_on_blur: true,
+            validate_on_change: false,
         }
     }
 
@@ -179,8 +194,10 @@ impl TextareaState {
     /// Set the initial value.
     ///
     /// Equivalent to assigning `content` directly, but leaves the caret at
-    /// the end of the text. To replace the value later with a `Change`
-    /// event, use [`TextareaState::set_value`].
+    /// the end of the text. This is raw initialization: it bypasses
+    /// validation rules and `max_length` truncation. To replace the value
+    /// later with truncation, validation, and a `Change` event, use
+    /// [`TextareaState::set_value`].
     pub fn value(mut self, value: impl Into<SharedString>) -> Self {
         self.content = value.into();
         let len = self.content.len();
@@ -208,7 +225,7 @@ impl TextareaState {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let value = value.into();
+        let value = self.truncate_to_max_length(value.into());
         if self.content != value {
             self.content = value;
             let len = self.content.len();
@@ -216,9 +233,134 @@ impl TextareaState {
             self.marked_range.take();
             self.selection_reversed = false;
             self.invalidate_layout_cache();
+            if self.should_auto_validate(self.validate_on_change) {
+                self.validate(cx).ok();
+            }
             cx.emit(TextareaEvent::Change);
             cx.notify();
         }
+    }
+
+    /// Whether an IME composition is currently in progress.
+    ///
+    /// While composing, the in-flight text is displayed but not committed:
+    /// validation and `max_length` truncation only apply on commit.
+    pub fn is_composing(&self) -> bool {
+        // An empty marked range is still an active composition.
+        self.marked_range.is_some()
+    }
+
+    /// Number of characters in the in-flight IME composition (0 when not
+    /// composing). `content()` includes these characters, so the committed
+    /// length is `content().chars().count() - composition_char_count()`.
+    pub fn composition_char_count(&self) -> usize {
+        // `content` is a public field: a direct external write can leave
+        // `marked_range` stale, so slice defensively instead of panicking.
+        self.marked_range
+            .as_ref()
+            .and_then(|range| self.content.get(range.clone()))
+            .map(|marked| marked.chars().count())
+            .unwrap_or(0)
+    }
+
+    /// Set validation rules
+    pub fn validation_rules(mut self, rules: ValidationRules) -> Self {
+        self.validation_rules = rules;
+        self
+    }
+
+    /// Set minimum length
+    pub fn min_length(mut self, min: usize) -> Self {
+        self.validation_rules.min_length = Some(min);
+        self
+    }
+
+    /// Set maximum length
+    pub fn max_length(mut self, max: usize) -> Self {
+        self.validation_rules.max_length = Some(max);
+        self
+    }
+
+    /// Mark field as required
+    pub fn required(mut self, required: bool) -> Self {
+        self.validation_rules.required = required;
+        self
+    }
+
+    fn truncate_to_max_length(&self, value: SharedString) -> SharedString {
+        self.validation_rules
+            .max_length
+            .map(|max_length| value.chars().take(max_length).collect::<String>().into())
+            .unwrap_or(value)
+    }
+
+    /// Whether automatic (blur/change-triggered) validation should run.
+    ///
+    /// Automatic validation only kicks in once rules exist, so a plain
+    /// textarea never sprouts a "Valid input" footer just because focus left
+    /// the field. Explicit `validate()` calls (e.g. from `Form`) always run.
+    fn should_auto_validate(&self, enabled: bool) -> bool {
+        let rules = &self.validation_rules;
+        enabled
+            && (rules.required
+                || rules.min_length.is_some()
+                || rules.max_length.is_some()
+                || rules.pattern.is_some()
+                || rules.custom_validator.is_some())
+    }
+
+    /// Validate the current value against the configured rules.
+    pub fn validate(&mut self, cx: &mut Context<Self>) -> Result<(), ValidationError> {
+        let value = self.committed_content();
+
+        if let Some(result) =
+            validation::check_required_empty(self.validation_rules.required, &value, None)
+        {
+            if result.is_ok() {
+                // Optional empty value: clear any stale messages without
+                // reporting success.
+                self.validation_error = None;
+                self.success_message = None;
+                cx.emit(TextareaEvent::Validate(Ok(())));
+                cx.notify();
+                return Ok(());
+            }
+            return self.finish_validation(result, cx);
+        }
+
+        let result = validation::check_constraints(&self.validation_rules, &value, None);
+        self.finish_validation(result, cx)
+    }
+
+    fn finish_validation(
+        &mut self,
+        result: Result<(), ValidationError>,
+        cx: &mut Context<Self>,
+    ) -> Result<(), ValidationError> {
+        match &result {
+            Ok(()) => {
+                self.validation_error = None;
+                self.success_message = Some("Valid input".into());
+            }
+            Err(error) => {
+                self.validation_error = Some(error.clone());
+            }
+        }
+        cx.emit(TextareaEvent::Validate(result.clone()));
+        cx.notify();
+        result
+    }
+
+    fn committed_content(&self) -> String {
+        let Some(range) = self.marked_range.as_ref() else {
+            return self.content.to_string();
+        };
+        let Some(_) = self.content.get(range.clone()) else {
+            return self.content.to_string();
+        };
+        let mut committed = self.content.to_string();
+        committed.replace_range(range.clone(), "");
+        committed
     }
 
     // ── Line helpers ────────────────────────────────────────────────
@@ -515,6 +657,9 @@ impl TextareaState {
         } else {
             self.stop_blink();
             self.is_selecting = false;
+            if self.should_auto_validate(self.validate_on_blur) {
+                self.validate(cx).ok();
+            }
             cx.emit(TextareaEvent::Blur);
         }
         cx.notify();
@@ -816,9 +961,12 @@ impl EntityInputHandler for TextareaState {
             .map(|range| self.range_to_utf16(range))
     }
 
-    fn unmark_text(&mut self, _window: &mut Window, _cx: &mut Context<Self>) {
+    fn unmark_text(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.marked_range = None;
         self.invalidate_layout_cache();
+        if self.should_auto_validate(self.validate_on_change) {
+            self.validate(cx).ok();
+        }
     }
 
     fn replace_text_in_range(
@@ -828,15 +976,27 @@ impl EntityInputHandler for TextareaState {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let had_marked_text = self.marked_range.is_some();
         let range = range_utf16
             .as_ref()
             .map(|r| self.range_from_utf16(r))
             .or(self.marked_range.clone())
             .unwrap_or(self.selected_range.clone());
 
-        self.content =
-            (self.content[0..range.start].to_owned() + new_text + &self.content[range.end..])
+        let new_text = if let Some(max_length) = self.validation_rules.max_length {
+            let retained_chars =
+                self.content.chars().count() - self.content[range.clone()].chars().count();
+            let allowed_chars = max_length.saturating_sub(retained_chars);
+            new_text.chars().take(allowed_chars).collect::<String>()
+        } else {
+            new_text.to_owned()
+        };
+
+        let next_content: SharedString =
+            (self.content[0..range.start].to_owned() + &new_text + &self.content[range.end..])
                 .into();
+        let content_changed = self.content != next_content;
+        self.content = next_content;
         self.selected_range = range.start + new_text.len()..range.start + new_text.len();
         self.marked_range.take();
         self.selection_reversed = false;
@@ -844,7 +1004,14 @@ impl EntityInputHandler for TextareaState {
             self.reset_blink(cx);
         }
         self.invalidate_layout_cache();
-        cx.emit(TextareaEvent::Change);
+        if (content_changed || had_marked_text)
+            && self.should_auto_validate(self.validate_on_change)
+        {
+            self.validate(cx).ok();
+        }
+        if content_changed || had_marked_text {
+            cx.emit(TextareaEvent::Change);
+        }
         cx.notify();
     }
 
@@ -1590,6 +1757,246 @@ mod tests {
                 state.replace_text_in_range(Some(1..3), "", window, cx);
                 assert_eq!(state.content(), "ab");
                 assert_eq!(state.selected_range, 1..1);
+            });
+        });
+    }
+    #[gpui::test]
+    fn validate_required_fails_on_empty() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| cx.new(|cx| TextareaState::new(cx).required(true)));
+        app.update(|cx| {
+            let result = state.update(cx, |state, cx| state.validate(cx));
+            assert!(result.is_err());
+            assert_eq!(
+                state
+                    .read(cx)
+                    .validation_error
+                    .as_ref()
+                    .unwrap()
+                    .message
+                    .as_ref(),
+                "This field is required"
+            );
+        });
+    }
+
+    #[gpui::test]
+    fn validate_enforces_min_and_max_length() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+
+        let state = app.update(|cx| {
+            cx.new(|cx| {
+                TextareaState::new(cx)
+                    .min_length(2)
+                    .max_length(3)
+                    .value("a")
+            })
+        });
+        app.update(|cx| {
+            let result = state.update(cx, |state, cx| state.validate(cx));
+            assert!(result.is_err());
+            assert_eq!(
+                state
+                    .read(cx)
+                    .validation_error
+                    .as_ref()
+                    .unwrap()
+                    .message
+                    .as_ref(),
+                "Must be at least 2 characters"
+            );
+        });
+
+        let state =
+            app.update(|cx| cx.new(|cx| TextareaState::new(cx).max_length(3).value("abcd")));
+        app.update(|cx| {
+            let result = state.update(cx, |state, cx| state.validate(cx));
+            assert!(result.is_err());
+        });
+
+        let state = app.update(|cx| {
+            cx.new(|cx| {
+                TextareaState::new(cx)
+                    .min_length(2)
+                    .max_length(3)
+                    .value("abc")
+            })
+        });
+        app.update(|cx| {
+            let result = state.update(cx, |state, cx| state.validate(cx));
+            assert!(result.is_ok());
+            assert!(state.read(cx).validation_error.is_none());
+            assert_eq!(
+                state.read(cx).success_message.as_ref().unwrap().as_ref(),
+                "Valid input"
+            );
+        });
+    }
+
+    #[gpui::test]
+    fn validate_optional_empty_clears_stale_messages() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| cx.new(TextareaState::new));
+        app.update(|cx| {
+            state.update(cx, |state, cx| {
+                state.validation_error = Some(ValidationError {
+                    message: "stale".into(),
+                    field_name: None,
+                });
+                state.success_message = Some("stale".into());
+                let result = state.validate(cx);
+                assert!(result.is_ok());
+                assert!(state.validation_error.is_none());
+                assert!(state.success_message.is_none());
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn validate_runs_custom_validator() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| {
+            cx.new(|cx| {
+                TextareaState::new(cx)
+                    .value("forbidden")
+                    .validation_rules(ValidationRules {
+                        custom_validator: Some(std::sync::Arc::new(|value| {
+                            if value.contains("forbidden") {
+                                Err(ValidationError {
+                                    message: "Contains forbidden word".into(),
+                                    field_name: None,
+                                })
+                            } else {
+                                Ok(())
+                            }
+                        })),
+                        ..Default::default()
+                    })
+            })
+        });
+        app.update(|cx| {
+            let result = state.update(cx, |state, cx| state.validate(cx));
+            assert!(result.is_err());
+            assert_eq!(
+                state
+                    .read(cx)
+                    .validation_error
+                    .as_ref()
+                    .unwrap()
+                    .message
+                    .as_ref(),
+                "Contains forbidden word"
+            );
+        });
+    }
+
+    #[gpui::test]
+    fn validate_emits_event_with_result() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| cx.new(|cx| TextareaState::new(cx).required(true)));
+        let outcomes = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let outcomes_for_sub = outcomes.clone();
+        app.update(|cx| {
+            cx.subscribe(&state, move |_, event: &TextareaEvent, _| {
+                if let TextareaEvent::Validate(result) = event {
+                    outcomes_for_sub.borrow_mut().push(result.is_err());
+                }
+            })
+            .detach();
+        });
+        app.update(|cx| {
+            state.update(cx, |state, cx| state.validate(cx)).ok();
+        });
+        assert_eq!(outcomes.borrow().as_slice(), &[true]);
+    }
+    #[gpui::test]
+    fn ime_composition_state_is_queryable() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| cx.new(TextareaState::new));
+        let mut window = app.open_window(|_, _| TestView {
+            state: state.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.set_value("hello", window, cx);
+                assert!(!state.is_composing());
+                assert_eq!(state.composition_char_count(), 0);
+
+                state.replace_and_mark_text_in_range(None, "nihao", None, window, cx);
+                assert!(state.is_composing());
+                assert_eq!(state.composition_char_count(), 5);
+                assert_eq!(
+                    state.content().chars().count() - state.composition_char_count(),
+                    5
+                );
+            });
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.replace_text_in_range(None, "你好", window, cx);
+                assert!(!state.is_composing());
+                assert_eq!(state.composition_char_count(), 0);
+                assert_eq!(state.content(), "hello你好");
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn max_length_commit_does_not_count_inflight_composition() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| cx.new(|cx| TextareaState::new(cx).max_length(7)));
+        let mut window = app.open_window(|_, _| TestView {
+            state: state.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.set_value("hello", window, cx);
+                // Compose 5 extra chars; they are in-flight and must not count
+                // against the limit.
+                state.replace_and_mark_text_in_range(None, "nihao", None, window, cx);
+                // Commit 2 chars: 5 committed + 2 == max 7, so nothing is cut.
+                // If the in-flight text were counted, the commit would be
+                // truncated to nothing.
+                state.replace_text_in_range(None, "你好", window, cx);
+                assert_eq!(state.content(), "hello你好");
+            });
+        });
+    }
+    #[gpui::test]
+    fn validate_ignores_inflight_ime_text() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| cx.new(|cx| TextareaState::new(cx).min_length(6)));
+        let mut window = app.open_window(|_, _| TestView {
+            state: state.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.set_value("hello", window, cx);
+                state.replace_and_mark_text_in_range(None, "nihao", None, window, cx);
+
+                // Composition in flight: validation uses only the committed
+                // text, not the transient composition text.
+                let result = state.validate(cx);
+                assert!(result.is_err());
+                assert!(state.validation_error.is_some());
+
+                // Once committed, validation includes the committed text.
+                state.replace_text_in_range(None, "", window, cx);
+                let result = state.validate(cx);
+                assert!(result.is_err());
+                assert!(state.validation_error.is_some());
             });
         });
     }

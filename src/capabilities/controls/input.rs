@@ -5,6 +5,7 @@ pub use crate::capabilities::controls::input_state::{
     InputState, InputType, Left, Paste, Right, SelectAll, SelectLeft, SelectRight, SelectWordLeft,
     SelectWordRight, ShiftTab, Tab, ValidationError, ValidationRules, WordLeft, WordRight,
 };
+use crate::capabilities::controls::validation::{validation_footer, CharacterCount, FooterMessage};
 use crate::capabilities::foundation::theme::use_theme;
 use crate::capabilities::layout::{HStack, VStack};
 use crate::capabilities::motion::animations::{easings, shake_offset};
@@ -699,7 +700,8 @@ impl RenderOnce for Input {
         let input_state = self.state.read(cx);
         let validation_error = input_state.validation_error.clone();
         let success_message = input_state.success_message.clone();
-        let content_length = input_state.content.chars().count();
+        let composing = input_state.composition_char_count();
+        let content_length = input_state.content.chars().count() - composing;
         let max_length = input_state.validation_rules.max_length;
         let is_focused = input_state.focus_handle(cx).is_focused(window);
         let is_masked = input_state.masked;
@@ -862,55 +864,25 @@ impl RenderOnce for Input {
                     || success_message.is_some()
                     || self.show_character_count,
                 |v| {
-                    v.child(
-                        HStack::new()
-                            .w_full()
-                            .px(px(2.0))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .text_size(px(12.0))
-                                    .font_family(theme.tokens.font_family.clone())
-                                    .child(if let Some(error) = validation_error {
-                                        div()
-                                            .text_color(theme.tokens.destructive)
-                                            .child(error.message)
-                                    } else if let Some(success) = success_message {
-                                        if has_value {
-                                            div().text_color(theme.tokens.primary).child(success)
-                                        } else {
-                                            div()
-                                        }
-                                    } else if let Some(helper) = self.helper_text {
-                                        div()
-                                            .text_color(theme.tokens.muted_foreground)
-                                            .child(helper)
-                                    } else {
-                                        div()
-                                    }),
-                            )
-                            .when(self.show_character_count, |h| {
-                                h.child(
-                                    div()
-                                        .text_size(px(12.0))
-                                        .font_family(theme.tokens.font_family.clone())
-                                        .text_color(
-                                            if max_length.is_some()
-                                                && content_length >= max_length.unwrap()
-                                            {
-                                                theme.tokens.destructive
-                                            } else {
-                                                theme.tokens.muted_foreground
-                                            },
-                                        )
-                                        .child(if let Some(max) = max_length {
-                                            format!("{}/{}", content_length, max)
-                                        } else {
-                                            format!("{}", content_length)
-                                        }),
-                                )
-                            }),
-                    )
+                    let message = if let Some(error) = validation_error.as_ref() {
+                        FooterMessage::Error(error)
+                    } else if let Some(success) = success_message.as_ref() {
+                        if has_value {
+                            FooterMessage::Success(success)
+                        } else {
+                            FooterMessage::Blank
+                        }
+                    } else if let Some(helper) = self.helper_text.as_ref() {
+                        FooterMessage::Helper(helper)
+                    } else {
+                        FooterMessage::Blank
+                    };
+                    let character_count = self.show_character_count.then_some(CharacterCount {
+                        committed: content_length,
+                        composing,
+                        max: max_length,
+                    });
+                    v.child(validation_footer(&theme.tokens, message, character_count))
                 },
             )
             .map(|this| {

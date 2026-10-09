@@ -12,18 +12,21 @@ use crate::capabilities::foundation::theme::use_theme;
 /// - ARIA support for screen readers
 use gpui::{prelude::*, *};
 use std::ops::Range;
-use std::sync::{Arc, LazyLock};
+use std::sync::LazyLock;
 
 use crate::capabilities::controls::input_format::DisplayMapping;
 use crate::capabilities::controls::text_util;
+use crate::capabilities::controls::validation;
+
+// The canonical definitions live in `controls::validation` so that
+// `TextareaState` shares the exact same machinery; they are re-exported here
+// to preserve the long-standing `input_state::ValidationRules` public path.
+pub use crate::capabilities::controls::validation::{ValidationError, ValidationRules};
 
 static EMAIL_REGEX: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
         .expect("Invalid email regex pattern")
 });
-
-type ValidationCallback = Arc<dyn Fn(&str) -> Result<(), ValidationError>>;
-type TextTransformer = Arc<dyn Fn(&str) -> String>;
 
 actions!(
     input_state,
@@ -74,52 +77,6 @@ pub enum InputType {
     Time,
     /// Credit card number with masking
     CreditCard,
-}
-
-/// Validation result with error message
-#[derive(Debug, Clone)]
-pub struct ValidationError {
-    pub message: SharedString,
-    pub field_name: Option<SharedString>,
-}
-
-/// Input validation rules
-#[derive(Clone, Default)]
-pub struct ValidationRules {
-    /// Minimum length requirement
-    pub min_length: Option<usize>,
-    /// Maximum length requirement
-    pub max_length: Option<usize>,
-    /// For number inputs: minimum value
-    pub min_value: Option<f64>,
-    /// For number inputs: maximum value
-    pub max_value: Option<f64>,
-    /// Regex pattern to match
-    pub pattern: Option<String>,
-    /// Custom validation function
-    pub custom_validator: Option<ValidationCallback>,
-    /// Custom filter function for input
-    pub custom_filter: Option<TextTransformer>,
-    /// Custom formatter function for display
-    pub custom_formatter: Option<TextTransformer>,
-    /// Whether the field is required
-    pub required: bool,
-}
-
-impl std::fmt::Debug for ValidationRules {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ValidationRules")
-            .field("min_length", &self.min_length)
-            .field("max_length", &self.max_length)
-            .field("min_value", &self.min_value)
-            .field("max_value", &self.max_value)
-            .field("pattern", &self.pattern)
-            .field("custom_validator", &self.custom_validator.is_some())
-            .field("custom_filter", &self.custom_filter.is_some())
-            .field("custom_formatter", &self.custom_formatter.is_some())
-            .field("required", &self.required)
-            .finish()
-    }
 }
 
 /// Input masking for formatting
@@ -336,8 +293,10 @@ impl InputState {
     /// Set the initial value.
     ///
     /// Equivalent to assigning `content` directly, but leaves the caret at
-    /// the end of the text. To replace the value later with filtering,
-    /// validation, and a `Change` event, use [`InputState::set_value`].
+    /// the end of the text. This is raw initialization: it bypasses
+    /// validation rules, filtering, and `max_length` truncation. To replace
+    /// the value later with filtering, truncation, validation, and a
+    /// `Change` event, use [`InputState::set_value`].
     pub fn value(mut self, value: impl Into<SharedString>) -> Self {
         self.content = value.into();
         let len = self.content.len();
@@ -377,6 +336,27 @@ impl InputState {
 
     pub fn content(&self) -> &str {
         &self.content
+    }
+
+    /// Whether an IME composition is currently in progress.
+    ///
+    /// While composing, the in-flight text is displayed but not committed:
+    /// validation and `max_length` truncation only apply on commit.
+    pub fn is_composing(&self) -> bool {
+        self.marked_range.is_some()
+    }
+
+    /// Number of characters in the in-flight IME composition (0 when not
+    /// composing). `content()` includes these characters, so the committed
+    /// length is `content().chars().count() - composition_char_count()`.
+    pub fn composition_char_count(&self) -> usize {
+        // `content` is a public field: a direct external write can leave
+        // `marked_range` stale, so slice defensively instead of panicking.
+        self.marked_range
+            .as_ref()
+            .and_then(|range| self.content.get(range.clone()))
+            .map(|marked| marked.chars().count())
+            .unwrap_or(0)
     }
 
     /// Return the canonical value before display formatting.
@@ -512,28 +492,36 @@ impl InputState {
     /// Validate the current input value
     pub fn validate(&mut self, cx: &mut Context<Self>) -> Result<(), ValidationError> {
         self.sync_raw_content();
-        let value = self.raw_content.as_str();
+        let value = self.committed_raw_value();
+        let field_name = self.aria_label.clone();
 
-        if self.validation_rules.required && value.trim().is_empty() {
-            let error = ValidationError {
-                message: "This field is required".into(),
-                field_name: self.aria_label.clone(),
-            };
-            self.validation_error = Some(error.clone());
-            cx.emit(InputEvent::Validate(Err(error.clone())));
-            cx.notify();
-            return Err(error);
+        if let Some(result) = validation::check_required_empty(
+            self.validation_rules.required,
+            &value,
+            field_name.clone(),
+        ) {
+            if result.is_ok() {
+                // Optional empty value: clear any stale messages without
+                // reporting success.
+                self.validation_error = None;
+                self.success_message = None;
+                cx.emit(InputEvent::Validate(Ok(())));
+                cx.notify();
+                return Ok(());
+            }
+            return self.finish_validation(result, cx);
         }
 
-        if !self.validation_rules.required && value.trim().is_empty() {
-            self.validation_error = None;
-            self.success_message = None;
-            cx.emit(InputEvent::Validate(Ok(())));
-            cx.notify();
-            return Ok(());
+        if let Err(error) = self.validate_input_type(&value) {
+            return self.finish_validation(Err(error), cx);
         }
 
-        let type_result = match self.input_type {
+        let result = validation::check_constraints(&self.validation_rules, &value, field_name);
+        self.finish_validation(result, cx)
+    }
+
+    fn validate_input_type(&self, value: &str) -> Result<(), ValidationError> {
+        match self.input_type {
             InputType::Email => self.validate_email(value),
             InputType::Number => self.validate_number(value),
             InputType::Url => self.validate_url(value),
@@ -542,81 +530,38 @@ impl InputState {
             InputType::Time => self.validate_time(value),
             InputType::CreditCard => self.validate_credit_card(value),
             _ => Ok(()),
+        }
+    }
+
+    fn committed_raw_value(&self) -> String {
+        let Some(range) = self.marked_range.as_ref() else {
+            return self.raw_content.clone();
         };
+        let Some(_) = self.raw_content.get(range.clone()) else {
+            return self.raw_content.clone();
+        };
+        let mut committed = self.raw_content.clone();
+        committed.replace_range(range.clone(), "");
+        committed
+    }
 
-        if let Err(error) = type_result {
-            self.validation_error = Some(error.clone());
-            cx.emit(InputEvent::Validate(Err(error.clone())));
-            cx.notify();
-            return Err(error);
-        }
-
-        if let Some(min_length) = self.validation_rules.min_length {
-            if value.chars().count() < min_length {
-                let error = ValidationError {
-                    message: format!("Must be at least {} characters", min_length).into(),
-                    field_name: self.aria_label.clone(),
-                };
+    fn finish_validation(
+        &mut self,
+        result: Result<(), ValidationError>,
+        cx: &mut Context<Self>,
+    ) -> Result<(), ValidationError> {
+        match &result {
+            Ok(()) => {
+                self.validation_error = None;
+                self.success_message = Some("Valid input".into());
+            }
+            Err(error) => {
                 self.validation_error = Some(error.clone());
-                cx.emit(InputEvent::Validate(Err(error.clone())));
-                cx.notify();
-                return Err(error);
             }
         }
-
-        if let Some(max_length) = self.validation_rules.max_length {
-            if value.chars().count() > max_length {
-                let error = ValidationError {
-                    message: format!("Must be no more than {} characters", max_length).into(),
-                    field_name: self.aria_label.clone(),
-                };
-                self.validation_error = Some(error.clone());
-                cx.emit(InputEvent::Validate(Err(error.clone())));
-                cx.notify();
-                return Err(error);
-            }
-        }
-
-        if let Some(pattern) = self.validation_rules.pattern.as_deref() {
-            match regex::Regex::new(pattern) {
-                Ok(regex) if !regex.is_match(value) => {
-                    let error = ValidationError {
-                        message: "Value does not match the required pattern".into(),
-                        field_name: self.aria_label.clone(),
-                    };
-                    self.validation_error = Some(error.clone());
-                    cx.emit(InputEvent::Validate(Err(error.clone())));
-                    cx.notify();
-                    return Err(error);
-                }
-                Err(_) => {
-                    let error = ValidationError {
-                        message: "Invalid validation pattern".into(),
-                        field_name: self.aria_label.clone(),
-                    };
-                    self.validation_error = Some(error.clone());
-                    cx.emit(InputEvent::Validate(Err(error.clone())));
-                    cx.notify();
-                    return Err(error);
-                }
-                Ok(_) => {}
-            }
-        }
-
-        if let Some(ref validator) = self.validation_rules.custom_validator {
-            if let Err(error) = validator(value) {
-                self.validation_error = Some(error.clone());
-                cx.emit(InputEvent::Validate(Err(error.clone())));
-                cx.notify();
-                return Err(error);
-            }
-        }
-
-        self.validation_error = None;
-        self.success_message = Some("Valid input".into());
-        cx.emit(InputEvent::Validate(Ok(())));
+        cx.emit(InputEvent::Validate(result.clone()));
         cx.notify();
-        Ok(())
+        result
     }
 
     pub fn trigger_shake(&mut self) {
@@ -1329,6 +1274,7 @@ impl InputState {
         cx: &mut Context<Self>,
     ) {
         self.sync_raw_content();
+        let had_marked_text = self.marked_range.is_some();
         let display_range = range_utf16
             .as_ref()
             .map(|range_utf16| self.range_from_utf16(range_utf16))
@@ -1381,6 +1327,7 @@ impl InputState {
         let next_raw = self.raw_content[0..range.start].to_owned()
             + &formatted_text
             + &self.raw_content[range.end..];
+        let content_changed = next_raw != self.raw_content;
         let next_display = self.format_content(&next_raw);
         let raw_cursor = range.start + formatted_text.len();
         let cursor = Self::raw_to_display_index(&next_raw, &next_display, raw_cursor);
@@ -1396,11 +1343,13 @@ impl InputState {
         }
         self.invalidate_layout_cache();
 
-        if self.validate_on_change {
+        if (content_changed || had_marked_text) && self.validate_on_change {
             self.validate(cx).ok();
         }
 
-        cx.emit(InputEvent::Change);
+        if content_changed || had_marked_text {
+            cx.emit(InputEvent::Change);
+        }
         cx.notify();
     }
 
@@ -1465,6 +1414,9 @@ impl EntityInputHandler for InputState {
         self.marked_range = None;
         self.invalidate_layout_cache();
         if had_marked_text {
+            if self.validate_on_change {
+                self.validate(cx).ok();
+            }
             cx.emit(InputEvent::Change);
         }
         cx.notify();
@@ -1927,6 +1879,7 @@ pub fn wire_actions(state: &Entity<InputState>, window: &mut Window, cx: &App) -
 mod tests {
     use super::*;
     use crate::capabilities::foundation::theme::{install_theme, Theme};
+    use std::sync::Arc;
 
     struct TestView {
         state: Entity<InputState>,
@@ -2474,6 +2427,43 @@ mod tests {
                 state.replace_text_in_range(Some(1..3), "", window, cx);
                 assert_eq!(state.content(), "ab");
                 assert_eq!(state.selected_range, 1..1);
+            });
+        });
+    }
+    #[gpui::test]
+    fn ime_composition_state_is_queryable() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| cx.new(InputState::new));
+        let mut window = app.open_window(|_, _| TestView {
+            state: state.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.set_value("hello", window, cx);
+                assert!(!state.is_composing());
+                assert_eq!(state.composition_char_count(), 0);
+
+                // IME starts composing "nihao" at the caret.
+                state.replace_and_mark_text_in_range(None, "nihao", None, window, cx);
+                assert!(state.is_composing());
+                assert_eq!(state.composition_char_count(), 5);
+                // Committed length excludes the in-flight composition.
+                assert_eq!(
+                    state.content().chars().count() - state.composition_char_count(),
+                    5
+                );
+            });
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                // Committing the composed text ends the composition.
+                state.replace_text_in_range(None, "你好", window, cx);
+                assert!(!state.is_composing());
+                assert_eq!(state.composition_char_count(), 0);
+                assert_eq!(state.content(), "hello你好");
             });
         });
     }

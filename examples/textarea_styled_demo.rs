@@ -66,7 +66,7 @@ struct TextareaStyledDemo {
 
 impl TextareaStyledDemo {
     fn new(cx: &mut Context<Self>) -> Self {
-        let states: Vec<Entity<TextareaState>> = (0..18)
+        let states: Vec<Entity<TextareaState>> = (0..21)
             .map(|_| cx.new(|cx| TextareaState::new(cx)))
             .collect();
         Self { states }
@@ -343,6 +343,42 @@ impl Render for TextareaStyledDemo {
                                     .rows(3)
                                     .border_1()
                                     .border_color(theme.tokens.primary)
+                            )
+                    )
+            )
+            // 8. Validation & Character Count
+            .child(
+                VStack::new()
+                    .gap(px(16.0))
+                    .child(
+                        div()
+                            .text_size(px(18.0))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("8. Validation & Character Count")
+                    )
+                    .child(
+                        VStack::new()
+                            .gap(px(12.0))
+                            .child(
+                                Textarea::new(&self.states[18])
+                                    .placeholder("Required field (blur to validate)")
+                                    .required(true)
+                                    .helper_text("This field is required")
+                                    .rows(3)
+                            )
+                            .child(
+                                Textarea::new(&self.states[19])
+                                    .placeholder("Max 140 characters with live count")
+                                    .max_length(140)
+                                    .show_character_count(true)
+                                    .rows(3)
+                            )
+                            .child(
+                                Textarea::new(&self.states[20])
+                                    .placeholder("At least 10 characters")
+                                    .min_length(10)
+                                    .helper_text("Tell us a bit more (10+ characters)")
+                                    .rows(3)
                             )
                     )
             )
