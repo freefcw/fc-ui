@@ -468,6 +468,7 @@ impl RenderOnce for Textarea {
         });
 
         let field = wire_actions(&self.state, window, cx)
+            .debug_selector(|| "textarea-field".into())
             .role(Role::MultilineTextInput)
             .when_some(self.aria_label.clone(), |this, label| {
                 this.aria_label(label)
@@ -516,6 +517,7 @@ impl RenderOnce for Textarea {
 
         if has_footer {
             VStack::new()
+                .debug_selector(|| "textarea-root".into())
                 .w_full()
                 .gap(px(4.0))
                 .child(field)

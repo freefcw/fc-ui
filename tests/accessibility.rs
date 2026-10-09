@@ -1,5 +1,7 @@
 use fc_ui::{
     components::input::{Input, InputState},
+    components::textarea::Textarea,
+    components::textarea_state::TextareaState,
     prelude::{Button, Checkbox, Dialog, Select, SelectOption},
 };
 use gpui::{
@@ -42,6 +44,36 @@ struct InputView {
     state: gpui::Entity<InputState>,
     disabled: bool,
     password: bool,
+}
+
+struct TextareaView {
+    state: gpui::Entity<TextareaState>,
+    disabled: bool,
+}
+
+struct TextareaLayoutView {
+    state: gpui::Entity<TextareaState>,
+}
+
+impl Render for TextareaLayoutView {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl gpui::IntoElement {
+        Textarea::new(&self.state)
+            .w(gpui::px(320.0))
+            .helper_text("Helper text")
+            .show_character_count(true)
+    }
+}
+
+impl Render for TextareaView {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl gpui::IntoElement {
+        Textarea::new(&self.state)
+            .aria_label("Biography")
+            .aria_description("Tell us about yourself")
+            .placeholder("Write a short biography")
+            .required(true)
+            .error(true)
+            .disabled(self.disabled)
+    }
 }
 
 impl Render for InputView {
@@ -416,6 +448,57 @@ fn password_input_does_not_expose_its_raw_value(cx: &mut TestAppContext) {
 
     assert_ne!(input["aria"]["value"], "alice@example.com");
     assert!(!input["aria"]["value"].as_str().unwrap().is_empty());
+}
+
+#[gpui::test]
+fn textarea_exposes_its_multiline_form_field_semantics(cx: &mut TestAppContext) {
+    let tree = draw_accessibility_tree(cx, |cx| {
+        cx.add_window(|_, cx| TextareaView {
+            state: cx.new(|cx| TextareaState::new(cx).value("hello")),
+            disabled: false,
+        });
+    });
+    let textarea = node_with_role(&tree, "MultilineTextInput");
+
+    assert_eq!(textarea["aria"]["label"], "Biography");
+    assert_eq!(textarea["aria"]["description"], "Tell us about yourself");
+    assert_eq!(textarea["aria"]["value"], "hello");
+    assert_eq!(textarea["aria"]["placeholder"], "Write a short biography");
+    assert_eq!(textarea["aria"]["required"], true);
+    assert_eq!(textarea["aria"]["invalid"], "True");
+}
+
+#[gpui::test]
+fn disabled_textarea_reports_its_disabled_state(cx: &mut TestAppContext) {
+    let tree = draw_accessibility_tree(cx, |cx| {
+        cx.add_window(|_, cx| TextareaView {
+            state: cx.new(TextareaState::new),
+            disabled: true,
+        });
+    });
+    let textarea = node_with_role(&tree, "MultilineTextInput");
+
+    assert_eq!(textarea["aria"]["disabled"], true);
+}
+
+#[gpui::test]
+fn textarea_footer_preserves_component_width(cx: &mut TestAppContext) {
+    cx.update(fc_ui::init);
+    let (_, cx) = cx.add_window_view(|_, cx| TextareaLayoutView {
+        state: cx.new(TextareaState::new),
+    });
+
+    cx.update(|window, cx| window.draw(cx).clear());
+    let root = cx
+        .debug_bounds("textarea-root")
+        .expect("textarea root should expose its bounds");
+    let field = cx
+        .debug_bounds("textarea-field")
+        .expect("textarea field should expose its bounds");
+
+    assert!(root.size.width > gpui::px(0.0));
+    assert_eq!(root.size.width, field.size.width);
+    assert!(root.size.height > field.size.height);
 }
 
 #[gpui::test]
