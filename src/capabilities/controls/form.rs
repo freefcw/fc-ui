@@ -1,12 +1,63 @@
 use crate::capabilities::controls::input::InputEvent;
 use crate::capabilities::controls::input_state::InputState;
+use crate::capabilities::controls::textarea_state::TextareaState;
+use crate::capabilities::controls::validation::ValidationError;
 use crate::capabilities::layout::VStack;
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use std::collections::{HashMap, HashSet};
 
+/// A field registered with a [`Form`] for validation orchestration.
+///
+/// Single-line (`InputState`) and multi-line (`TextareaState`) inputs share
+/// the same validation machinery, so the form validates either kind without
+/// knowing which one it holds.
+#[derive(Clone)]
+pub enum FormField {
+    Input(Entity<InputState>),
+    Textarea(Entity<TextareaState>),
+}
+
+impl From<Entity<InputState>> for FormField {
+    fn from(state: Entity<InputState>) -> Self {
+        Self::Input(state)
+    }
+}
+
+impl From<Entity<TextareaState>> for FormField {
+    fn from(state: Entity<TextareaState>) -> Self {
+        Self::Textarea(state)
+    }
+}
+
+impl FormField {
+    /// Validate the underlying field state, recording its error/success
+    /// message on the state itself.
+    pub fn validate(&self, cx: &mut App) -> Result<(), ValidationError> {
+        match self {
+            Self::Input(entity) => entity.update(cx, |state, cx| state.validate(cx)),
+            Self::Textarea(entity) => entity.update(cx, |state, cx| state.validate(cx)),
+        }
+    }
+
+    fn clear_validation(&self, cx: &mut App) {
+        match self {
+            Self::Input(entity) => entity.update(cx, |state, cx| {
+                state.validation_error = None;
+                state.success_message = None;
+                cx.notify();
+            }),
+            Self::Textarea(entity) => entity.update(cx, |state, cx| {
+                state.validation_error = None;
+                state.success_message = None;
+                cx.notify();
+            }),
+        }
+    }
+}
+
 pub struct FormState {
-    fields: Vec<(SharedString, Entity<InputState>)>,
+    fields: Vec<(SharedString, FormField)>,
     errors: HashMap<SharedString, Vec<String>>,
     dirty: HashSet<SharedString>,
     submitted: bool,
@@ -24,10 +75,12 @@ impl FormState {
         })
     }
 
-    /// Register an input for validation and Enter-driven form submission.
-    pub fn register_field(&mut self, name: impl Into<SharedString>, state: Entity<InputState>) {
+    /// Register a field for validation and Enter-driven form submission.
+    ///
+    /// Accepts both `Entity<InputState>` and `Entity<TextareaState>`.
+    pub fn register_field(&mut self, name: impl Into<SharedString>, field: impl Into<FormField>) {
         let name = name.into();
-        self.fields.push((name, state));
+        self.fields.push((name, field.into()));
     }
 
     fn replace_field_subscriptions(&mut self, subscriptions: Vec<Subscription>) {
@@ -41,8 +94,8 @@ impl FormState {
         let fields: Vec<_> = self.fields.clone();
         let mut all_valid = true;
 
-        for (name, field_entity) in fields {
-            let result = field_entity.update(cx, |state, cx| state.validate(cx));
+        for (name, field) in fields {
+            let result = field.validate(cx);
 
             if let Err(error) = result {
                 all_valid = false;
@@ -74,6 +127,10 @@ impl FormState {
     }
 
     pub fn reset(&mut self, cx: &mut Context<Self>) {
+        let fields = self.fields.clone();
+        for (_, field) in fields {
+            field.clear_validation(cx);
+        }
         self.errors.clear();
         self.dirty.clear();
         self.submitted = false;
@@ -136,11 +193,16 @@ impl RenderOnce for Form {
 
         let handler = on_submit.map(std::rc::Rc::new);
         let subscriptions = if let Some(handler) = handler {
+            // Enter-driven submission only applies to single-line inputs; in a
+            // textarea Enter inserts a newline.
             let fields: Vec<_> = state
                 .read(cx)
                 .fields
                 .iter()
-                .map(|(_, field)| field.clone())
+                .filter_map(|(_, field)| match field {
+                    FormField::Input(entity) => Some(entity.clone()),
+                    FormField::Textarea(_) => None,
+                })
                 .collect();
             fields
                 .into_iter()
@@ -246,5 +308,45 @@ mod tests {
 
         assert_eq!(submits.get(), 1);
         assert_eq!(enters.get(), 1);
+    }
+    #[gpui::test]
+    fn validate_all_covers_textarea_fields() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+
+        let input = app.update(|cx| cx.new(InputState::new));
+        let textarea = app.update(|cx| {
+            cx.new(|cx| {
+                crate::capabilities::controls::textarea_state::TextareaState::new(cx)
+                    .min_length(3)
+                    .value("ab")
+            })
+        });
+        let form = app.update(|cx| {
+            let form = FormState::new(cx);
+            form.update(cx, |form, _| {
+                form.register_field("name", input.clone());
+                form.register_field("bio", textarea.clone());
+            });
+            form
+        });
+
+        app.update(|cx| {
+            let valid = form.update(cx, |form, cx| form.validate_all(cx));
+            assert!(!valid);
+            assert_eq!(
+                form.read(cx).field_errors("bio").unwrap()[0].as_str(),
+                "Must be at least 3 characters"
+            );
+            // The optional empty input skips constraint checks entirely.
+            assert!(form.read(cx).field_errors("name").is_none());
+        });
+
+        app.update(|cx| {
+            textarea.update(cx, |state, _| state.content = "abcd".into());
+            let valid = form.update(cx, |form, cx| form.validate_all(cx));
+            assert!(valid);
+            assert!(form.read(cx).is_valid());
+        });
     }
 }
