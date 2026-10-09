@@ -393,6 +393,9 @@ impl RenderOnce for Textarea {
             )
         };
 
+        // A failed validation (e.g. on blur) shows the destructive border just
+        // like an explicit `.error(true)`.
+        let has_error = self.error || validation_error.is_some();
 
         let (bg_color, border_color, text_color) = if self.disabled {
             (
@@ -400,7 +403,7 @@ impl RenderOnce for Textarea {
                 theme.tokens.border,
                 theme.tokens.muted_foreground,
             )
-        } else if self.error {
+        } else if has_error {
             match self.variant {
                 InputVariant::Default => (
                     theme.tokens.background,
@@ -476,7 +479,7 @@ impl RenderOnce for Textarea {
             .aria_placeholder(self.placeholder.clone())
             .aria_disabled(self.disabled)
             .aria_required(self.state.read(cx).validation_rules.required)
-            .when(self.error, |this| {
+            .when(has_error, |this| {
                 this.aria_invalid(gpui::accesskit::Invalid::True)
             })
             .w_full()
@@ -494,7 +497,7 @@ impl RenderOnce for Textarea {
             .text_color(text_color)
             .when(!self.disabled, |this| {
                 this.hover(|style| {
-                    style.border_color(if self.error {
+                    style.border_color(if has_error {
                         theme.tokens.destructive
                     } else {
                         theme.tokens.ring
@@ -502,7 +505,7 @@ impl RenderOnce for Textarea {
                 })
             })
             .when(is_focused && !self.disabled, |this| {
-                this.border_color(if self.error {
+                this.border_color(if has_error {
                     theme.tokens.destructive
                 } else {
                     theme.tokens.ring

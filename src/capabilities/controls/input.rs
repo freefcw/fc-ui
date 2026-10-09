@@ -648,13 +648,18 @@ impl RenderOnce for Input {
 
         self.install_event_subscription(cx);
 
+        // A failed validation (e.g. on blur) shows the destructive border just
+        // like an explicit `.error(true)`, matching what `aria_invalid`
+        // already announces.
+        let has_error = self.error || self.state.read(cx).validation_error.is_some();
+
         let (bg_color, border_color, text_color) = if self.disabled {
             (
                 theme.tokens.muted.opacity(0.5),
                 theme.tokens.border,
                 theme.tokens.muted_foreground,
             )
-        } else if self.error {
+        } else if has_error {
             match self.variant {
                 InputVariant::Default => (
                     theme.tokens.background,
@@ -719,7 +724,7 @@ impl RenderOnce for Input {
             input_state.content.clone()
         };
         let aria_required = input_state.validation_rules.required;
-        let aria_invalid = self.error || validation_error.is_some();
+        let aria_invalid = has_error;
         let shake_triggered = input_state.shake_triggered;
 
         if shake_triggered {
@@ -780,7 +785,7 @@ impl RenderOnce for Input {
                             .when(!self.disabled, |h| h.cursor(gpui::CursorStyle::IBeam))
                             .when(!self.disabled, |h| {
                                 h.hover(move |style| {
-                                    style.border_color(if self.error {
+                                    style.border_color(if has_error {
                                         destructive_color
                                     } else {
                                         ring_color
@@ -788,7 +793,7 @@ impl RenderOnce for Input {
                                 })
                             })
                             .when(is_focused && !self.disabled, |h| {
-                                if self.error {
+                                if has_error {
                                     h.border_color(destructive_color)
                                         .shadow(smallvec::smallvec![error_ring_focused])
                                 } else {
@@ -796,7 +801,7 @@ impl RenderOnce for Input {
                                         .shadow(smallvec::smallvec![focus_ring])
                                 }
                             })
-                            .when(self.error && !is_focused, |h| {
+                            .when(has_error && !is_focused, |h| {
                                 h.shadow(smallvec::smallvec![error_ring_unfocused])
                             })
                             .children(self.prefix)
