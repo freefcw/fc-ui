@@ -244,7 +244,7 @@ impl RenderOnce for Form {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::capabilities::controls::input::Input;
+    use crate::capabilities::controls::{input::Input, textarea::Textarea};
     use crate::capabilities::foundation::theme::{install_theme, Theme};
     use std::cell::Cell;
     use std::rc::Rc;
@@ -348,5 +348,98 @@ mod tests {
             assert!(valid);
             assert!(form.read(cx).is_valid());
         });
+    }
+
+    #[gpui::test]
+    fn reset_clears_form_and_field_validation_state() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+
+        let input = app.update(|cx| cx.new(|cx| InputState::new(cx).required(true)));
+        let textarea = app.update(|cx| cx.new(|cx| TextareaState::new(cx).required(true)));
+        let form = app.update(|cx| {
+            let form = FormState::new(cx);
+            form.update(cx, |form, _| {
+                form.register_field("name", input.clone());
+                form.register_field("bio", textarea.clone());
+                form.mark_dirty("name");
+            });
+            form
+        });
+
+        app.update(|cx| {
+            let valid = form.update(cx, |form, cx| form.validate_all(cx));
+            assert!(!valid);
+            assert!(input.read(cx).validation_error.is_some());
+            assert!(textarea.read(cx).validation_error.is_some());
+            assert!(form.read(cx).is_submitted());
+            assert!(form.read(cx).is_dirty());
+        });
+
+        app.update(|cx| form.update(cx, |form, cx| form.reset(cx)));
+
+        app.update(|cx| {
+            assert!(form.read(cx).is_valid());
+            assert!(!form.read(cx).is_submitted());
+            assert!(!form.read(cx).is_dirty());
+            assert!(input.read(cx).validation_error.is_none());
+            assert!(input.read(cx).success_message.is_none());
+            assert!(textarea.read(cx).validation_error.is_none());
+            assert!(textarea.read(cx).success_message.is_none());
+        });
+    }
+
+    struct TextareaFormTestView {
+        form: Entity<FormState>,
+        textarea: Entity<TextareaState>,
+        submits: Rc<Cell<usize>>,
+        enters: Rc<Cell<usize>>,
+    }
+
+    impl Render for TextareaFormTestView {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            let submits = self.submits.clone();
+            let enters = self.enters.clone();
+            Form::new(self.form.clone())
+                .child(Textarea::new(&self.textarea).on_enter(move |_, _| {
+                    enters.set(enters.get() + 1);
+                }))
+                .on_submit(move |_, _| submits.set(submits.get() + 1))
+        }
+    }
+
+    #[gpui::test]
+    fn enter_in_textarea_inserts_newline_without_submitting_form() {
+        let mut app = TestApp::new();
+        app.update(|cx| {
+            install_theme(cx, Theme::light());
+            crate::capabilities::controls::textarea::init(cx);
+        });
+
+        let textarea = app.update(|cx| cx.new(TextareaState::new));
+        let form = app.update(|cx| {
+            let form = FormState::new(cx);
+            form.update(cx, |form, _| form.register_field("bio", textarea.clone()));
+            form
+        });
+        let submits = Rc::new(Cell::new(0));
+        let enters = Rc::new(Cell::new(0));
+        let mut window = app.open_window(|_, _| TextareaFormTestView {
+            form,
+            textarea: textarea.clone(),
+            submits: submits.clone(),
+            enters: enters.clone(),
+        });
+
+        window.draw();
+        window.update(|_, window, cx| textarea.read(cx).focus_handle(cx).focus(window));
+        window.draw();
+        let handle: AnyWindowHandle = window.handle().into();
+        app.raw_context_mut().simulate_keystrokes(handle, "enter");
+        app.flush();
+
+        app.update(|cx| assert_eq!(textarea.read(cx).content(), "\n"));
+        assert_eq!(enters.get(), 1);
+        assert_eq!(submits.get(), 0);
     }
 }
