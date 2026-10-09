@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-10-09
+
 ### Added
 
 - `Textarea` gains accessibility semantics matching `Input`: `aria_label()`/`aria_description()` builders, `Role::MultilineTextInput`, and `aria_value`/`aria_placeholder`/`aria_disabled`/`aria_required`/`aria_invalid` on the field, so validation failures are announced to screen readers and not only shown visually.
