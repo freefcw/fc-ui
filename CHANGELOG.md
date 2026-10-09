@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Tag-driven releases: pushing a `v*` tag runs a release workflow that verifies the tag matches the `Cargo.toml` package version, runs the CI test suite, publishes to crates.io, and creates a GitHub Release.
+
 ## [0.9.3] - 2026-10-09
 
 ### Added

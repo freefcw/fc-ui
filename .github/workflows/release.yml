@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: publish to crates.io
+    runs-on: macos-15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install just
+        uses: extractions/setup-just@v3
+        with:
+          just-version: 1.54.0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ runner.os }}-cargo-release
+
+      # Guard against tagging a commit whose Cargo.toml version drifted from
+      # the tag (e.g. tagging v0.9.4 while Cargo.toml still says 0.9.3).
+      - name: Verify tag matches Cargo.toml version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          grep -q "^version = \"${version}\"$" Cargo.toml \
+            || { echo "tag ${GITHUB_REF_NAME} does not match the Cargo.toml package version"; exit 1; }
+
+      - name: Run the CI test suite
+        run: just test-ci
+
+      - name: Publish to crates.io
+        run: cargo publish --token "$CARGO_REGISTRY_TOKEN"
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Create GitHub Release
+        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

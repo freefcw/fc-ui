@@ -52,3 +52,7 @@ GitHub Actions uses `gpui/runtime_shaders` on hosted macOS runners because the d
 The `Justfile` is the canonical command source for local development and CI targets.
 
 `just verify-capabilities-ci` validates the public API contract both without default features and with all package features enabled.
+
+## Release
+
+Pushing a `v*` tag runs `.github/workflows/release.yml`: it verifies the tag matches the `Cargo.toml` package version, runs `just test-ci`, publishes to crates.io with the `CARGO_REGISTRY_TOKEN` repository secret, and creates a GitHub Release. Before tagging, bump `version` in `Cargo.toml`, finalize the CHANGELOG `[Unreleased]` section, and commit as `release: prepare fc-ui vX.Y.Z`.

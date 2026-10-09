@@ -35,6 +35,10 @@ The `Justfile` is the canonical command source for local development and CI targ
 
 `just verify-capabilities-ci` validates the public API contract both without default features and with all package features enabled.
 
+## Release
+
+Pushing a `v*` tag runs `.github/workflows/release.yml`: it verifies the tag matches the `Cargo.toml` package version, runs `just test-ci`, publishes to crates.io with the `CARGO_REGISTRY_TOKEN` repository secret, and creates a GitHub Release. Manual steps before tagging: bump `version` in `Cargo.toml`, finalize the CHANGELOG `[Unreleased]` section as `[X.Y.Z] - <date>`, and commit as `release: prepare fc-ui vX.Y.Z`.
+
 ## Working Rules
 
 - Keep changes small and scoped to the requested task.
