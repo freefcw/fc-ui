@@ -7,14 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+## [0.9.4] - 2026-10-16
 
-- Tag-driven releases: pushing a `v*` tag runs a release workflow that verifies the tag matches the `Cargo.toml` package version, runs the CI test suite, publishes to crates.io, and creates a GitHub Release.
+### Changed
+
+- The GPUI dependency moves to `fc-gpui` 0.11.3. On macOS, closing a window no longer panics when AppKit delivers a mouse-move, key, drag, resize, or text-input event after the window handle has been taken and before `NSWindow.close()` runs (`MacWindowState.native_window already taken`). No source changes were required.
 
 ## [0.9.3] - 2026-10-09
 
 ### Added
 
+- Tag-driven releases: pushing a `v*` tag runs a release workflow that verifies the tag matches the `Cargo.toml` package version, runs the CI test suite, publishes to crates.io, and creates a GitHub Release.
 - `Textarea` gains accessibility semantics matching `Input`: `aria_label()`/`aria_description()` builders, `Role::MultilineTextInput`, and `aria_value`/`aria_placeholder`/`aria_disabled`/`aria_required`/`aria_invalid` on the field, so validation failures are announced to screen readers and not only shown visually.
 - `Input` and `Textarea` now render the destructive border/hover/focus ring whenever validation has failed (previously only an explicit `.error(true)` changed the border), matching what `aria_invalid` already announced and standard web form behavior.
 - `Textarea` now shares the validation machinery previously exclusive to `Input`: `validation_rules`/`min_length`/`max_length`/`required`/`custom_validator` builders, `TextareaEvent::Validate`, `on_validate` callbacks, validate-on-blur and validate-on-change, plus `max_length` truncation of typed and programmatically-set values (input rejected by the limit no longer emits a spurious `Change`). Validation is deferred while an IME composition is in flight and runs against the committed text afterwards. Automatic (blur/change-triggered) validation only runs when validation rules are configured, so existing unconfigured textareas render exactly as before; explicit `validate()` calls (e.g. from `Form`) always run. A footer row mirrors `Input`: `helper_text` and `show_character_count` render error/success/helper text alongside a live character counter that turns destructive at the limit.

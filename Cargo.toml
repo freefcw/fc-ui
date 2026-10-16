@@ -1,6 +1,6 @@
 [package]
 name = "fc-ui"
-version = "0.9.3"
+version = "0.9.4"
 edition = "2021"
 authors = ["fc-ui Team"]
 license = "MIT"
@@ -24,7 +24,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 # Core Framework
-gpui = { package = "fc-gpui", version = "0.11.2", default-features = false, features = ["font-kit", "wayland", "x11", "windows-manifest"] }
+gpui = { package = "fc-gpui", version = "0.11.3", default-features = false, features = ["font-kit", "wayland", "x11", "windows-manifest"] }
 smallvec = "1.13.2"
 
 # Text Processing
@@ -82,7 +82,7 @@ markup5ever_rcdom = { version = "0.38", optional = true }
 rodio = { version = "0.22", default-features = false, features = ["playback", "flac", "mp3", "vorbis", "wav"], optional = true }
 
 [dev-dependencies]
-gpui = { package = "fc-gpui", version = "0.11.2", default-features = false, features = ["image-format-jpeg", "test-support"] }
+gpui = { package = "fc-gpui", version = "0.11.3", default-features = false, features = ["image-format-jpeg", "test-support"] }
 anyhow = "1.0"
 image = { version = "0.25", default-features = false }
 serde_json = "1.0"
