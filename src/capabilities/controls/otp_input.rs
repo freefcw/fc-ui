@@ -43,30 +43,20 @@ pub enum OTPInputEvent {
     Blur,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OTPInputSize {
     Sm,
+    #[default]
     Md,
     Lg,
 }
 
-impl Default for OTPInputSize {
-    fn default() -> Self {
-        Self::Md
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OTPInputState {
+    #[default]
     Default,
     Error,
     Success,
-}
-
-impl Default for OTPInputState {
-    fn default() -> Self {
-        Self::Default
-    }
 }
 
 pub struct OTPState {

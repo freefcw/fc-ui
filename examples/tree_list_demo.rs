@@ -56,7 +56,7 @@ impl TreeListDemo {
             selected_tree_node: Some("home".to_string()),
             expanded_tree_nodes: vec![], // Start with no nodes expanded
             tree_filter: String::new(),
-            tree_search_input: cx.new(|cx| InputState::new(cx)),
+            tree_search_input: cx.new(InputState::new),
             auto_expand_matches: true,
             selected_list_item: Some("dashboard".to_string()),
         }
@@ -330,7 +330,7 @@ impl Render for TreeListDemo {
                                                 .text_size(px(13.0))
                                                 .child(format!(
                                                     "Selected: {} | Expanded: {} | Filter: {}",
-                                                    self.selected_tree_node.as_ref().map(|s| s.as_str()).unwrap_or("None"),
+                                                    self.selected_tree_node.as_deref().unwrap_or("None"),
                                                     self.expanded_tree_nodes.len(),
                                                     if self.tree_filter.is_empty() { "None" } else { &self.tree_filter }
                                                 ))
@@ -409,7 +409,7 @@ impl Render for TreeListDemo {
                                                 .text_size(px(13.0))
                                                 .child(format!(
                                                     "Selected: {}",
-                                                    self.selected_list_item.as_ref().map(|s| s.as_str()).unwrap_or("None")
+                                                    self.selected_list_item.as_deref().unwrap_or("None")
                                                 ))
                                         ),
                                 )
@@ -483,7 +483,7 @@ fn main() {
                     }),
                     ..Default::default()
                 },
-                |_window, cx| cx.new(|cx| TreeListDemo::new(cx)),
+                |_window, cx| cx.new(TreeListDemo::new),
             )
             .unwrap();
         });

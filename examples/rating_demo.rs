@@ -51,7 +51,7 @@ fn main() {
                     })),
                     ..Default::default()
                 },
-                |_, cx| cx.new(|cx| RatingDemo::new(cx)),
+                |_, cx| cx.new(RatingDemo::new),
             )
             .unwrap();
         });

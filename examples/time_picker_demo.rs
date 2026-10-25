@@ -19,7 +19,7 @@ impl TimePickerDemo {
             state.set_format(TimeFormat::Hour12, cx);
             state
         });
-        let time_24h = cx.new(|cx| TimePickerState::new(cx));
+        let time_24h = cx.new(TimePickerState::new);
         let time_with_seconds = cx.new(|cx| {
             let mut state = TimePickerState::new(cx);
             state.set_show_seconds(true, cx);
@@ -182,7 +182,7 @@ fn main() {
                 }),
                 ..Default::default()
             },
-            |_, cx| cx.new(|cx| TimePickerDemo::new(cx)),
+            |_, cx| cx.new(TimePickerDemo::new),
         )
         .unwrap();
 

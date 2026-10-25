@@ -53,7 +53,7 @@ fn main() {
                     })),
                     ..Default::default()
                 },
-                |_, cx| cx.new(|cx| VideoPlayerDemoApp::new(cx)),
+                |_, cx| cx.new(VideoPlayerDemoApp::new),
             )
             .unwrap();
         });

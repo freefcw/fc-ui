@@ -58,7 +58,7 @@ fn main() {
                     })),
                     ..Default::default()
                 },
-                |_, cx| cx.new(|cx| CountdownDemo::new(cx)),
+                |_, cx| cx.new(CountdownDemo::new),
             )
             .unwrap();
         });

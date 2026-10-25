@@ -88,6 +88,7 @@ const JETBRAINS_MONO_BOLD: &[u8] = include_bytes!("../../../assets/fonts/JetBrai
 ///     // ... rest of initialization
 /// });
 /// ```
+#[allow(clippy::vec_init_then_push)]
 pub fn register_fonts(cx: &mut App) {
     // Register Inter family (UI font)
     #[allow(unused_mut)]

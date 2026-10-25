@@ -104,7 +104,7 @@ impl RenderOnce for Accordion {
 
                 item.bordered(self.bordered)
                     .disabled(self.disabled)
-                    .is_open(is_open)
+                    .open_state(is_open)
                     .on_toggle(move |is_opening, window, cx| {
                         let mut indices = open_indices_clone.clone();
 
@@ -188,7 +188,7 @@ impl AccordionItem {
         self
     }
 
-    fn is_open(mut self, is_open: bool) -> Self {
+    fn open_state(mut self, is_open: bool) -> Self {
         self.is_open = is_open;
         self
     }

@@ -55,7 +55,7 @@ fn main() {
                     window_min_size: Some(size(px(400.0), px(300.0))),
                     ..Default::default()
                 },
-                |_, cx| cx.new(|cx| TextareaDemo::new(cx)),
+                |_, cx| cx.new(TextareaDemo::new),
             )
             .unwrap();
         });
@@ -67,7 +67,7 @@ struct TextareaDemo {
 
 impl TextareaDemo {
     fn new(cx: &mut Context<Self>) -> Self {
-        let textarea_state = cx.new(|cx| TextareaState::new(cx));
+        let textarea_state = cx.new(TextareaState::new);
 
         cx.subscribe(
             &textarea_state,

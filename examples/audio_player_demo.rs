@@ -52,7 +52,7 @@ fn main() {
                     })),
                     ..Default::default()
                 },
-                |_, cx| cx.new(|cx| AudioPlayerDemo::new(cx)),
+                |_, cx| cx.new(AudioPlayerDemo::new),
             )
             .unwrap();
         });

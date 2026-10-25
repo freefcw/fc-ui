@@ -54,7 +54,7 @@ fn main() {
                     })),
                     ..Default::default()
                 },
-                |_, cx| cx.new(|cx| TextareaStyledDemo::new(cx)),
+                |_, cx| cx.new(TextareaStyledDemo::new),
             )
             .unwrap();
         });
@@ -66,9 +66,8 @@ struct TextareaStyledDemo {
 
 impl TextareaStyledDemo {
     fn new(cx: &mut Context<Self>) -> Self {
-        let states: Vec<Entity<TextareaState>> = (0..21)
-            .map(|_| cx.new(|cx| TextareaState::new(cx)))
-            .collect();
+        let states: Vec<Entity<TextareaState>> =
+            (0..21).map(|_| cx.new(TextareaState::new)).collect();
         Self { states }
     }
 }

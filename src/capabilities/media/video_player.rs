@@ -6,32 +6,22 @@ use std::time::{Duration, Instant};
 type WindowCallback = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 type ValueCallback<T> = Rc<dyn Fn(T, &mut Window, &mut App) + 'static>;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub enum VideoPlaybackState {
+    #[default]
     Stopped,
     Playing,
     Paused,
     Buffering,
 }
 
-impl Default for VideoPlaybackState {
-    fn default() -> Self {
-        Self::Stopped
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub enum VideoPlayerSize {
     Sm,
+    #[default]
     Md,
     Lg,
     Full,
-}
-
-impl Default for VideoPlayerSize {
-    fn default() -> Self {
-        Self::Md
-    }
 }
 
 impl VideoPlayerSize {
@@ -63,21 +53,16 @@ impl VideoPlayerSize {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub enum VideoPlaybackSpeed {
     Quarter,
     Half,
     ThreeQuarter,
+    #[default]
     Normal,
     OneAndQuarter,
     OneAndHalf,
     Double,
-}
-
-impl Default for VideoPlaybackSpeed {
-    fn default() -> Self {
-        Self::Normal
-    }
 }
 
 impl VideoPlaybackSpeed {

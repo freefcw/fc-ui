@@ -1,3 +1,5 @@
+#![allow(clippy::type_complexity)]
+
 use fc_ui::{
     animations::easings,
     components::{
@@ -61,8 +63,8 @@ struct PolishV2Demo {
 impl PolishV2Demo {
     fn new(cx: &mut Context<Self>) -> Self {
         Self {
-            input_state: cx.new(|cx| InputState::new(cx)),
-            toast_manager: cx.new(|cx| ToastManager::new(cx)),
+            input_state: cx.new(InputState::new),
+            toast_manager: cx.new(ToastManager::new),
             content_key: 0,
             transition_state: ContentTransitionState::new(),
         }
@@ -989,7 +991,7 @@ fn main() {
                     }),
                     ..Default::default()
                 },
-                |_window, cx| cx.new(|cx| PolishV2Demo::new(cx)),
+                |_window, cx| cx.new(PolishV2Demo::new),
             )
             .unwrap();
 

@@ -239,6 +239,7 @@ impl Textarea {
             .get_or_insert_with(ValidationRules::default)
     }
 
+    #[allow(clippy::arc_with_non_send_sync)]
     fn validation_rules_for_state(&self) -> Option<ValidationRules> {
         let mut rules = self.validation_rules.clone().or_else(|| {
             self.custom_validator

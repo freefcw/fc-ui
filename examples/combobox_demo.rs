@@ -51,7 +51,7 @@ fn main() {
                     })),
                     ..Default::default()
                 },
-                |_, cx| cx.new(|cx| ComboboxDemo::new(cx)),
+                |_, cx| cx.new(ComboboxDemo::new),
             )
             .unwrap();
         });

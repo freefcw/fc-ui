@@ -25,6 +25,14 @@
 //! paths, never `super::...`, so dependency direction has one clear, checked
 //! spelling.
 
+// GPUI component APIs intentionally expose callback and rendering-context
+// signatures that Clippy cannot express compactly without adding aliases at
+// every component boundary. The callback shapes are part of the component
+// contracts, and the render helpers naturally need several context values.
+#![allow(clippy::type_complexity)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::wrong_self_convention)]
+
 pub mod content;
 pub mod controls;
 pub mod data;

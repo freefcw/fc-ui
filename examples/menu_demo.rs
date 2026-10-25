@@ -416,7 +416,7 @@ fn main() {
                     }),
                     ..Default::default()
                 },
-                |_window, cx| cx.new(|cx| MenuDemo::new(cx)),
+                |_window, cx| cx.new(MenuDemo::new),
             )
             .unwrap();
         });
