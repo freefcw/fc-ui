@@ -254,6 +254,7 @@ impl Render for Dialog {
             .child(
                 div()
                     .id("dialog-content")
+                    .debug_selector(|| "dialog-content".to_string())
                     .role(Role::Dialog)
                     .when_some(self.title.clone(), |this, title| this.aria_label(title))
                     .when_some(self.description.clone(), |this, description| {

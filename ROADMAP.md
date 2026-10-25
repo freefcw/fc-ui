@@ -639,7 +639,81 @@ The web won the UI war through ecosystem, not rendering quality. HTML/CSS/JS are
 
 ---
 
-## 5. FOUNDATION FOLLOW-UPS (UNSCHEDULED)
+## 5. FC-GPUI 0.12.0 REGRESSION PLAN
+
+> **Status**: The `fc-gpui 0.12.0` / Taffy 0.15 upgrade is complete; the regression
+> baseline is planned next. This track protects fc-ui's layout contract without
+> depending on GPUI's internal Taffy types.
+
+**Business outcome**: users should not see clipped content, unexpected scrollbars,
+uneven spacing, drifting dialogs, or misaligned table cells after the framework
+upgrade.
+
+### Taffy 0.15 layout regression baseline
+
+The upstream layout engine changed from Taffy 0.14 to 0.15 as part of the
+`fc-gpui 0.12.0` upgrade. The goal is to verify observable fc-ui behavior rather
+than snapshot implementation details.
+
+#### Priority P0 — deterministic headless tests
+
+- [x] **`Justify::Evenly` distributes free space evenly**
+  - Verify the `HStack`/`VStack` adapter still maps to `SpaceEvenly`.
+  - Assert leading, inter-item, and trailing gaps for 2–4 children.
+  - Include constrained and unconstrained container sizes.
+- [x] **Grid tracks preserve explicit geometry**
+  - Cover fixed and fractional columns, gaps, and incomplete final rows.
+  - Ensure the last row does not stretch unexpectedly.
+  - Include zero-item, one-item, and more-items-than-columns cases.
+- [x] **Measured containers remain stable**
+  - Cover nested `HStack`/`VStack`, padding, min/max dimensions, and direct
+    window-root layout.
+  - Assert the public element bounds instead of reading Taffy nodes directly.
+- [x] **Scroll viewport and content extents remain correct**
+  - Verify nested `ScrollContainer` viewport sizes, max offsets, and content
+    bounds after layout.
+  - Include fractional padding and fractional child extents to guard against
+    phantom scroll ranges.
+- [x] **Virtual-list alignment remains deterministic**
+  - Preserve `Top`, `Center`, and `Bottom` target positions for uniform and
+    variable lists.
+  - Verify empty-list requests remain no-ops and padding is included in center
+    alignment.
+
+#### Priority P1 — component-level layout contracts
+
+- [x] **DataTable/DataGrid geometry**
+  - Verify header/body alignment, row height, column resize bounds, and virtual
+    body viewport sizing after Taffy reflow.
+- [x] **Overlay auto-sizing**
+  - Verify Dialog, Sheet, Popover, and CommandPalette content remains inside
+    the measured panel and does not change position after a redraw.
+- [x] **Input and Textarea footer layout**
+  - Verify helper/error text and character counters preserve the component width
+    and do not alter the parent layout unexpectedly.
+
+#### Test implementation rules
+
+1. Prefer existing `TestAppContext`/`VisualTestContext` helpers and deterministic
+   bounds/offset assertions.
+2. Keep tests expressed through fc-ui's public layout and scroll APIs; do not
+   add a direct dependency on Taffy's internal types.
+3. Run the baseline with both default features and the `--all-features` matrix.
+4. Treat a changed numeric bound as a review item: update the expected value
+   only after confirming the Taffy 0.15 behavior is intentional.
+5. Pair the deterministic tests with the real renderer smoke suite before
+   accepting visual changes on macOS, Linux, or Windows.
+
+#### Acceptance criteria
+
+- [x] Every P0 test is stable under `fc-gpui 0.12.0`.
+- [x] No new test reaches into GPUI/Taffy implementation internals.
+- [x] `just test`, `just verify-capabilities-ci`, and `just visual-smoke-ci`
+  remain green.
+- [ ] Any intentional layout changes are recorded in `CHANGELOG.md` and the
+  relevant component documentation.
+
+## 6. FOUNDATION FOLLOW-UPS (UNSCHEDULED)
 
 Accepted follow-ups from downstream integration feedback, not yet scheduled:
 

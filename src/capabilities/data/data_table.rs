@@ -1473,6 +1473,7 @@ impl<T: Clone + 'static> Render for DataTable<T> {
 
         let body_container = div()
             .id("data-table-body-container")
+            .debug_selector(|| "data-table-body-container".to_string())
             .h(px(viewport_height))
             .on_scroll_wheel(cx.listener(|_view, _event: &ScrollEvent, _window, cx| {
                 cx.stop_propagation();
@@ -1482,6 +1483,7 @@ impl<T: Clone + 'static> Render for DataTable<T> {
 
         let scrollable_content = div()
             .id("data-table-content")
+            .debug_selector(|| "data-table-content".to_string())
             .flex()
             .flex_col()
             .overflow_x_scroll()
@@ -1498,6 +1500,7 @@ impl<T: Clone + 'static> Render for DataTable<T> {
             );
 
         let table_div = div()
+            .debug_selector(|| "data-table-root".to_string())
             .flex()
             .flex_col()
             .w_full()
