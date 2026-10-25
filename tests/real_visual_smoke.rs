@@ -35,8 +35,9 @@ fn main() {
 fn run() -> anyhow::Result<()> {
     use fc_ui::{
         components::input::{Input, InputState},
+        overlays::dialog::{Dialog, DialogSize},
         overlays::popover::{Popover, PopoverContent},
-        prelude::{Button, Checkbox, Select, SelectOption},
+        prelude::{Button, Checkbox, GlassIntensity, GlassMorphism, Select, SelectOption},
     };
     use gpui::{
         div, point, px, rgb, size, AppContext as _, Context, IntoElement, Modifiers, MouseButton,
@@ -98,6 +99,39 @@ fn run() -> anyhow::Result<()> {
                         })
                     }),
             )
+        }
+    }
+
+    struct OverlaySmokeView {
+        dialog: gpui::Entity<Dialog>,
+    }
+
+    impl Render for OverlaySmokeView {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .size_full()
+                .bg(rgb(0x172033))
+                .child(
+                    div()
+                        .absolute()
+                        .left(px(40.0))
+                        .top(px(40.0))
+                        .w(px(320.0))
+                        .h(px(180.0))
+                        .child(
+                            GlassMorphism::new()
+                                .intensity(GlassIntensity::Heavy)
+                                .noise(true)
+                                .size_full()
+                                .child(
+                                    div()
+                                        .p(px(24.0))
+                                        .text_color(rgb(0xffffff))
+                                        .child("Transparent surface"),
+                                ),
+                        ),
+                )
+                .child(self.dialog.clone())
         }
     }
 
@@ -218,6 +252,20 @@ fn run() -> anyhow::Result<()> {
                 "opening Popover with Select should add paint operations: closed={closed_scene:?}, open={open_scene:?}"
             );
             assert_scene_and_image(open_scene, &open_image, "popover scene")?;
+
+            let overlay_window = cx.open_offscreen_window(size(px(640.0), px(480.0)), |_, app| {
+                let dialog = app.new(|cx| {
+                    Dialog::new(cx)
+                        .size(DialogSize::Sm)
+                        .title("Transparent overlay")
+                        .description("The dialog is rendered above a glass surface.")
+                        .child(|_, _| div().h(px(40.0)).child("Dialog content"))
+                });
+                app.new(|_| OverlaySmokeView { dialog })
+            })?;
+            let overlay_window = overlay_window.into();
+            let (overlay_scene, overlay_image) = draw_and_capture(cx, overlay_window)?;
+            assert_scene_and_image(overlay_scene, &overlay_image, "transparent overlay scene")?;
             Ok(())
         })();
         *outcome_in_run.borrow_mut() = Some(result);
