@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.5] - 2026-10-24
+
+### Changed
+
+- Upgrade the GPUI dependency to `fc-gpui` 0.12.0. Internal scroll handlers now use
+  the upstream `ScrollEvent` name, while `fc_ui::gpui_ext::ScrollWheelEvent` and
+  its prelude re-export remain available as a deprecated compatibility alias.
+- Adopt Taffy 0.15 through the upgraded GPUI stack. The lockfile remains the same
+  size apart from the upstream package and Taffy version updates.
+
 ## [0.9.4] - 2026-10-16
 
 ### Changed
