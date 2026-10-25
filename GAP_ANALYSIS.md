@@ -167,7 +167,7 @@ pub use gpui::{
 
     // Events
     MouseButton, MouseDownEvent, MouseUpEvent, MouseMoveEvent,
-    ScrollWheelEvent, KeyDownEvent, KeyUpEvent,
+    ScrollEvent, KeyDownEvent, KeyUpEvent,
     FocusEvent, BlurEvent, DismissEvent,
 
     // Animation

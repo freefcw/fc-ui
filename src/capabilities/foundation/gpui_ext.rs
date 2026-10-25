@@ -10,9 +10,13 @@ pub use gpui::{
     Focusable, Font, FontFeatures, FontStyle, FontWeight, Global, HighlightStyle, Hitbox, Hsla,
     InteractiveElement, InteractiveText, Interpolate, IntoElement, KeyBinding, KeyDownEvent,
     KeyUpEvent, Length, LinearColorStop, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    Overflow, ParentElement, Pixels, Point, QuitMode, Render, RenderOnce, Rgba, ScrollHandle,
-    ScrollWheelEvent, SharedString, Size, SpringAnimation, SpringConfig, SpringPlayback,
-    SpringState, SpringTarget, Stateful, StatefulInteractiveElement, StrikethroughStyle,
-    StyleRefinement, Styled, StyledText, Task, TextRun, TitlebarOptions, UnderlineStyle,
-    VisualContext as _, Window, WindowBounds, WindowHandle, WindowOptions,
+    Overflow, ParentElement, Pixels, Point, QuitMode, Render, RenderOnce, Rgba, ScrollEvent,
+    ScrollHandle, SharedString, Size, SpringAnimation, SpringConfig, SpringPlayback, SpringState,
+    SpringTarget, Stateful, StatefulInteractiveElement, StrikethroughStyle, StyleRefinement,
+    Styled, StyledText, Task, TextRun, TitlebarOptions, UnderlineStyle, VisualContext as _, Window,
+    WindowBounds, WindowHandle, WindowOptions,
 };
+
+/// Compatibility alias for the pre-0.12 GPUI scroll event name.
+#[deprecated(note = "use ScrollEvent instead")]
+pub type ScrollWheelEvent = ScrollEvent;

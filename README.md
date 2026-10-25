@@ -52,7 +52,7 @@ Add fc-ui to your `Cargo.toml`:
 ```toml
 [dependencies]
 fc-ui = "0.9"
-gpui = { package = "fc-gpui", version = "0.11.0" }
+gpui = { package = "fc-gpui", version = "0.12.0" }
 ```
 
 To track the development branch instead of a release, use

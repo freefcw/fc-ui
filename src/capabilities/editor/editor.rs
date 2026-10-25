@@ -4895,7 +4895,7 @@ impl RenderOnce for Editor {
             )
             .on_scroll_wheel({
                 let state = self.state.clone();
-                move |event: &ScrollWheelEvent, _window: &mut Window, cx: &mut App| {
+                move |event: &ScrollEvent, _window: &mut Window, cx: &mut App| {
                     let delta_x = match event.delta {
                         ScrollDelta::Pixels(p) => p.x,
                         ScrollDelta::Lines(l) => line_height * l.x,

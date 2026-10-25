@@ -135,7 +135,7 @@ impl PhysicsScrollState {
         &self,
         handle: &ScrollHandle,
         direction: ScrollDirection,
-        event: &ScrollWheelEvent,
+        event: &ScrollEvent,
         window: &Window,
     ) {
         let (delta_x, delta_y) = match &event.delta {

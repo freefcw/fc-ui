@@ -9,8 +9,8 @@ use std::{
 use gpui::{
     fill, point, px, relative, size, App, Axis, Bounds, ContentMask, Corner, CursorStyle, Element,
     GlobalElementId, Hitbox, HitboxBehavior, Hsla, InspectorElementId, IntoElement, LayoutId,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Position, ScrollHandle,
-    ScrollWheelEvent, Size, Style, Window,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Position, ScrollEvent,
+    ScrollHandle, Size, Style, Window,
 };
 
 use crate::capabilities::foundation::theme::use_theme;
@@ -532,7 +532,7 @@ impl Element for Scrollbar {
                         let state = self.state.clone();
                         let scroll_handle = self.scroll_handle.clone();
 
-                        move |event: &ScrollWheelEvent, phase, _hitbox, cx| {
+                        move |event: &ScrollEvent, phase, _hitbox, cx| {
                             if phase.bubble()
                                 && hitbox_bounds.contains(&event.position)
                                 && scroll_handle.offset() != state.0.get().last_scroll_offset

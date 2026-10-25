@@ -1474,12 +1474,10 @@ impl<T: Clone + 'static> Render for DataTable<T> {
         let body_container = div()
             .id("data-table-body-container")
             .h(px(viewport_height))
-            .on_scroll_wheel(
-                cx.listener(|_view, _event: &ScrollWheelEvent, _window, cx| {
-                    cx.stop_propagation();
-                    cx.notify();
-                }),
-            )
+            .on_scroll_wheel(cx.listener(|_view, _event: &ScrollEvent, _window, cx| {
+                cx.stop_propagation();
+                cx.notify();
+            }))
             .child(body_scroll);
 
         let scrollable_content = div()

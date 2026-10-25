@@ -1,5 +1,7 @@
 //! External-consumer compatibility contract for the legacy public API.
 
+#![allow(deprecated)]
+
 #[allow(unused_imports)]
 use fc_ui::{
     animate, animated_state, animation_coordinator, animations, charts, components,
@@ -16,6 +18,25 @@ fn legacy_root_modules_and_functions_remain_public() {
     let set_icon_base_path: fn(String) = fc_ui::set_icon_base_path;
     let _ = set_icon_base_path;
     let _ = std::any::type_name::<prelude::Button>();
+}
+
+#[test]
+fn scroll_event_rename_keeps_the_legacy_alias_public() {
+    #[allow(deprecated)]
+    {
+        use fc_ui::gpui_ext::{ScrollEvent, ScrollWheelEvent};
+
+        let handler: fn(&ScrollEvent) = |_event: &ScrollWheelEvent| {};
+        let _ = handler;
+    }
+
+    #[allow(deprecated)]
+    {
+        use fc_ui::prelude::{ScrollEvent, ScrollWheelEvent};
+
+        let handler: fn(&ScrollEvent) = |_event: &ScrollWheelEvent| {};
+        let _ = handler;
+    }
 }
 
 #[cfg(feature = "http")]
