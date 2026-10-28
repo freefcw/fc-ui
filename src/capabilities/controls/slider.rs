@@ -2,6 +2,63 @@ use crate::capabilities::foundation::theme::use_theme;
 use gpui::{prelude::*, *};
 use std::rc::Rc;
 
+/// Shared slider math used by both `Slider` and `RangeSlider`.
+///
+/// Normalized 0..=1 track position of `value` between `min` and `max`.
+pub(crate) fn value_percentage(value: f32, min: f32, max: f32) -> f32 {
+    if max == min {
+        return 0.0;
+    }
+    ((value - min) / (max - min)).clamp(0.0, 1.0)
+}
+
+/// Clamp `value` into `lo..=hi`, snap it to the nearest `step` multiple, and
+/// clamp again so the result stays in range.
+pub(crate) fn snap_to_step(value: f32, step: f32, lo: f32, hi: f32) -> f32 {
+    ((value.clamp(lo, hi) / step).round() * step).clamp(lo, hi)
+}
+
+/// Track-relative drag percentage for a horizontal slider. `None` when the
+/// track has no width yet.
+pub(crate) fn horizontal_drag_percentage(
+    bounds: Bounds<Pixels>,
+    position: Point<Pixels>,
+) -> Option<f32> {
+    let width = bounds.size.width;
+    if width <= px(0.0) {
+        return None;
+    }
+    let relative_x = (position.x - bounds.left()).clamp(px(0.0), width);
+    Some((relative_x / width).clamp(0.0, 1.0))
+}
+
+/// Track-relative drag percentage for a vertical slider (0 at the bottom).
+/// `None` when the track has no height yet.
+pub(crate) fn vertical_drag_percentage(
+    bounds: Bounds<Pixels>,
+    position: Point<Pixels>,
+) -> Option<f32> {
+    let height = bounds.size.height;
+    if height <= px(0.0) {
+        return None;
+    }
+    let relative_y = (position.y - bounds.top()).clamp(px(0.0), height);
+    Some(1.0 - (relative_y / height).clamp(0.0, 1.0))
+}
+
+/// New (unclamped) value for a slider navigation key, or `None` when the key
+/// is not a slider key. Callers pass the result through their clamping
+/// setters.
+pub(crate) fn keyboard_value(key: &str, value: f32, step: f32, min: f32, max: f32) -> Option<f32> {
+    match key {
+        "left" | "down" => Some(value - step),
+        "right" | "up" => Some(value + step),
+        "home" => Some(min),
+        "end" => Some(max),
+        _ => None,
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum SliderSize {
     Sm,
@@ -95,8 +152,7 @@ impl SliderState {
     }
 
     pub fn set_value(&mut self, value: f32, cx: &mut Context<Self>) {
-        let clamped = value.clamp(self.min, self.max);
-        let stepped = ((clamped / self.step).round() * self.step).clamp(self.min, self.max);
+        let stepped = snap_to_step(value, self.step, self.min, self.max);
 
         if (self.value - stepped).abs() > f32::EPSILON {
             self.value = stepped;
@@ -114,36 +170,21 @@ impl SliderState {
     }
 
     fn percentage(&self) -> f32 {
-        if self.max == self.min {
-            return 0.0;
-        }
-        ((self.value - self.min) / (self.max - self.min)).clamp(0.0, 1.0)
+        value_percentage(self.value, self.min, self.max)
     }
 
     fn update_from_position(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
-        let track_width = self.bounds.size.width;
-        if track_width <= px(0.0) {
+        let Some(percentage) = horizontal_drag_percentage(self.bounds, position) else {
             return;
-        }
-
-        let relative_x = (position.x - self.bounds.left()).clamp(px(0.0), track_width);
-        let percentage = (relative_x / track_width).clamp(0.0, 1.0);
-        let new_value = self.min + percentage * (self.max - self.min);
-
-        self.set_value(new_value, cx);
+        };
+        self.set_value(self.min + percentage * (self.max - self.min), cx);
     }
 
     fn update_from_position_vertical(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
-        let track_height = self.bounds.size.height;
-        if track_height <= px(0.0) {
+        let Some(percentage) = vertical_drag_percentage(self.bounds, position) else {
             return;
-        }
-
-        let relative_y = (position.y - self.bounds.top()).clamp(px(0.0), track_height);
-        let percentage = 1.0 - (relative_y / track_height).clamp(0.0, 1.0);
-        let new_value = self.min + percentage * (self.max - self.min);
-
-        self.set_value(new_value, cx);
+        };
+        self.set_value(self.min + percentage * (self.max - self.min), cx);
     }
 }
 
@@ -267,21 +308,16 @@ impl Slider {
                         this.on_key_down(window.listener_for(
                             &self.state,
                             move |state, e: &KeyDownEvent, window, cx| {
-                                match e.keystroke.key.as_str() {
-                                    "left" | "down" => {
-                                        state.set_value(state.value - state.step, cx);
-                                    }
-                                    "right" | "up" => {
-                                        state.set_value(state.value + state.step, cx);
-                                    }
-                                    "home" => {
-                                        state.set_value(state.min, cx);
-                                    }
-                                    "end" => {
-                                        state.set_value(state.max, cx);
-                                    }
-                                    _ => return,
-                                }
+                                let Some(new_value) = keyboard_value(
+                                    e.keystroke.key.as_str(),
+                                    state.value,
+                                    state.step,
+                                    state.min,
+                                    state.max,
+                                ) else {
+                                    return;
+                                };
+                                state.set_value(new_value, cx);
                                 cx.stop_propagation();
                                 if let Some(ref handler) = on_change_for_key {
                                     handler(state.value, window, cx);
@@ -475,21 +511,16 @@ impl Slider {
                         this.on_key_down(window.listener_for(
                             &self.state,
                             move |state, e: &KeyDownEvent, window, cx| {
-                                match e.keystroke.key.as_str() {
-                                    "left" | "down" => {
-                                        state.set_value(state.value - state.step, cx);
-                                    }
-                                    "right" | "up" => {
-                                        state.set_value(state.value + state.step, cx);
-                                    }
-                                    "home" => {
-                                        state.set_value(state.min, cx);
-                                    }
-                                    "end" => {
-                                        state.set_value(state.max, cx);
-                                    }
-                                    _ => return,
-                                }
+                                let Some(new_value) = keyboard_value(
+                                    e.keystroke.key.as_str(),
+                                    state.value,
+                                    state.step,
+                                    state.min,
+                                    state.max,
+                                ) else {
+                                    return;
+                                };
+                                state.set_value(new_value, cx);
                                 cx.stop_propagation();
                                 if let Some(ref handler) = on_change_for_key {
                                     handler(state.value, window, cx);

@@ -1,4 +1,7 @@
-use crate::capabilities::controls::slider::{SliderAxis, SliderSize};
+use crate::capabilities::controls::slider::{
+    horizontal_drag_percentage, keyboard_value, snap_to_step, value_percentage,
+    vertical_drag_percentage, SliderAxis, SliderSize,
+};
 use crate::capabilities::foundation::theme::use_theme;
 use gpui::{prelude::*, *};
 use std::rc::Rc;
@@ -78,8 +81,7 @@ impl RangeSliderState {
     }
 
     pub fn set_start_value(&mut self, value: f32, cx: &mut Context<Self>) {
-        let clamped = value.clamp(self.min, self.end_value);
-        let stepped = ((clamped / self.step).round() * self.step).clamp(self.min, self.end_value);
+        let stepped = snap_to_step(value, self.step, self.min, self.end_value);
 
         if (self.start_value - stepped).abs() > f32::EPSILON {
             self.start_value = stepped;
@@ -88,8 +90,7 @@ impl RangeSliderState {
     }
 
     pub fn set_end_value(&mut self, value: f32, cx: &mut Context<Self>) {
-        let clamped = value.clamp(self.start_value, self.max);
-        let stepped = ((clamped / self.step).round() * self.step).clamp(self.start_value, self.max);
+        let stepped = snap_to_step(value, self.step, self.start_value, self.max);
 
         if (self.end_value - stepped).abs() > f32::EPSILON {
             self.end_value = stepped;
@@ -126,39 +127,25 @@ impl RangeSliderState {
     }
 
     fn start_percentage(&self) -> f32 {
-        if self.max == self.min {
-            return 0.0;
-        }
-        ((self.start_value - self.min) / (self.max - self.min)).clamp(0.0, 1.0)
+        value_percentage(self.start_value, self.min, self.max)
     }
 
     fn end_percentage(&self) -> f32 {
-        if self.max == self.min {
-            return 0.0;
-        }
-        ((self.end_value - self.min) / (self.max - self.min)).clamp(0.0, 1.0)
+        value_percentage(self.end_value, self.min, self.max)
     }
 
     fn value_from_position(&self, position: Point<Pixels>) -> f32 {
-        let track_width = self.bounds.size.width;
-        if track_width <= px(0.0) {
-            return self.min;
+        match horizontal_drag_percentage(self.bounds, position) {
+            Some(percentage) => self.min + percentage * (self.max - self.min),
+            None => self.min,
         }
-
-        let relative_x = (position.x - self.bounds.left()).clamp(px(0.0), track_width);
-        let percentage = (relative_x / track_width).clamp(0.0, 1.0);
-        self.min + percentage * (self.max - self.min)
     }
 
     fn value_from_position_vertical(&self, position: Point<Pixels>) -> f32 {
-        let track_height = self.bounds.size.height;
-        if track_height <= px(0.0) {
-            return self.min;
+        match vertical_drag_percentage(self.bounds, position) {
+            Some(percentage) => self.min + percentage * (self.max - self.min),
+            None => self.min,
         }
-
-        let relative_y = (position.y - self.bounds.top()).clamp(px(0.0), track_height);
-        let percentage = 1.0 - (relative_y / track_height).clamp(0.0, 1.0);
-        self.min + percentage * (self.max - self.min)
     }
 
     fn update_from_position(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
@@ -341,24 +328,24 @@ impl RangeSlider {
                             move |state, e: &KeyDownEvent, window, cx| {
                                 // Keys move the most recently used thumb, defaulting to start.
                                 let use_start = !matches!(state.active_thumb, ActiveThumb::End);
-                                match (e.keystroke.key.as_str(), use_start) {
-                                    ("left" | "down", true) => {
-                                        state.set_start_value(state.start_value - state.step, cx)
-                                    }
-                                    ("left" | "down", false) => {
-                                        state.set_end_value(state.end_value - state.step, cx)
-                                    }
-                                    ("right" | "up", true) => {
-                                        state.set_start_value(state.start_value + state.step, cx)
-                                    }
-                                    ("right" | "up", false) => {
-                                        state.set_end_value(state.end_value + state.step, cx)
-                                    }
-                                    ("home", true) => state.set_start_value(state.min, cx),
-                                    ("home", false) => state.set_end_value(state.min, cx),
-                                    ("end", true) => state.set_start_value(state.max, cx),
-                                    ("end", false) => state.set_end_value(state.max, cx),
-                                    _ => return,
+                                let active_value = if use_start {
+                                    state.start_value
+                                } else {
+                                    state.end_value
+                                };
+                                let Some(new_value) = keyboard_value(
+                                    e.keystroke.key.as_str(),
+                                    active_value,
+                                    state.step,
+                                    state.min,
+                                    state.max,
+                                ) else {
+                                    return;
+                                };
+                                if use_start {
+                                    state.set_start_value(new_value, cx);
+                                } else {
+                                    state.set_end_value(new_value, cx);
                                 }
                                 cx.stop_propagation();
                                 if let Some(ref handler) = on_change_for_key {
@@ -620,24 +607,24 @@ impl RangeSlider {
                             move |state, e: &KeyDownEvent, window, cx| {
                                 // Keys move the most recently used thumb, defaulting to start.
                                 let use_start = !matches!(state.active_thumb, ActiveThumb::End);
-                                match (e.keystroke.key.as_str(), use_start) {
-                                    ("left" | "down", true) => {
-                                        state.set_start_value(state.start_value - state.step, cx)
-                                    }
-                                    ("left" | "down", false) => {
-                                        state.set_end_value(state.end_value - state.step, cx)
-                                    }
-                                    ("right" | "up", true) => {
-                                        state.set_start_value(state.start_value + state.step, cx)
-                                    }
-                                    ("right" | "up", false) => {
-                                        state.set_end_value(state.end_value + state.step, cx)
-                                    }
-                                    ("home", true) => state.set_start_value(state.min, cx),
-                                    ("home", false) => state.set_end_value(state.min, cx),
-                                    ("end", true) => state.set_start_value(state.max, cx),
-                                    ("end", false) => state.set_end_value(state.max, cx),
-                                    _ => return,
+                                let active_value = if use_start {
+                                    state.start_value
+                                } else {
+                                    state.end_value
+                                };
+                                let Some(new_value) = keyboard_value(
+                                    e.keystroke.key.as_str(),
+                                    active_value,
+                                    state.step,
+                                    state.min,
+                                    state.max,
+                                ) else {
+                                    return;
+                                };
+                                if use_start {
+                                    state.set_start_value(new_value, cx);
+                                } else {
+                                    state.set_end_value(new_value, cx);
                                 }
                                 cx.stop_propagation();
                                 if let Some(ref handler) = on_change_for_key {
