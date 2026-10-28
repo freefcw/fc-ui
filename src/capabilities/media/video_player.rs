@@ -444,18 +444,7 @@ pub fn init_video_player(cx: &mut App) {
     ]);
 }
 
-fn format_time(seconds: f64) -> String {
-    let total_seconds = seconds.floor() as i64;
-    let hours = total_seconds / 3600;
-    let minutes = (total_seconds % 3600) / 60;
-    let secs = total_seconds % 60;
-
-    if hours > 0 {
-        format!("{}:{:02}:{:02}", hours, minutes, secs)
-    } else {
-        format!("{}:{:02}", minutes, secs)
-    }
-}
+use crate::capabilities::media::format_time;
 
 #[derive(IntoElement)]
 pub struct VideoPlayer {

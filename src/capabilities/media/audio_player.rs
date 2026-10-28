@@ -426,18 +426,7 @@ impl Render for AudioPlayerState {
     }
 }
 
-fn format_time(seconds: f32) -> String {
-    let total_seconds = seconds.max(0.0) as u32;
-    let hours = total_seconds / 3600;
-    let minutes = (total_seconds % 3600) / 60;
-    let secs = total_seconds % 60;
-
-    if hours > 0 {
-        format!("{}:{:02}:{:02}", hours, minutes, secs)
-    } else {
-        format!("{:02}:{:02}", minutes, secs)
-    }
-}
+use crate::capabilities::media::format_time;
 
 #[derive(IntoElement)]
 pub struct AudioPlayer {
@@ -599,8 +588,8 @@ impl RenderOnce for AudioPlayer {
                         .font_family(theme.tokens.font_mono.clone())
                         .child(format!(
                             "{} / {}",
-                            format_time(current_time),
-                            format_time(duration)
+                            format_time(current_time as f64),
+                            format_time(duration as f64)
                         )),
                 ),
 
@@ -645,8 +634,8 @@ impl RenderOnce for AudioPlayer {
                                 .text_size(px(12.0))
                                 .font_family(theme.tokens.font_mono.clone())
                                 .text_color(theme.tokens.muted_foreground)
-                                .child(format_time(current_time))
-                                .child(format_time(duration)),
+                                .child(format_time(current_time as f64))
+                                .child(format_time(duration as f64)),
                         ),
                 )
                 .child(
