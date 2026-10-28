@@ -545,6 +545,11 @@ pub trait ItemExtentProvider {
 
 const CHUNK_SIZE: usize = 1024;
 
+/// Per-item layout budget used when measuring variable-height items.
+/// Unrelated to CHUNK_SIZE (an item-count granularity): decoupled so the two
+/// can be tuned independently.
+const ITEM_LAYOUT_BUDGET: Pixels = px(1024.0);
+
 struct ChunkedExtents<P: ItemExtentProvider> {
     provider: P,
     item_count: usize,
@@ -1046,12 +1051,12 @@ impl<P: ItemExtentProvider + 'static> Element for VariableVirtualList<P> {
 
                     let available = match self.axis {
                         Axis::Horizontal => size(
-                            AvailableSpace::Definite(px(CHUNK_SIZE as f32)),
+                            AvailableSpace::Definite(ITEM_LAYOUT_BUDGET),
                             AvailableSpace::Definite(content_bounds.size.height),
                         ),
                         Axis::Vertical => size(
                             AvailableSpace::Definite(content_bounds.size.width),
-                            AvailableSpace::Definite(px(CHUNK_SIZE as f32)),
+                            AvailableSpace::Definite(ITEM_LAYOUT_BUDGET),
                         ),
                     };
 
