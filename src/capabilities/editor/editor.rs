@@ -2596,7 +2596,7 @@ impl EditorState {
             return;
         }
         let char_idx = self.rope.byte_to_char(offset);
-        let next_char_byte = if char_idx + 1 <= self.rope.len_chars() {
+        let next_char_byte = if char_idx < self.rope.len_chars() {
             self.rope.char_to_byte(char_idx + 1)
         } else {
             self.rope.len_bytes()
