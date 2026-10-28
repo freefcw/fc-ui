@@ -4,6 +4,8 @@ use gpui::{prelude::FluentBuilder as _, *};
 use std::ops::Range;
 use std::rc::Rc;
 
+use crate::capabilities::foundation::edit;
+
 actions!(inline_edit, [Save, Cancel]);
 
 pub fn init(cx: &mut App) {
@@ -393,11 +395,11 @@ impl EntityInputHandler for InlineEditState {
         } else {
             self.marked_range = None;
         }
-        self.selected_range = new_selected_range_utf16
-            .as_ref()
-            .map(|range_utf16| text_util::range_from_utf16(new_text, range_utf16))
-            .map(|new_range| new_range.start + range.start..new_range.end + range.start)
-            .unwrap_or_else(|| range.start + new_text.len()..range.start + new_text.len());
+        self.selected_range = text_util::selection_after_replacement(
+            new_text,
+            new_selected_range_utf16.as_ref(),
+            range.start,
+        );
 
         self.invalidate_layout_cache();
         cx.notify();
@@ -552,7 +554,7 @@ impl Element for InlineEditTextElement {
                     len: marked_range.end - marked_range.start,
                     underline: Some(UnderlineStyle {
                         color: Some(run.color),
-                        thickness: px(1.0),
+                        thickness: edit::IME_UNDERLINE_THICKNESS,
                         wavy: false,
                     }),
                     ..run.clone()
@@ -581,7 +583,7 @@ impl Element for InlineEditTextElement {
                 Some(fill(
                     Bounds::new(
                         point(bounds.left() + cursor_pos, bounds.top()),
-                        size(px(2.), bounds.bottom() - bounds.top()),
+                        size(edit::CARET_WIDTH, bounds.bottom() - bounds.top()),
                     ),
                     theme.tokens.primary,
                 )),
@@ -599,7 +601,10 @@ impl Element for InlineEditTextElement {
                             bounds.bottom(),
                         ),
                     ),
-                    theme.tokens.primary.opacity(0.2),
+                    theme
+                        .tokens
+                        .primary
+                        .opacity(edit::SELECTION_HIGHLIGHT_OPACITY),
                 )),
                 None,
             )
@@ -910,5 +915,56 @@ impl RenderOnce for InlineEdit {
                     div
                 })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[gpui::test]
+    fn save_commits_edited_value_and_cancel_restores_original() {
+        let mut app = TestApp::new();
+        let state = app.update(|cx| cx.new(|cx| InlineEditState::with_value(cx, "initial")));
+
+        app.update(|cx| state.update(cx, |s, cx| s.start_editing(cx)));
+        app.update(|cx| {
+            state.update(cx, |s, _| {
+                assert!(s.is_editing());
+                // editing starts with the whole value selected
+                assert_eq!(s.selected_range, 0.."initial".len());
+                s.edit_value = "typed".to_string();
+            })
+        });
+
+        app.update(|cx| state.update(cx, |s, cx| s.save(cx)));
+        app.update(|cx| {
+            let s = state.read(cx);
+            assert!(!s.is_editing());
+            assert_eq!(s.value(), "typed");
+        });
+
+        app.update(|cx| state.update(cx, |s, cx| s.start_editing(cx)));
+        app.update(|cx| state.update(cx, |s, _| s.edit_value = "discarded".to_string()));
+        app.update(|cx| state.update(cx, |s, cx| s.cancel(cx)));
+        app.update(|cx| {
+            let s = state.read(cx);
+            assert!(!s.is_editing());
+            assert_eq!(s.value(), "typed");
+            assert_eq!(s.edit_value(), "typed");
+        });
+    }
+
+    #[gpui::test]
+    fn set_value_while_not_editing_syncs_edit_value() {
+        let mut app = TestApp::new();
+        let state = app.update(|cx| cx.new(InlineEditState::new));
+        app.update(|cx| state.update(cx, |s, cx| s.set_value("v1", cx)));
+        app.update(|cx| {
+            let s = state.read(cx);
+            assert_eq!(s.value(), "v1");
+            assert_eq!(s.edit_value(), "v1");
+            assert!(!s.is_editing());
+        });
     }
 }

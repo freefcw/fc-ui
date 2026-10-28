@@ -1,4 +1,6 @@
 use crate::capabilities::foundation::theme::use_theme;
+
+use crate::capabilities::foundation::edit;
 /// Interactive text input state management with validation and accessibility
 ///
 /// Industry-standard input component with:
@@ -966,8 +968,9 @@ impl InputState {
             let time_diff = now.duration_since(last_time);
             let dx = event.position.x - last_pos.x;
             let dy = event.position.y - last_pos.y;
-            let close_enough = dx < px(5.0) && dx > px(-5.0) && dy < px(5.0) && dy > px(-5.0);
-            time_diff.as_millis() < 500 && close_enough
+            let close_enough =
+                dx.abs() < edit::MULTI_CLICK_SLOP && dy.abs() < edit::MULTI_CLICK_SLOP;
+            time_diff < edit::MULTI_CLICK_WINDOW && close_enough
         } else {
             false
         };
@@ -1241,17 +1244,9 @@ impl InputState {
     fn start_blink(&mut self, cx: &mut Context<Self>) {
         self._blink_task = None;
         self.cursor_visible = true;
-        self._blink_task = Some(cx.spawn(async |this, cx| loop {
-            cx.background_executor()
-                .timer(std::time::Duration::from_millis(500))
-                .await;
-            let ok = this.update(cx, |this: &mut Self, cx: &mut Context<Self>| {
-                this.cursor_visible = !this.cursor_visible;
-                cx.notify();
-            });
-            if ok.is_err() {
-                break;
-            }
+        self._blink_task = Some(edit::spawn_caret_blink(cx, |this, cx| {
+            this.cursor_visible = !this.cursor_visible;
+            cx.notify();
         }));
     }
 
@@ -1463,13 +1458,11 @@ impl EntityInputHandler for InputState {
         } else {
             self.marked_range = None;
         }
-        self.selected_range = new_selected_range_utf16
-            .as_ref()
-            .map(|range_utf16| text_util::range_from_utf16(&filtered_text, range_utf16))
-            .map(|new_range| new_range.start + range.start..new_range.end + range.start)
-            .unwrap_or_else(|| {
-                range.start + filtered_text.len()..range.start + filtered_text.len()
-            });
+        self.selected_range = text_util::selection_after_replacement(
+            &filtered_text,
+            new_selected_range_utf16.as_ref(),
+            range.start,
+        );
 
         self.selection_reversed = false;
         if self.focus_handle.is_focused(window) {
@@ -1648,7 +1641,7 @@ impl gpui::Element for InputTextElement {
                     len: marked_end - marked_start,
                     underline: Some(UnderlineStyle {
                         color: Some(run.color),
-                        thickness: px(1.0),
+                        thickness: edit::IME_UNDERLINE_THICKNESS,
                         wavy: false,
                     }),
                     ..run.clone()
@@ -1677,7 +1670,7 @@ impl gpui::Element for InputTextElement {
                 Some(fill(
                     Bounds::new(
                         point(bounds.left() + cursor_pos, bounds.top()),
-                        size(px(2.), bounds.bottom() - bounds.top()),
+                        size(edit::CARET_WIDTH, bounds.bottom() - bounds.top()),
                     ),
                     theme.tokens.primary,
                 )),
@@ -1695,7 +1688,10 @@ impl gpui::Element for InputTextElement {
                             bounds.bottom(),
                         ),
                     ),
-                    theme.tokens.primary.opacity(0.25),
+                    theme
+                        .tokens
+                        .primary
+                        .opacity(edit::SELECTION_HIGHLIGHT_OPACITY),
                 )),
                 None,
             )

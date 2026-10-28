@@ -10,6 +10,7 @@ use std::ops::Range;
 use crate::capabilities::controls::text_util;
 use crate::capabilities::controls::validation;
 pub use crate::capabilities::controls::validation::{ValidationError, ValidationRules};
+use crate::capabilities::foundation::edit;
 
 pub fn init(cx: &mut App) {
     if !crate::capabilities::foundation::initialization::begin(cx, "textarea-state") {
@@ -621,17 +622,9 @@ impl TextareaState {
     fn start_blink(&mut self, cx: &mut Context<Self>) {
         self._blink_task = None;
         self.cursor_visible = true;
-        self._blink_task = Some(cx.spawn(async |this, cx| loop {
-            cx.background_executor()
-                .timer(std::time::Duration::from_millis(500))
-                .await;
-            let ok = this.update(cx, |this: &mut Self, cx: &mut Context<Self>| {
-                this.cursor_visible = !this.cursor_visible;
-                cx.notify();
-            });
-            if ok.is_err() {
-                break;
-            }
+        self._blink_task = Some(edit::spawn_caret_blink(cx, |this, cx| {
+            this.cursor_visible = !this.cursor_visible;
+            cx.notify();
         }));
     }
 
@@ -1037,11 +1030,11 @@ impl EntityInputHandler for TextareaState {
         } else {
             self.marked_range = None;
         }
-        self.selected_range = new_selected_range_utf16
-            .as_ref()
-            .map(|r| text_util::range_from_utf16(new_text, r))
-            .map(|new_range| new_range.start + range.start..new_range.end + range.start)
-            .unwrap_or_else(|| range.start + new_text.len()..range.start + new_text.len());
+        self.selected_range = text_util::selection_after_replacement(
+            new_text,
+            new_selected_range_utf16.as_ref(),
+            range.start,
+        );
 
         self.selection_reversed = false;
         if self.focus_handle.is_focused(window) {
@@ -1265,7 +1258,7 @@ impl Element for TextareaTextElement {
                                 len: mark_end - mark_start,
                                 underline: Some(UnderlineStyle {
                                     color: Some(base_run.color),
-                                    thickness: px(1.0),
+                                    thickness: edit::IME_UNDERLINE_THICKNESS,
                                     wavy: false,
                                 }),
                                 ..base_run.clone()
@@ -1314,7 +1307,7 @@ impl Element for TextareaTextElement {
                             bounds.left() + cursor_point.x,
                             bounds.top() + logical_line_origin_y + cursor_point.y,
                         ),
-                        size(px(2.), line_height),
+                        size(edit::CARET_WIDTH, line_height),
                     ),
                     theme.tokens.primary,
                 ));
@@ -1378,7 +1371,10 @@ impl Element for TextareaTextElement {
                             bounds.top() + logical_line_origin_y + end_point.y + line_height,
                         ),
                     ),
-                    theme.tokens.primary.opacity(0.25),
+                    theme
+                        .tokens
+                        .primary
+                        .opacity(edit::SELECTION_HIGHLIGHT_OPACITY),
                 ));
             }
         }

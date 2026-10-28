@@ -6,6 +6,8 @@ use gpui::{prelude::*, *};
 use std::ops::Range;
 use std::rc::Rc;
 
+use crate::capabilities::foundation::edit;
+
 actions!(
     mention_input,
     [
@@ -94,7 +96,7 @@ impl MentionInputState {
         Self {
             focus_handle: cx.focus_handle(),
             content: String::new(),
-            placeholder: "Type @ to mention someone...".into(),
+            placeholder: DEFAULT_PLACEHOLDER.into(),
             disabled: false,
             selected_range: 0..0,
             selection_reversed: false,
@@ -606,11 +608,11 @@ impl EntityInputHandler for MentionInputState {
             self.marked_range = None;
         }
 
-        self.selected_range = new_selected_range_utf16
-            .as_ref()
-            .map(|range_utf16| text_util::range_from_utf16(new_text, range_utf16))
-            .map(|new_range| new_range.start + range.start..new_range.end + range.start)
-            .unwrap_or_else(|| range.start + new_text.len()..range.start + new_text.len());
+        self.selected_range = text_util::selection_after_replacement(
+            new_text,
+            new_selected_range_utf16.as_ref(),
+            range.start,
+        );
 
         self.invalidate_layout_cache();
         self.check_for_trigger(cx);
@@ -700,23 +702,23 @@ pub struct MentionInput {
     on_mention: Option<Rc<dyn Fn(&MentionItem, &mut App)>>,
     on_enter: Option<Rc<dyn Fn(&str, &mut App)>>,
 
-    bounds: Bounds<Pixels>,
     style: StyleRefinement,
 }
+
+const DEFAULT_PLACEHOLDER: &str = "Type @ to mention someone...";
 
 impl MentionInput {
     pub fn new(state: &Entity<MentionInputState>, items: Vec<MentionItem>) -> Self {
         Self {
             state: state.clone(),
             items,
-            placeholder: "Type @ to mention someone...".into(),
+            placeholder: DEFAULT_PLACEHOLDER.into(),
             disabled: false,
             trigger_char: '@',
             max_dropdown_height: px(200.0),
             on_change: None,
             on_mention: None,
             on_enter: None,
-            bounds: Bounds::default(),
             style: StyleRefinement::default(),
         }
     }
@@ -827,9 +829,7 @@ impl RenderOnce for MentionInput {
         let dropdown_open = state.dropdown_open;
         let dropdown_filter = state.dropdown_filter.clone();
         let dropdown_index = state.dropdown_index;
-        let _content = state.content.clone();
         let mentions = state.mentions.clone();
-        let _selected_range = state.selected_range.clone();
         let placeholder = self.placeholder.clone();
         let focus_handle = state.focus_handle(cx);
 
@@ -851,8 +851,6 @@ impl RenderOnce for MentionInput {
         let items_for_confirm = self.items.clone();
 
         self.install_event_subscription(cx);
-
-        let _bounds = self.bounds;
 
         let text_element = MentionTextElement {
             input: self.state.clone(),
@@ -1005,20 +1003,9 @@ impl RenderOnce for MentionInput {
                             .font_family(theme.tokens.font_family.clone())
                             .text_color(theme.tokens.foreground)
                             .child(text_element),
-                    )
-                    .child({
-                        canvas(
-                            move |bounds, _, _cx| {
-                                let _ = bounds;
-                            },
-                            |_, _, _, _| {},
-                        )
-                        .absolute()
-                        .size_full()
-                    }),
+                    ),
             )
             .when(dropdown_open && !filtered.is_empty(), |this| {
-                let items = self.items.clone();
                 let state_for_select = state_entity.clone();
 
                 this.child(
@@ -1036,95 +1023,79 @@ impl RenderOnce for MentionInput {
                                         .rounded(theme.tokens.radius_md)
                                         .shadow_lg()
                                         .overflow_hidden()
-                                        .child(
-                                            div().max_h(self.max_dropdown_height).child(
-                                                scrollable_vertical(
-                                                    div().py(px(4.0)).children(
-                                                        items
-                                                            .iter()
-                                                            .filter(|item| {
-                                                                item.name.to_lowercase().contains(
-                                                                    &dropdown_filter.to_lowercase(),
-                                                                )
-                                                            })
-                                                            .enumerate()
-                                                            .map(|(idx, item)| {
-                                                                let is_selected =
-                                                                    idx == dropdown_index;
-                                                                let item_clone = item.clone();
-                                                                let state =
-                                                                    state_for_select.clone();
+                                        .child(div().max_h(self.max_dropdown_height).child(
+                                            scrollable_vertical(div().py(px(4.0)).children(
+                                                filtered.into_iter().enumerate().map(
+                                                    |(idx, item)| {
+                                                        let is_selected = idx == dropdown_index;
+                                                        let item_clone = item.clone();
+                                                        let state = state_for_select.clone();
 
-                                                                div()
-                                                                .id(SharedString::from(format!(
-                                                                    "mention-item-{}",
-                                                                    idx
-                                                                )))
-                                                                .flex()
-                                                                .items_center()
-                                                                .gap(px(8.0))
-                                                                .px(px(12.0))
-                                                                .py(px(8.0))
-                                                                .cursor_pointer()
-                                                                .bg(if is_selected {
-                                                                    theme.tokens.accent
-                                                                } else {
-                                                                    gpui::transparent_black()
-                                                                })
-                                                                .hover(|style| {
-                                                                    style.bg(theme.tokens.accent)
-                                                                })
-                                                                .on_mouse_down(
-                                                                    MouseButton::Left,
-                                                                    move |_, _, cx| {
-                                                                        state.update(
+                                                        div()
+                                                            .id(SharedString::from(format!(
+                                                                "mention-item-{}",
+                                                                idx
+                                                            )))
+                                                            .flex()
+                                                            .items_center()
+                                                            .gap(px(8.0))
+                                                            .px(px(12.0))
+                                                            .py(px(8.0))
+                                                            .cursor_pointer()
+                                                            .bg(if is_selected {
+                                                                theme.tokens.accent
+                                                            } else {
+                                                                gpui::transparent_black()
+                                                            })
+                                                            .hover(|style| {
+                                                                style.bg(theme.tokens.accent)
+                                                            })
+                                                            .on_mouse_down(
+                                                                MouseButton::Left,
+                                                                move |_, _, cx| {
+                                                                    state.update(cx, |s, cx| {
+                                                                        s.insert_mention(
+                                                                            item_clone.clone(),
                                                                             cx,
-                                                                            |s, cx| {
-                                                                                s.insert_mention(
-                                                                                    item_clone
-                                                                                        .clone(),
-                                                                                    cx,
-                                                                                );
-                                                                            },
                                                                         );
-                                                                    },
-                                                                )
-                                                                .child(
-                                                                    if let Some(ref avatar_url) =
-                                                                        item.avatar_url
-                                                                    {
-                                                                        Avatar::new()
-                                                                            .src(avatar_url.clone())
-                                                                            .size(AvatarSize::Sm)
-                                                                            .into_any_element()
-                                                                    } else {
-                                                                        Avatar::new()
-                                                                            .name(item.name.clone())
-                                                                            .size(AvatarSize::Sm)
-                                                                            .into_any_element()
-                                                                    },
-                                                                )
-                                                                .child(
-                                                                    div()
-                                                                        .text_size(px(14.0))
-                                                                        .font_family(
-                                                                            theme
-                                                                                .tokens
-                                                                                .font_family
-                                                                                .clone(),
-                                                                        )
-                                                                        .text_color(
-                                                                            theme
-                                                                                .tokens
-                                                                                .popover_foreground,
-                                                                        )
-                                                                        .child(item.name.clone()),
-                                                                )
-                                                            }),
-                                                    ),
+                                                                    });
+                                                                },
+                                                            )
+                                                            .child(
+                                                                if let Some(ref avatar_url) =
+                                                                    item.avatar_url
+                                                                {
+                                                                    Avatar::new()
+                                                                        .src(avatar_url.clone())
+                                                                        .size(AvatarSize::Sm)
+                                                                        .into_any_element()
+                                                                } else {
+                                                                    Avatar::new()
+                                                                        .name(item.name.clone())
+                                                                        .size(AvatarSize::Sm)
+                                                                        .into_any_element()
+                                                                },
+                                                            )
+                                                            .child(
+                                                                div()
+                                                                    .text_size(px(14.0))
+                                                                    .font_family(
+                                                                        theme
+                                                                            .tokens
+                                                                            .font_family
+                                                                            .clone(),
+                                                                    )
+                                                                    .text_color(
+                                                                        theme
+                                                                            .tokens
+                                                                            .popover_foreground,
+                                                                    )
+                                                                    .child(item.name.clone()),
+                                                            )
+                                                    },
                                                 ),
-                                            ),
-                                        ),
+                                            )),
+                                        )),
                                 ),
                             ),
                     )
@@ -1274,7 +1245,7 @@ impl gpui::Element for MentionTextElement {
                 Some(fill(
                     Bounds::new(
                         point(bounds.left() + cursor_pos, bounds.top()),
-                        size(px(2.), bounds.bottom() - bounds.top()),
+                        size(edit::CARET_WIDTH, bounds.bottom() - bounds.top()),
                     ),
                     theme.tokens.primary,
                 )),
@@ -1292,7 +1263,10 @@ impl gpui::Element for MentionTextElement {
                             bounds.bottom(),
                         ),
                     ),
-                    theme.tokens.primary.opacity(0.2),
+                    theme
+                        .tokens
+                        .primary
+                        .opacity(edit::SELECTION_HIGHLIGHT_OPACITY),
                 )),
                 None,
             )

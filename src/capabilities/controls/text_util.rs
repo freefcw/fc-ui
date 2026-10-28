@@ -40,6 +40,21 @@ pub(crate) fn range_from_utf16(text: &str, range: &Range<usize>) -> Range<usize>
     offset_from_utf16(text, range.start)..offset_from_utf16(text, range.end)
 }
 
+/// Resolve the selected range after an IME composition edit: map the
+/// composition-relative UTF-16 selection into document coordinates anchored at
+/// `base`, falling back to a caret right after the inserted text. Shared by
+/// every text-editing state's `replace_and_mark_text_in_range`.
+pub(crate) fn selection_after_replacement(
+    inserted_text: &str,
+    selection_utf16: Option<&Range<usize>>,
+    base: usize,
+) -> Range<usize> {
+    selection_utf16
+        .map(|range_utf16| range_from_utf16(inserted_text, range_utf16))
+        .map(|new_range| new_range.start + base..new_range.end + base)
+        .unwrap_or_else(|| base + inserted_text.len()..base + inserted_text.len())
+}
+
 /// Clamp `offset` into the valid byte range of `text`.
 pub(crate) fn clamp_offset(text: &str, offset: usize) -> usize {
     offset.min(text.len())
@@ -219,6 +234,24 @@ mod tests {
         assert_eq!(clamp_offset("abc", 2), 2);
         assert_eq!(clamp_offset("abc", 10), 3);
         assert_eq!(clamp_offset("", 5), 0);
+    }
+
+    #[test]
+    fn selection_after_replacement_maps_utf16_into_document() {
+        // selection "de" (utf16 1..3) inside inserted "abcde", anchored at 10
+        assert_eq!(
+            selection_after_replacement("abcde", Some(&(1..3)), 10),
+            11..13
+        );
+        // no selection: caret right after the inserted text
+        assert_eq!(selection_after_replacement("abcde", None, 10), 15..15);
+        assert_eq!(selection_after_replacement("", None, 4), 4..4);
+        // astral char inside the composition maps through utf16 correctly
+        let emoji = "a😀b";
+        assert_eq!(
+            selection_after_replacement(emoji, Some(&(1..3)), 2),
+            2 + 1..2 + "a😀".len()
+        );
     }
 
     #[test]

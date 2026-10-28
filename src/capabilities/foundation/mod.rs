@@ -1,3 +1,4 @@
+pub(crate) mod edit;
 pub mod fonts;
 pub mod gpui_ext;
 pub mod http;

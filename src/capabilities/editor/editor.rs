@@ -25,6 +25,7 @@
 //! public façade. The document/editing core and the render snapshot should only
 //! be split after the behavior tests below cover their current contracts.
 
+use crate::capabilities::foundation::edit;
 use crate::capabilities::foundation::icon_config::resolve_icon_path;
 use crate::capabilities::foundation::theme::use_theme;
 use crate::capabilities::scroll::scrollable::scrollable_vertical;
@@ -971,17 +972,9 @@ impl EditorState {
     fn reset_cursor_blink(&mut self, cx: &mut Context<Self>) {
         self.cursor_visible = true;
         self.last_cursor_move = std::time::Instant::now();
-        self.blink_task = Some(cx.spawn(async |this, cx| loop {
-            smol::Timer::after(std::time::Duration::from_millis(500)).await;
-            let ok = this
-                .update(cx, |state, cx| {
-                    state.cursor_visible = !state.cursor_visible;
-                    cx.notify();
-                })
-                .is_ok();
-            if !ok {
-                break;
-            }
+        self.blink_task = Some(edit::spawn_caret_blink(cx, |state, cx| {
+            state.cursor_visible = !state.cursor_visible;
+            cx.notify();
         }));
     }
 
@@ -3364,7 +3357,7 @@ impl EditorState {
 
         let now = std::time::Instant::now();
         let is_double_click = if let Some(last_time) = self.last_click_time {
-            now.duration_since(last_time).as_millis() < 500
+            now.duration_since(last_time) < edit::MULTI_CLICK_WINDOW
         } else {
             false
         };
@@ -4114,11 +4107,12 @@ impl Element for EditorElement {
             }
         }
 
-        let sel_color = self
-            .state
-            .read(cx)
-            .selection_color_override
-            .unwrap_or(theme.tokens.primary.opacity(0.25));
+        let sel_color = self.state.read(cx).selection_color_override.unwrap_or(
+            theme
+                .tokens
+                .primary
+                .opacity(edit::SELECTION_HIGHLIGHT_OPACITY),
+        );
 
         if let Some(selection) = &selection {
             let (start, end) = selection.range();
@@ -4370,7 +4364,10 @@ impl Element for EditorElement {
                         .unwrap_or(theme.tokens.primary);
 
                     window.paint_quad(fill(
-                        Bounds::new(point(cursor_x, cursor_y), size(px(2.0), line_height)),
+                        Bounds::new(
+                            point(cursor_x, cursor_y),
+                            size(edit::CARET_WIDTH, line_height),
+                        ),
                         cursor_draw_color,
                     ));
                 }
