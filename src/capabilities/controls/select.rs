@@ -8,8 +8,6 @@ use gpui::{prelude::*, *};
 
 actions!(select, [SelectUp, SelectDown, SelectConfirm, SelectCancel]);
 
-const DROPDOWN_MARGIN: Pixels = px(4.0);
-
 #[cfg(test)]
 fn with_test_selector<E: InteractiveElement>(element: E, selector: &'static str) -> E {
     element.debug_selector(move || selector.into())
@@ -75,6 +73,193 @@ pub struct Select<T: Clone + 'static> {
 }
 
 impl<T: Clone + 'static> Select<T> {
+    /// Dropdown overlay for the open state: the shared anchored shell
+    /// wrapping the searchable option listbox.
+    fn render_dropdown(
+        &self,
+        cx: &mut Context<Self>,
+        theme: &crate::capabilities::foundation::theme::Theme,
+        bounds: Bounds<Pixels>,
+    ) -> impl IntoElement {
+        let highlighted_idx = self.highlighted_index;
+        let search_query: SharedString = self.search_query.clone().into();
+        let searchable = self.searchable;
+
+        crate::capabilities::controls::anchored_dropdown(
+            bounds.size.width,
+            theme,
+            with_test_selector(
+                div().id("select-listbox").role(Role::ListBox),
+                "select-dropdown",
+            )
+            .flex()
+            .flex_col()
+            .when(searchable, |this| {
+                this.child(
+                    div()
+                        .px(px(12.0))
+                        .pt(px(8.0))
+                        .pb(px(4.0))
+                        .border_b_1()
+                        .border_color(theme.tokens.border)
+                        .child(
+                            div()
+                                .w_full()
+                                .h(px(32.0))
+                                .px(px(8.0))
+                                .flex()
+                                .items_center()
+                                .bg(theme.tokens.background)
+                                .border_1()
+                                .border_color(theme.tokens.input)
+                                .rounded(theme.tokens.radius_sm)
+                                .text_size(px(13.0))
+                                .font_family(theme.tokens.font_family.clone())
+                                .text_color(if search_query.is_empty() {
+                                    theme.tokens.muted_foreground
+                                } else {
+                                    theme.tokens.foreground
+                                })
+                                .child(if search_query.is_empty() {
+                                    SharedString::from("Type to search...")
+                                } else {
+                                    search_query.clone()
+                                }),
+                        ),
+                )
+            })
+            .child(div().max_h(px(300.0)).child(scrollable_vertical({
+                let filtered = self.filtered_options();
+                let loading = self.loading;
+
+                div()
+                    .py(px(4.0))
+                    .when(loading, |this| {
+                        this.child(
+                            div()
+                                .px(px(12.0))
+                                .py(px(16.0))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .gap(px(8.0))
+                                .text_size(px(13.0))
+                                .font_family(theme.tokens.font_family.clone())
+                                .text_color(theme.tokens.muted_foreground)
+                                .child(
+                                    div()
+                                        .text_size(px(18.0))
+                                        .text_color(theme.tokens.primary)
+                                        .child("⟳"),
+                                )
+                                .child("Loading options..."),
+                        )
+                    })
+                    .when(!loading && filtered.is_empty(), |this| {
+                        this.child(
+                            div()
+                                .px(px(12.0))
+                                .py(px(16.0))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .text_size(px(13.0))
+                                .font_family(theme.tokens.font_family.clone())
+                                .text_color(theme.tokens.muted_foreground)
+                                .child("No results found"),
+                        )
+                    })
+                    .when(!loading && !filtered.is_empty(), |this| {
+                        let mut current_group: Option<SharedString> = None;
+                        this.children(filtered.iter().flat_map(|(index, option)| {
+                            let mut elements = Vec::new();
+
+                            if option.group != current_group {
+                                current_group = option.group.clone();
+                                if let Some(group_name) = &option.group {
+                                    elements.push(
+                                        div()
+                                            .px(px(12.0))
+                                            .pt(px(12.0))
+                                            .pb(px(4.0))
+                                            .text_size(px(11.0))
+                                            .font_family(theme.tokens.font_family.clone())
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .text_color(theme.tokens.muted_foreground)
+                                            .child(group_name.clone())
+                                            .into_any_element(),
+                                    );
+                                }
+                            }
+
+                            let is_selected = self.selected_index == Some(*index);
+                            let is_highlighted = highlighted_idx == Some(*index);
+                            let index = *index;
+                            let option_for_a11y = cx.entity().clone();
+
+                            elements.push(
+                                div()
+                                    .id(("select-option", index))
+                                    .role(Role::ListBoxOption)
+                                    .aria_label(option.label.clone())
+                                    .aria_selected(is_selected)
+                                    .px(px(12.0))
+                                    .py(px(8.0))
+                                    .text_color(if is_selected {
+                                        theme.tokens.primary
+                                    } else {
+                                        theme.tokens.popover_foreground
+                                    })
+                                    .bg(if is_highlighted {
+                                        theme.tokens.accent
+                                    } else {
+                                        gpui::transparent_black()
+                                    })
+                                    .hover(|mut style| {
+                                        style.background = Some(theme.tokens.accent.into());
+                                        style
+                                    })
+                                    .cursor(CursorStyle::PointingHand)
+                                    .text_size(px(14.0))
+                                    .font_family(theme.tokens.font_family.clone())
+                                    .on_mouse_down(
+                                        MouseButton::Left,
+                                        cx.listener(move |this, _, window, cx| {
+                                            this.select_option(index, window, cx);
+                                        }),
+                                    )
+                                    .on_a11y_action(
+                                        AccessibleAction::Click,
+                                        move |_, window, cx| {
+                                            option_for_a11y.update(cx, |select, cx| {
+                                                select.select_option(index, window, cx);
+                                            });
+                                        },
+                                    )
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .items_center()
+                                            .gap(px(8.0))
+                                            .when_some(option.icon.as_ref(), |div, src| {
+                                                div.child(
+                                                    Icon::new(src.clone())
+                                                        .size(px(14.0))
+                                                        .color(theme.tokens.muted_foreground),
+                                                )
+                                            })
+                                            .child(option.label.clone()),
+                                    )
+                                    .into_any_element(),
+                            );
+
+                            elements
+                        }))
+                    })
+            }))),
+        )
+    }
+
     pub fn new(cx: &mut Context<Self>) -> Self {
         Self {
             focus_handle: cx.focus_handle(),
@@ -316,7 +501,6 @@ impl<T: Clone + 'static> Render for Select<T> {
             .unwrap_or_else(|| placeholder.clone());
 
         let open = self.open;
-        let highlighted_idx = self.highlighted_index;
         let bounds = self.bounds;
         let aria_label = self.aria_label.clone();
         let focus_handle = self.focus_handle.clone().tab_index(0).tab_stop(true);
@@ -467,7 +651,6 @@ impl<T: Clone + 'static> Render for Select<T> {
         let trigger = with_test_selector(trigger, "select-trigger");
 
         let searchable = self.searchable;
-        let search_query: SharedString = self.search_query.clone().into();
 
         div()
             .relative()
@@ -484,8 +667,7 @@ impl<T: Clone + 'static> Render for Select<T> {
                     if event.keystroke.key == "backspace" {
                         this.search_query.pop();
                         cx.notify();
-                    }
-                    else if let Some(text) = &event.keystroke.key_char {
+                    } else if let Some(text) = &event.keystroke.key_char {
                         this.search_query.push_str(text);
                         let filtered = this.filtered_options();
                         if !filtered.is_empty() {
@@ -502,202 +684,7 @@ impl<T: Clone + 'static> Render for Select<T> {
             }))
             .child(trigger)
             .when(open, |this| {
-                this.child(
-                    deferred(
-                        anchored()
-                            .snap_to_window_with_margin(Edges::all(DROPDOWN_MARGIN))
-                            .child(
-                                div()
-                                    .occlude()
-                                    .w(bounds.size.width)
-                                    .child(
-                                        div()
-                                            .occlude()
-                                            .mt(DROPDOWN_MARGIN)
-                                            .bg(theme.tokens.popover)
-                                            .border_2()
-                                            .border_color(theme.tokens.ring)
-                                            .rounded(theme.tokens.radius_md)
-                                            .shadow_xl()
-                                            .overflow_hidden()
-                                            .child(
-                                                with_test_selector(
-                                                    div().id("select-listbox").role(Role::ListBox),
-                                                    "select-dropdown",
-                                                )
-                                                    .flex()
-                                                    .flex_col()
-                                                    .when(searchable, |this| {
-                                                        this.child(
-                                                            div()
-                                                                .px(px(12.0))
-                                                                .pt(px(8.0))
-                                                                .pb(px(4.0))
-                                                                .border_b_1()
-                                                                .border_color(theme.tokens.border)
-                                                                .child(
-                                                                    div()
-                                                                        .w_full()
-                                                                        .h(px(32.0))
-                                                                        .px(px(8.0))
-                                                                        .flex()
-                                                                        .items_center()
-                                                                        .bg(theme.tokens.background)
-                                                                        .border_1()
-                                                                        .border_color(theme.tokens.input)
-                                                                        .rounded(theme.tokens.radius_sm)
-                                                                        .text_size(px(13.0))
-                                                                        .font_family(theme.tokens.font_family.clone())
-                                                                        .text_color(if search_query.is_empty() {
-                                                                            theme.tokens.muted_foreground
-                                                                        } else {
-                                                                            theme.tokens.foreground
-                                                                        })
-                                                                        .child(if search_query.is_empty() {
-                                                                            SharedString::from("Type to search...")
-                                                                        } else {
-                                                                            search_query.clone()
-                                                                        })
-                                                                )
-                                                        )
-                                                    })
-                                                    .child(
-                                                        div()
-                                                            .max_h(px(300.0))
-                                                            .child(
-                                                                scrollable_vertical({
-                                                                let filtered = self.filtered_options();
-                                                                let loading = self.loading;
-
-                                                                div()
-                                                                    .py(px(4.0))
-                                                                    .when(loading, |this| {
-                                                                    this.child(
-                                                                        div()
-                                                                            .px(px(12.0))
-                                                                            .py(px(16.0))
-                                                                            .flex()
-                                                                            .items_center()
-                                                                            .justify_center()
-                                                                            .gap(px(8.0))
-                                                                            .text_size(px(13.0))
-                                                                            .font_family(theme.tokens.font_family.clone())
-                                                                            .text_color(theme.tokens.muted_foreground)
-                                                                            .child(
-                                                                                div()
-                                                                                    .text_size(px(18.0))
-                                                                                    .text_color(theme.tokens.primary)
-                                                                                    .child("⟳")
-                                                                            )
-                                                                            .child("Loading options...")
-                                                                    )
-                                                                })
-                                                                .when(!loading && filtered.is_empty(), |this| {
-                                                                    this.child(
-                                                                        div()
-                                                                            .px(px(12.0))
-                                                                            .py(px(16.0))
-                                                                            .flex()
-                                                                            .items_center()
-                                                                            .justify_center()
-                                                                            .text_size(px(13.0))
-                                                                            .font_family(theme.tokens.font_family.clone())
-                                                                            .text_color(theme.tokens.muted_foreground)
-                                                                            .child("No results found")
-                                                                    )
-                                                                })
-                                                                .when(!loading && !filtered.is_empty(), |this| {
-                                                                    let mut current_group: Option<SharedString> = None;
-                                                                    this.children(
-                                                                        filtered.iter().flat_map(|(index, option)| {
-                                                                            let mut elements = Vec::new();
-
-                                                                            if option.group != current_group {
-                                                                                current_group = option.group.clone();
-                                                                                if let Some(group_name) = &option.group {
-                                                                                    elements.push(
-                                                                                        div()
-                                                                                            .px(px(12.0))
-                                                                                            .pt(px(12.0))
-                                                                                            .pb(px(4.0))
-                                                                                            .text_size(px(11.0))
-                                                                                            .font_family(theme.tokens.font_family.clone())
-                                                                                            .font_weight(FontWeight::SEMIBOLD)
-                                                                                            .text_color(theme.tokens.muted_foreground)
-                                                                                            .child(group_name.clone())
-                                                                                            .into_any_element()
-                                                                                    );
-                                                                                }
-                                                                            }
-
-                                                                            let is_selected = self.selected_index == Some(*index);
-                                                                            let is_highlighted = highlighted_idx == Some(*index);
-                                                                            let index = *index;
-                                                                            let option_for_a11y = cx.entity().clone();
-
-                                                                            elements.push(
-                                                                                div()
-                                                                                    .id(("select-option", index))
-                                                                                    .role(Role::ListBoxOption)
-                                                                                    .aria_label(option.label.clone())
-                                                                                    .aria_selected(is_selected)
-                                                                                    .px(px(12.0))
-                                                                                    .py(px(8.0))
-                                                                                    .text_color(if is_selected {
-                                                                                        theme.tokens.primary
-                                                                                    } else {
-                                                                                        theme.tokens.popover_foreground
-                                                                                    })
-                                                                                    .bg(if is_highlighted {
-                                                                                        theme.tokens.accent
-                                                                                    } else {
-                                                                                        gpui::transparent_black()
-                                                                                    })
-                                                                                    .hover(|mut style| {
-                                                                                        style.background = Some(theme.tokens.accent.into());
-                                                                                        style
-                                                                                    })
-                                                                                    .cursor(CursorStyle::PointingHand)
-                                                                                    .text_size(px(14.0))
-                                                                                    .font_family(theme.tokens.font_family.clone())
-                                                                                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, window, cx| {
-                                                                                        this.select_option(index, window, cx);
-                                                                                    }))
-                                                                                    .on_a11y_action(AccessibleAction::Click, move |_, window, cx| {
-                                                                                        option_for_a11y.update(cx, |select, cx| {
-                                                                                            select.select_option(index, window, cx);
-                                                                                        });
-                                                                                    })
-                                                                                    .child(
-                                                                                        div()
-                                                                                            .flex()
-                                                                                            .items_center()
-                                                                                            .gap(px(8.0))
-                                                                                            .when_some(option.icon.as_ref(), |div, src| {
-                                                                                                div.child(
-                                                                                                    Icon::new(src.clone())
-                                                                                                        .size(px(14.0))
-                                                                                                        .color(theme.tokens.muted_foreground)
-                                                                                                )
-                                                                                            })
-                                                                                            .child(option.label.clone())
-                                                                                    )
-                                                                                    .into_any_element()
-                                                                            );
-
-                                                                            elements
-                                                                        })
-                                                                    )
-                                                                })
-                                                            })
-                                                        )
-                                                    )
-                                            ),
-                                    ),
-                            ),
-                    )
-                    .with_priority(1),
-                )
+                this.child(self.render_dropdown(cx, &theme, bounds))
             })
             .map(|this| {
                 let mut div = this;
@@ -728,3 +715,53 @@ impl<T: Clone + 'static> Focusable for Select<T> {
 }
 
 impl<T: Clone + 'static> EventEmitter<SelectEvent> for Select<T> {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_options() -> Vec<SelectOption<&'static str>> {
+        vec![
+            SelectOption::new("apple", "Apple"),
+            SelectOption::new("banana", "Banana"),
+            SelectOption::new("cherry", "Cherry"),
+        ]
+    }
+
+    #[gpui::test]
+    fn filters_options_case_insensitively_by_label() {
+        let mut app = TestApp::new();
+        let select = app.update(|cx| cx.new(|cx| Select::new(cx).options(sample_options())));
+
+        app.update(|cx| {
+            select.update(cx, |s, _| {
+                assert_eq!(s.filtered_options().len(), 3);
+                s.search_query = "BAN".to_string();
+                let filtered = s.filtered_options();
+                assert_eq!(filtered.len(), 1);
+                assert_eq!(filtered[0].1.label, "Banana");
+                assert_eq!(filtered[0].0, 1);
+                s.search_query.clear();
+                assert_eq!(s.filtered_options().len(), 3);
+            })
+        });
+    }
+
+    #[gpui::test]
+    fn selected_accessors_read_the_selected_option() {
+        let mut app = TestApp::new();
+        let select = app.update(|cx| {
+            cx.new(|cx| {
+                Select::new(cx)
+                    .options(sample_options())
+                    .selected_index(Some(1))
+            })
+        });
+
+        app.update(|cx| {
+            let s = select.read(cx);
+            assert_eq!(s.selected_value(), Some(&"banana"));
+            assert_eq!(s.selected_label().map(|l| l.as_ref()), Some("Banana"));
+        });
+    }
+}

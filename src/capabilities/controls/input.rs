@@ -653,49 +653,13 @@ impl RenderOnce for Input {
         // already announces.
         let has_error = self.error || self.state.read(cx).validation_error.is_some();
 
-        let (bg_color, border_color, text_color) = if self.disabled {
-            (
-                theme.tokens.muted.opacity(0.5),
-                theme.tokens.border,
-                theme.tokens.muted_foreground,
-            )
-        } else if has_error {
-            match self.variant {
-                InputVariant::Default => (
-                    theme.tokens.background,
-                    theme.tokens.destructive,
-                    theme.tokens.foreground,
-                ),
-                InputVariant::Outline => (
-                    theme.tokens.background,
-                    theme.tokens.destructive,
-                    theme.tokens.foreground,
-                ),
-                InputVariant::Ghost => (
-                    gpui::transparent_black(),
-                    theme.tokens.destructive.opacity(0.3),
-                    theme.tokens.foreground,
-                ),
-            }
-        } else {
-            match self.variant {
-                InputVariant::Default => (
-                    theme.tokens.background,
-                    theme.tokens.input,
-                    theme.tokens.foreground,
-                ),
-                InputVariant::Outline => (
-                    theme.tokens.background,
-                    theme.tokens.border,
-                    theme.tokens.foreground,
-                ),
-                InputVariant::Ghost => (
-                    gpui::transparent_black(),
-                    theme.tokens.border.opacity(0.3),
-                    theme.tokens.foreground,
-                ),
-            }
-        };
+        let (bg_color, border_color, text_color) =
+            crate::capabilities::controls::input_shell_colors(
+                self.variant,
+                self.disabled,
+                has_error,
+                &theme.tokens,
+            );
 
         let has_value = !self.state.read(cx).content.is_empty();
         let show_clear = self.clearable && has_value && !self.disabled;

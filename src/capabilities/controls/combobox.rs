@@ -24,8 +24,6 @@ actions!(
     ]
 );
 
-const DROPDOWN_MARGIN: Pixels = px(4.0);
-
 #[cfg(test)]
 fn with_test_selector<E: InteractiveElement>(element: E, selector: &'static str) -> E {
     element.debug_selector(move || selector.into())
@@ -560,14 +558,14 @@ impl<T: Clone + PartialEq + 'static> Render for Combobox<T> {
                     if event.keystroke.key == "backspace" {
                         this.state.update(cx, |state, cx| {
                             state.search_text.pop();
-                            cx.notify();  // Trigger re-render
+                            cx.notify(); // Trigger re-render
                         });
                         cx.emit(ComboboxEvent::Search);
                     } else if let Some(text) = event.keystroke.key_char.clone() {
                         this.state.update(cx, |state, cx| {
                             state.search_text.push_str(&text);
                             state.focused_index = Some(0);
-                            cx.notify();  // Trigger re-render
+                            cx.notify(); // Trigger re-render
                         });
                         cx.emit(ComboboxEvent::Search);
 
@@ -585,98 +583,79 @@ impl<T: Clone + PartialEq + 'static> Render for Combobox<T> {
             }))
             .child(trigger)
             .when(is_open, |this| {
-                this.child(
-                    deferred(
-                        anchored()
-                            .snap_to_window_with_margin(Edges::all(DROPDOWN_MARGIN))
-                            .child(
-                                div()
-                                    .occlude()
-                                    .w(bounds.size.width)
-                                    .child(
+                this.child(crate::capabilities::controls::anchored_dropdown(
+                    bounds.size.width,
+                    &theme,
+                    {
+                        let filtered = self.filtered_items(cx);
+
+                        with_test_selector(div().id("combobox-dropdown-list"), "combobox-dropdown")
+                            .max_h(self.max_height)
+                            .overflow_y_scroll()
+                            .py(px(4.0))
+                            .when(filtered.is_empty(), |this| {
+                                this.child(
+                                    div()
+                                        .px(px(12.0))
+                                        .py(px(16.0))
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .text_size(px(13.0))
+                                        .font_family(theme.tokens.font_family.clone())
+                                        .text_color(theme.tokens.muted_foreground)
+                                        .child("No results found"),
+                                )
+                            })
+                            .when(!filtered.is_empty(), |this| {
+                                this.children(filtered.iter().enumerate().map(
+                                    |(display_idx, &(_original_idx, item))| {
+                                        let is_focused = focused_idx == Some(display_idx);
+                                        let is_selected = state.is_selected(item);
+                                        let item_text = (self.render_item)(item);
+
                                         div()
-                                            .occlude()
-                                            .mt(DROPDOWN_MARGIN)
-                                            .bg(theme.tokens.popover)
-                                            .border_2()
-                                            .border_color(theme.tokens.ring)
-                                            .rounded(theme.tokens.radius_md)
-                                            .shadow_xl()
-                                            .overflow_hidden()
-                                            .child({
-                                                let filtered = self.filtered_items(cx);
-
-                                                with_test_selector(
-                                                    div().id("combobox-dropdown-list"),
-                                                    "combobox-dropdown",
-                                                )
-                                                    .max_h(self.max_height)
-                                                    .overflow_y_scroll()
-                                                    .py(px(4.0))
-                                                    .when(filtered.is_empty(), |this| {
-                                                        this.child(
-                                                            div()
-                                                                .px(px(12.0))
-                                                                .py(px(16.0))
-                                                                .flex()
-                                                                .items_center()
-                                                                .justify_center()
-                                                                .text_size(px(13.0))
-                                                                .font_family(theme.tokens.font_family.clone())
-                                                                .text_color(theme.tokens.muted_foreground)
-                                                                .child("No results found")
-                                                        )
-                                                    })
-                                                    .when(!filtered.is_empty(), |this| {
-                                                        this.children(
-                                                            filtered.iter().enumerate().map(|(display_idx, &(_original_idx, item))| {
-                                                                let is_focused = focused_idx == Some(display_idx);
-                                                                let is_selected = state.is_selected(item);
-                                                                let item_text = (self.render_item)(item);
-
-                                                                div()
-                                                                    .px(px(12.0))
-                                                                    .py(px(8.0))
-                                                                    .flex()
-                                                                    .items_center()
-                                                                    .justify_between()
-                                                                    .text_color(if is_selected {
-                                                                        theme.tokens.primary
-                                                                    } else {
-                                                                        theme.tokens.popover_foreground
-                                                                    })
-                                                                    .bg(if is_focused {
-                                                                        theme.tokens.accent
-                                                                    } else {
-                                                                        gpui::transparent_black()
-                                                                    })
-                                                                    .hover(|mut style| {
-                                                                        style.background = Some(theme.tokens.accent.into());
-                                                                        style
-                                                                    })
-                                                                    .cursor(CursorStyle::PointingHand)
-                                                                    .text_size(px(14.0))
-                                                                    .font_family(theme.tokens.font_family.clone())
-                                                                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, window, cx| {
-                                                                        this.select_item(display_idx, window, cx);
-                                                                    }))
-                                                                    .child(item_text)
-                                                                    .when(is_selected, |div| {
-                                                                        div.child(
-                                                                            Icon::new("check")
-                                                                                .size(px(14.0))
-                                                                                .color(theme.tokens.primary)
-                                                                        )
-                                                                    })
-                                                            })
-                                                        )
-                                                    })
+                                            .px(px(12.0))
+                                            .py(px(8.0))
+                                            .flex()
+                                            .items_center()
+                                            .justify_between()
+                                            .text_color(if is_selected {
+                                                theme.tokens.primary
+                                            } else {
+                                                theme.tokens.popover_foreground
                                             })
-                                    )
-                            )
-                    )
-                    .with_priority(1)
-                )
+                                            .bg(if is_focused {
+                                                theme.tokens.accent
+                                            } else {
+                                                gpui::transparent_black()
+                                            })
+                                            .hover(|mut style| {
+                                                style.background = Some(theme.tokens.accent.into());
+                                                style
+                                            })
+                                            .cursor(CursorStyle::PointingHand)
+                                            .text_size(px(14.0))
+                                            .font_family(theme.tokens.font_family.clone())
+                                            .on_mouse_down(
+                                                MouseButton::Left,
+                                                cx.listener(move |this, _, window, cx| {
+                                                    this.select_item(display_idx, window, cx);
+                                                }),
+                                            )
+                                            .child(item_text)
+                                            .when(is_selected, |div| {
+                                                div.child(
+                                                    Icon::new("check")
+                                                        .size(px(14.0))
+                                                        .color(theme.tokens.primary),
+                                                )
+                                            })
+                                    },
+                                ))
+                            })
+                    },
+                ))
             })
             .map(|this| {
                 let mut div = this;
@@ -710,3 +689,39 @@ impl<T: Clone + 'static> Focusable for Combobox<T> {
 }
 
 impl<T: Clone + 'static> EventEmitter<ComboboxEvent> for Combobox<T> {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[gpui::test]
+    fn filters_items_with_the_configured_filter_fn() {
+        let mut app = TestApp::new();
+        let combo = app.update(|cx| {
+            let state = cx.new(|_| ComboboxState::<&'static str>::new());
+            state.update(cx, |s, _| s.search_text = "an".to_string());
+            cx.new(|cx| {
+                Combobox::new(vec!["apple", "banana", "cherry"], &state, cx)
+                    .filter_fn(|item, search| item.contains(search))
+            })
+        });
+
+        app.update(|cx| {
+            let filtered = combo.read(cx).filtered_items(cx);
+            assert_eq!(filtered.len(), 1);
+            assert_eq!(*filtered[0].1, "banana");
+        });
+    }
+
+    #[gpui::test]
+    fn default_filter_passes_every_item() {
+        let mut app = TestApp::new();
+        let combo = app.update(|cx| {
+            let state = cx.new(|_| ComboboxState::<&'static str>::new());
+            state.update(cx, |s, _| s.search_text = "zzz".to_string());
+            cx.new(|cx| Combobox::new(vec!["apple", "banana"], &state, cx))
+        });
+
+        app.update(|cx| assert_eq!(combo.read(cx).filtered_items(cx).len(), 2));
+    }
+}
