@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The audio and video players share one `format_time` helper. Both now render
+  short timestamps zero-padded (`00:05` instead of the video player's previous
+  `0:05`).
+- Selection-highlight opacity is unified at `0.25` across Input, Textarea,
+  MentionInput, InlineEdit, and Editor. MentionInput and InlineEdit previously
+  used `0.2`; caret width, blink interval, multi-click window, and IME
+  underline thickness now come from shared constants.
+
+### Deprecated
+
+- Animation abstractions currently unused within this repository
+  (`AnimationPreset`, `KeyframeAnimation`, `StaggerConfig`, `Transition`,
+  `AnimationRepeat`, `AnimationCoordinator`, `spring_bounce`) and unused
+  helpers (`StyledExt::stack/row/glass/elevated/ring`,
+  `Chart::screen_to_data`, `DataPoint::xy`, `DataRange::with_padding`,
+  `ChartPadding::all`, `InputType::Search`, `InputMask::Custom`) are deprecated
+  and will be removed in 0.10. External users should follow each API's
+  deprecation note before migrating.
+
+### Removed
+
+- Six stale probe examples untouched since January (`click_test`,
+  `gpui-scroll`, `test_element_id`, `debug_scroll`, `test_simple_scroll`,
+  `mimic_scroll_container`).
+
+### Internal
+
+- Deduplicated the text-editing core: a shared caret-blink task helper now
+  backs Input, Textarea, and Editor; shared visual constants and
+  `text_util::selection_after_replacement` keep Input, Textarea, MentionInput,
+  InlineEdit, and Editor consistent instead of per-file copies.
+- Extracted shared input-family widgets: `input_shell_colors` (Input/Textarea
+  variant colors) and `anchored_dropdown` (Select/Combobox overlay shell);
+  `Select::render` delegates its dropdown to a dedicated `render_dropdown`.
+- Consolidated slider math (`value_percentage`, `snap_to_step`,
+  `horizontal/vertical_drag_percentage`, `keyboard_value`) shared by `Slider`
+  and `RangeSlider`.
+- Named the variable-list item layout budget separately from `CHUNK_SIZE` so
+  item-count and pixel-budget constants can be tuned independently; behavior is
+  unchanged.
+- Added first state-level tests for `Select`, `Combobox`, and `InlineEdit`,
+  plus `format_time` and IME selection-mapping unit tests.
+
 ## [0.9.5] - 2026-10-24
 
 ### Changed
