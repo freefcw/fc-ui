@@ -404,17 +404,6 @@ impl<T: Clone + PartialEq + Eq + Hash + 'static> RenderOnce for TreeList<T> {
             (flatten_tree(&self.nodes, &expanded_set, 0), HashMap::new())
         };
 
-        let total_items = flat_nodes.len();
-
-        let _item_sizes: Rc<Vec<Size<Pixels>>> = Rc::new(
-            (0..total_items)
-                .map(|_| Size {
-                    width: px(0.), // Width will be determined by container
-                    height: px(ROW_HEIGHT),
-                })
-                .collect(),
-        );
-
         let flat_nodes_rc = Rc::new(flat_nodes);
         let match_ranges_rc = Rc::new(match_ranges_map);
         let selected_id = self.selected_id.clone();
