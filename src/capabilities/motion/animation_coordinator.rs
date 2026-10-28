@@ -1,3 +1,7 @@
+// This type is deprecated as a whole (see the attribute on the struct);
+// silence deprecation warnings for its internal cross-references.
+#![allow(deprecated)]
+
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -21,6 +25,7 @@ struct AnimationEntry {
 ///   Completion callbacks fire only while the host polls
 ///   [`AnimationCoordinator::tick`] (call it every frame/update); without
 ///   polling, callbacks never run.
+#[deprecated(note = "unused within the crate and examples; will be removed in 0.10")]
 pub struct AnimationCoordinator {
     animations: HashMap<String, AnimationEntry>,
 }

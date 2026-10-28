@@ -1,9 +1,16 @@
+// This module is deprecated as a whole (see the type-level attributes);
+// silence deprecation warnings for its internal cross-references.
+#![allow(deprecated)]
+
 use gpui::*;
 use std::time::Duration;
 
 use crate::capabilities::motion::animations::easings;
 
 #[derive(Clone)]
+#[deprecated(
+    note = "unused within the crate and examples; superseded by gpui::Animation + motion::animations helpers, will be removed in 0.10"
+)]
 pub struct AnimationPreset {
     duration: Duration,
     easing: fn(f32) -> f32,
@@ -19,19 +26,28 @@ impl AnimationPreset {
         }
     }
 
-    pub fn duration(mut self, duration: Duration) -> Self {
-        self.duration = duration;
-        self
+    /// Set the duration of the animation.
+    #[deprecated(note = "use with_duration; will be removed in 0.10")]
+    pub fn duration(self, duration: Duration) -> Self {
+        self.with_duration(duration)
     }
 
-    pub fn easing(mut self, easing: fn(f32) -> f32) -> Self {
-        self.easing = easing;
-        self
+    /// Set the easing function used by the animation.
+    #[deprecated(note = "use with_easing; will be removed in 0.10")]
+    pub fn easing(self, easing: fn(f32) -> f32) -> Self {
+        self.with_easing(easing)
     }
 
     /// Set a start delay. The animation holds its initial value for the delay
     /// before starting (see [`AnimationPreset::to_animation`]).
-    pub fn delay(mut self, delay: Duration) -> Self {
+    #[deprecated(note = "use with_delay; will be removed in 0.10")]
+    pub fn delay(self, delay: Duration) -> Self {
+        self.with_delay(delay)
+    }
+
+    /// Set a start delay. The animation holds its initial value for the delay
+    /// before starting (see [`AnimationPreset::to_animation`]).
+    pub fn with_delay(mut self, delay: Duration) -> Self {
         self.delay = delay;
         self
     }
@@ -43,13 +59,6 @@ impl AnimationPreset {
 
     pub fn with_easing(mut self, easing: fn(f32) -> f32) -> Self {
         self.easing = easing;
-        self
-    }
-
-    /// Set a start delay. The animation holds its initial value for the delay
-    /// before starting (see [`AnimationPreset::to_animation`]).
-    pub fn with_delay(mut self, delay: Duration) -> Self {
-        self.delay = delay;
         self
     }
 
@@ -106,6 +115,7 @@ pub fn slide_in_right() -> AnimationPreset {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+#[deprecated(note = "unused within the crate and examples; will be removed in 0.10")]
 pub enum AnimationRepeat {
     Once,
     /// Finite repeat count. A count of zero is treated as one pass.
@@ -113,6 +123,7 @@ pub enum AnimationRepeat {
     Infinite,
 }
 
+#[deprecated(note = "unused within the crate and examples; will be removed in 0.10")]
 pub struct KeyframeAnimation {
     id: SharedString,
     keyframes: Vec<(f32, f32)>,
@@ -220,6 +231,7 @@ impl KeyframeAnimation {
 }
 
 #[derive(Clone)]
+#[deprecated(note = "unused within the crate and examples; will be removed in 0.10")]
 pub struct StaggerConfig {
     delay_per_child: Duration,
     preset: AnimationPreset,
@@ -266,7 +278,20 @@ impl Default for StaggerConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::KeyframeAnimation;
+    #![allow(deprecated)]
+    use super::{easings, AnimationPreset, KeyframeAnimation};
+    use std::time::Duration;
+
+    #[test]
+    fn deprecated_animation_preset_builders_remain_compatible() {
+        let preset = AnimationPreset::new(Duration::from_millis(100), easings::linear)
+            .duration(Duration::from_millis(200))
+            .easing(easings::ease_in_cubic)
+            .delay(Duration::from_millis(25));
+
+        assert_eq!(preset.get_duration(), Duration::from_millis(200));
+        assert_eq!(preset.get_delay(), Duration::from_millis(25));
+    }
 
     #[test]
     fn non_finite_keyframes_are_ignored() {
@@ -279,6 +304,7 @@ mod tests {
 }
 
 #[derive(Clone)]
+#[deprecated(note = "unused within the crate and examples; will be removed in 0.10")]
 pub struct Transition {
     property: SharedString,
     duration: Duration,

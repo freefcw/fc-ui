@@ -72,6 +72,9 @@ pub enum InputType {
     /// Password input with strength indicators
     Password,
     /// Search input with debounced events
+    #[deprecated(
+        note = "never interpreted by InputState; use the dedicated SearchInput component instead, will be removed in 0.10"
+    )]
     Search,
     /// Date input (YYYY-MM-DD format)
     Date,
@@ -95,6 +98,7 @@ pub enum InputMask {
     /// Time: HH:MM
     Time,
     /// Custom mask pattern
+    #[deprecated(note = "never interpreted by InputState, will be removed in 0.10")]
     Custom(&'static str),
 }
 

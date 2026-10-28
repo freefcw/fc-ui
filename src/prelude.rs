@@ -3,6 +3,9 @@
 pub use crate::gpui_ext::*;
 pub use crate::styled_ext::StyledExt;
 
+// Re-exports of deprecated animation abstractions kept for API compatibility
+// until 0.10; see `capabilities/motion/animate.rs` and `animation_coordinator.rs`.
+#[allow(deprecated)]
 pub use crate::animate::{
     bounce_in as animate_bounce_in, fade_in as animate_fade_in, fade_out as animate_fade_out,
     scale_in as animate_scale_in, slide_down as animate_slide_down,
@@ -180,6 +183,7 @@ pub use crate::overlays::sheet::{Sheet, SheetSide, SheetSize};
 pub use crate::overlays::toast::{ToastItem, ToastManager, ToastPosition, ToastVariant};
 pub use crate::theme::{install_theme, use_theme, Theme, ThemeTokens, ThemeVariant};
 
+#[allow(deprecated)]
 pub use crate::animation_coordinator::AnimationCoordinator;
 pub use crate::content_transition::{ContentTransition, ContentTransitionState};
 pub use crate::gestures::{

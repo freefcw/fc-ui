@@ -5,20 +5,26 @@ pub trait StyledExt: Styled + Sized {
         self.flex().items_center().justify_center()
     }
 
+    #[deprecated(note = "unused; use .flex().flex_col() directly, will be removed in 0.10")]
     fn stack(self) -> Self {
         self.flex().flex_col()
     }
 
+    #[deprecated(note = "unused; use .flex().flex_row() directly, will be removed in 0.10")]
     fn row(self) -> Self {
         self.flex().flex_row()
     }
 
+    #[deprecated(
+        note = "unused and bypasses theme tokens; will be removed or reworked on top of theme tokens in 0.10"
+    )]
     fn glass(self, opacity: f32) -> Self {
         let bg_color = hsla(0.0, 0.0, 1.0, 0.08 * opacity);
         let border_color = hsla(0.0, 0.0, 1.0, 0.12 * opacity);
         self.bg(bg_color).border_1().border_color(border_color)
     }
 
+    #[deprecated(note = "unused; use theme shadow tokens instead, will be removed in 0.10")]
     fn elevated(self, level: u8) -> Self {
         let shadow = match level {
             0 => return self,
@@ -61,6 +67,7 @@ pub trait StyledExt: Styled + Sized {
         self.shadow(smallvec::smallvec![shadow])
     }
 
+    #[deprecated(note = "unused; use .shadow() directly, will be removed in 0.10")]
     fn ring(self, color: Hsla, width: Pixels) -> Self {
         let shadow = BoxShadow {
             offset: point(px(0.0), px(0.0)),

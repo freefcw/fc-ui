@@ -668,6 +668,7 @@ pub fn shake_offset(delta: f32, max_offset: f32) -> f32 {
 }
 
 /// Calculate spring bounce with natural physics
+#[deprecated(note = "unused within the crate and examples; will be removed in 0.10")]
 pub fn spring_bounce(delta: f32, amplitude: f32) -> f32 {
     let damping = 0.7;
     let frequency = 1.5;

@@ -15,6 +15,7 @@ impl DataPoint {
         Self { x, y, label: None }
     }
 
+    #[deprecated(note = "unused within the crate and examples; will be removed in 0.10")]
     pub fn xy(x: f64, y: f64) -> Self {
         Self::new(x, y)
     }
@@ -134,6 +135,7 @@ impl DataRange {
         ((y - min) / (max - min)) as f32
     }
 
+    #[deprecated(note = "unused within the crate and examples; will be removed in 0.10")]
     pub fn with_padding(&self, padding: f64) -> Self {
         let x_range = self.x_max - self.x_min;
         let y_range = self.y_max - self.y_min;
@@ -170,6 +172,7 @@ impl ChartPadding {
         }
     }
 
+    #[deprecated(note = "unused within the crate and examples; will be removed in 0.10")]
     pub fn all(value: f32) -> Self {
         Self::new(value, value, value, value)
     }
@@ -215,6 +218,7 @@ impl ChartArea {
         point(screen_x, screen_y)
     }
 
+    #[deprecated(note = "unused within the crate and examples; will be removed in 0.10")]
     pub fn screen_to_data(&self, screen_point: Point<Pixels>) -> DataPoint {
         let chart_width = self.chart_width();
         let chart_height = self.chart_height();
@@ -559,8 +563,6 @@ impl Series {
 
 struct HoveredPoint {
     series_index: usize,
-    #[allow(dead_code)]
-    point_index: usize,
     screen_pos: Point<Pixels>,
     data_point: DataPoint,
 }
@@ -571,10 +573,6 @@ struct ChartPaintState {
     y_axis: Axis,
     tooltip: TooltipConfig,
     grid_color: Hsla,
-    #[allow(dead_code)]
-    text_color: Hsla,
-    #[allow(dead_code)]
-    background: Hsla,
     padding: ChartPadding,
 }
 
@@ -720,8 +718,6 @@ impl RenderOnce for Chart {
             y_axis: self.y_axis,
             tooltip: self.tooltip,
             grid_color: theme.tokens.border,
-            text_color: theme.tokens.muted_foreground,
-            background: theme.tokens.background,
             padding: padding.clone(),
         };
 
@@ -874,11 +870,8 @@ impl RenderOnce for Chart {
                                         }
                                         SeriesType::Bar => {
                                             let bar_width = series.bar_width.unwrap_or(20.0);
-                                            for (point_index, (data_pt, screen_pt)) in series
-                                                .data
-                                                .iter()
-                                                .zip(screen_points.iter())
-                                                .enumerate()
+                                            for (data_pt, screen_pt) in
+                                                series.data.iter().zip(screen_points.iter())
                                             {
                                                 let bar_height = area.chart_bottom() - screen_pt.y;
                                                 let bar_bounds = Bounds::new(
@@ -894,7 +887,6 @@ impl RenderOnce for Chart {
                                                 if bar_bounds.contains(&mouse_pos) {
                                                     hovered_point = Some(HoveredPoint {
                                                         series_index,
-                                                        point_index,
                                                         screen_pos: *screen_pt,
                                                         data_point: data_pt.clone(),
                                                     });
@@ -908,8 +900,8 @@ impl RenderOnce for Chart {
                                         || matches!(series.series_type, SeriesType::Scatter)
                                     {
                                         let radius = px(series.point_radius);
-                                        for (point_index, (data_pt, screen_pt)) in
-                                            series.data.iter().zip(screen_points.iter()).enumerate()
+                                        for (data_pt, screen_pt) in
+                                            series.data.iter().zip(screen_points.iter())
                                         {
                                             let is_hovered = (mouse_pos.x - screen_pt.x).abs()
                                                 < hover_radius
@@ -929,7 +921,6 @@ impl RenderOnce for Chart {
                                             if is_hovered && hovered_point.is_none() {
                                                 hovered_point = Some(HoveredPoint {
                                                     series_index,
-                                                    point_index,
                                                     screen_pos: *screen_pt,
                                                     data_point: data_pt.clone(),
                                                 });
