@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.6] - 2026-10-29
+
 ### Changed
 
 - The audio and video players share one `format_time` helper. Both now render
@@ -601,7 +603,8 @@ Created comprehensive styled demonstration examples for every component showing 
 - Platform-aware UI elements
 - Responsive layout utilities (VStack, HStack, Grid)
 
-[Unreleased]: https://github.com/freefcw/fc-ui/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/freefcw/fc-ui/compare/v0.9.6...HEAD
+[0.9.6]: https://github.com/freefcw/fc-ui/compare/v0.9.5...v0.9.6
 [0.9.1]: https://github.com/freefcw/fc-ui/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/freefcw/fc-ui/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/freefcw/fc-ui/compare/v0.8.0...v0.8.1
