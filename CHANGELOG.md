@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.7] - 2026-11-02
+
 ### Added
 
 - New opt-in `http-system-proxy` feature re-enables the operating system's
