@@ -36,7 +36,7 @@ smol = "2.0.2"
 futures = "0.3"
 
 # HTTP client for remote images (optional)
-reqwest = { version = "0.12.16", default-features = false, features = ["blocking", "charset", "http2", "macos-system-configuration", "rustls-tls-native-roots"], optional = true }
+reqwest = { version = "0.12.16", default-features = false, features = ["blocking", "charset", "http2", "rustls-tls-native-roots"], optional = true }
 
 # QR Code generation
 qrcode = { version = "0.14", optional = true }
@@ -97,6 +97,7 @@ default = [
 ]
 accessibility = ["gpui/accessibility"]
 http = ["reqwest"]
+http-system-proxy = ["http", "reqwest/macos-system-configuration"]
 markdown = ["pulldown-cmark"]
 html-render = ["html5ever", "markup5ever_rcdom"]
 audio = ["rodio"]

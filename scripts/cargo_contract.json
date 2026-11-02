@@ -233,6 +233,10 @@
     "http": [
       "reqwest"
     ],
+    "http-system-proxy": [
+      "http",
+      "reqwest/macos-system-configuration"
+    ],
     "image-default-formats": [
       "image-format-avif",
       "image-format-bmp",
