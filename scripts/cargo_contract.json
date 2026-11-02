@@ -158,7 +158,7 @@
       "gpui/accessibility"
     ],
     "audio": [
-      "rodio"
+      "dep:rodio"
     ],
     "bundled-fonts": [
       "bundled-fonts-inter",
@@ -224,14 +224,11 @@
     "font-mono-bold": [],
     "font-mono-regular": [],
     "html-render": [
-      "html5ever",
-      "markup5ever_rcdom"
-    ],
-    "html5ever": [
-      "dep:html5ever"
+      "dep:html5ever",
+      "dep:markup5ever_rcdom"
     ],
     "http": [
-      "reqwest"
+      "dep:reqwest"
     ],
     "http-system-proxy": [
       "http",
@@ -303,22 +300,10 @@
       "gpui/image-rayon"
     ],
     "markdown": [
-      "pulldown-cmark"
-    ],
-    "markup5ever_rcdom": [
-      "dep:markup5ever_rcdom"
-    ],
-    "pulldown-cmark": [
       "dep:pulldown-cmark"
     ],
     "qrcode": [
       "dep:qrcode"
-    ],
-    "reqwest": [
-      "dep:reqwest"
-    ],
-    "rodio": [
-      "dep:rodio"
     ],
     "tree-sitter-bash": [
       "dep:tree-sitter-bash"
