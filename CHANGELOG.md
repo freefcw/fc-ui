@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- New opt-in `http-system-proxy` feature re-enables the operating system's
+  proxy settings for the built-in HTTP client (macOS only). `HTTP_PROXY`-style
+  environment variables keep working either way.
+
+### Changed
+
+- Upgraded `fc-gpui` to 0.13.0, picking up upstream fixes for text-system
+  retention, cached-view repaints when inherited opacity changes, and
+  executor-clock animation timing, plus the refreshed rustls/tokio chain.
+- Upgraded `html5ever`/`markup5ever_rcdom` to 0.39 and `rodio` to 0.23.
+
+### Fixed
+
+- The built-in HTTP client (`SimpleHttpClient`) now honors the
+  `RedirectPolicy` and `RequestTimeout` request extensions attached by
+  `gpui::http_client`. Previously `NoFollow` requests were still redirected
+  and caller deadlines were ignored. Requests that carry no explicit policy
+  now default to `NoFollow`, matching the extension's documented default.
+
+### Removed
+
+- The pass-through features Cargo auto-generates for `reqwest`,
+  `pulldown-cmark`, `html5ever`, `markup5ever_rcdom`, and `rodio`. Enable the
+  semantic features (`http`, `markdown`, `html-render`, `audio`) instead.
+
 ## [0.9.6] - 2026-10-29
 
 ### Changed
