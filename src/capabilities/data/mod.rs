@@ -1,6 +1,7 @@
 pub mod area_chart;
 pub mod bar_chart;
 pub mod chart;
+pub(crate) mod chart_common;
 pub mod countdown;
 pub mod data_grid;
 pub mod data_table;

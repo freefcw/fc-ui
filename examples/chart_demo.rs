@@ -152,8 +152,8 @@ impl ChartDemo {
                                     .show_points(true)
                                     .stroke_width(2.5),
                             )
-                            .y_axis(ChartAxis::new().label("Revenue ($K)"))
-                            .x_axis(ChartAxis::new().label("Month"))
+                            .y_axis(ChartAxis::new() /* axis labels not yet honored */)
+                            .x_axis(ChartAxis::new())
                             .show_legend(false),
                     ),
             )
@@ -263,7 +263,7 @@ impl ChartDemo {
                                     .color(rgb(0x8b5cf6))
                                     .bar_width(40.0),
                             )
-                            .y_axis(ChartAxis::new().range(0.0, 100.0).label("Usage %"))
+                            .y_axis(ChartAxis::new().range(0.0, 100.0))
                             .show_legend(false),
                     ),
             )
@@ -469,10 +469,9 @@ impl ChartDemo {
                             )
                             .y_axis(
                                 ChartAxis::new()
-                                    .label("Revenue")
                                     .tick_format(|v| format!("${:.0}K", v / 1000.0)),
                             )
-                            .x_axis(ChartAxis::new().label("Time")),
+                            .x_axis(ChartAxis::new()),
                     ),
             )
             .child(

@@ -1,17 +1,13 @@
+use crate::capabilities::data::chart_common::{
+    bar_category_labels, chart_legend_row, finite_or_zero, horizontal_bar_grid,
+    horizontal_zero_axis, signed_stack_segments, vertical_bar_grid, vertical_zero_axis, LegendText,
+};
 use crate::capabilities::data::palette::default_color;
 use crate::capabilities::foundation::theme::use_theme;
 use gpui::{prelude::FluentBuilder as _, *};
 
 fn pixels_to_f32(p: Pixels) -> f32 {
     p / px(1.0)
-}
-
-fn finite_or_zero(value: f64) -> f64 {
-    if value.is_finite() {
-        value
-    } else {
-        0.0
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -272,24 +268,7 @@ impl BarChart {
         let show_grid = self.show_grid;
         let show_axis_labels = self.show_axis_labels;
 
-        let grid_lines = if show_grid {
-            Some(
-                div()
-                    .absolute()
-                    .inset_0()
-                    .flex()
-                    .flex_col()
-                    .justify_between()
-                    .children((0..5).map(|_| {
-                        div()
-                            .w_full()
-                            .h(px(1.0))
-                            .bg(theme.tokens.border.opacity(0.3))
-                    })),
-            )
-        } else {
-            None
-        };
+        let grid_lines = show_grid.then(|| vertical_bar_grid(theme.tokens.border.opacity(0.3)));
 
         div()
             .flex()
@@ -311,15 +290,10 @@ impl BarChart {
                             .justify_around()
                             .gap(gap)
                             .px(px(16.0))
-                            .child(
-                                div()
-                                    .absolute()
-                                    .left_0()
-                                    .right_0()
-                                    .top(domain.zero_y(chart_height))
-                                    .h(px(1.0))
-                                    .bg(theme.tokens.border.opacity(0.7)),
-                            )
+                            .child(horizontal_zero_axis(
+                                domain.zero_y(chart_height),
+                                theme.tokens.border.opacity(0.7),
+                            ))
                             .children(self.data.iter().enumerate().map(|(i, item)| {
                                 let value = finite_or_zero(item.value);
                                 let (top, bar_height) =
@@ -365,15 +339,9 @@ impl BarChart {
                     ),
             )
             .when(show_axis_labels, |this| {
-                this.child(div().flex().justify_around().px(px(16.0)).children(
-                    self.data.iter().map(|item| {
-                        div()
-                            .text_xs()
-                            .text_color(theme.tokens.muted_foreground)
-                            .text_center()
-                            .child(item.label.clone())
-                    }),
-                ))
+                let labels: Vec<SharedString> =
+                    self.data.iter().map(|item| item.label.clone()).collect();
+                this.child(bar_category_labels(&labels, theme.tokens.muted_foreground))
             })
     }
 
@@ -420,27 +388,12 @@ impl BarChart {
                             .flex_1()
                             .relative()
                             .h(bar_height)
-                            .child(
-                                div()
-                                    .absolute()
-                                    .top_0()
-                                    .bottom_0()
-                                    .left(relative(domain.zero_ratio))
-                                    .w(px(1.0))
-                                    .bg(theme.tokens.border.opacity(0.7)),
-                            )
+                            .child(vertical_zero_axis(
+                                domain.zero_ratio,
+                                theme.tokens.border.opacity(0.7),
+                            ))
                             .when(show_grid, |this| {
-                                this.child(
-                                    div()
-                                        .absolute()
-                                        .inset_0()
-                                        .flex()
-                                        .justify_between()
-                                        .children(
-                                            (0..5)
-                                                .map(|_| div().h_full().w(px(1.0)).bg(grid_color)),
-                                        ),
-                                )
+                                this.child(horizontal_bar_grid(grid_color))
                             })
                             .child({
                                 let width = width_percent;
@@ -483,24 +436,7 @@ impl BarChart {
         let show_axis_labels = self.show_axis_labels;
         let show_legend = self.show_legend;
 
-        let grid_lines = if show_grid {
-            Some(
-                div()
-                    .absolute()
-                    .inset_0()
-                    .flex()
-                    .flex_col()
-                    .justify_between()
-                    .children((0..5).map(|_| {
-                        div()
-                            .w_full()
-                            .h(px(1.0))
-                            .bg(theme.tokens.border.opacity(0.3))
-                    })),
-            )
-        } else {
-            None
-        };
+        let grid_lines = show_grid.then(|| vertical_bar_grid(theme.tokens.border.opacity(0.3)));
 
         let labels = self.labels.clone();
         let series_for_legend = self.series.clone();
@@ -525,15 +461,10 @@ impl BarChart {
                             .justify_around()
                             .gap(gap)
                             .px(px(16.0))
-                            .child(
-                                div()
-                                    .absolute()
-                                    .left_0()
-                                    .right_0()
-                                    .top(domain.zero_y(chart_height))
-                                    .h(px(1.0))
-                                    .bg(theme.tokens.border.opacity(0.7)),
-                            )
+                            .child(horizontal_zero_axis(
+                                domain.zero_y(chart_height),
+                                theme.tokens.border.opacity(0.7),
+                            ))
                             .children((0..label_count).map(|label_idx| {
                                 div().flex().items_end().h_full().gap(px(2.0)).children(
                                     self.series.iter().enumerate().map(|(series_idx, series)| {
@@ -584,42 +515,20 @@ impl BarChart {
                     ),
             )
             .when(show_axis_labels, |this| {
-                this.child(
-                    div()
-                        .flex()
-                        .justify_around()
-                        .px(px(16.0))
-                        .children(labels.iter().map(|label| {
-                            div()
-                                .text_xs()
-                                .text_color(theme.tokens.muted_foreground)
-                                .text_center()
-                                .child(label.clone())
-                        })),
-                )
+                this.child(bar_category_labels(&labels, theme.tokens.muted_foreground))
             })
             .when(show_legend, |this| {
-                this.child(
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .gap(px(16.0))
-                        .justify_center()
-                        .children(series_for_legend.iter().enumerate().map(|(i, s)| {
-                            let color = s.color.unwrap_or_else(|| default_color(i));
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(px(6.0))
-                                .child(div().size(px(12.0)).rounded(px(2.0)).bg(color))
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(theme.tokens.muted_foreground)
-                                        .child(s.name.clone()),
-                                )
-                        })),
-                )
+                this.child(chart_legend_row(
+                    series_for_legend
+                        .iter()
+                        .enumerate()
+                        .map(|(i, s)| (s.name.clone(), s.color.unwrap_or_else(|| default_color(i))))
+                        .collect(),
+                    theme.tokens.muted_foreground,
+                    LegendText::Xs,
+                    None,
+                    None,
+                ))
             })
     }
 
@@ -638,24 +547,7 @@ impl BarChart {
         let show_axis_labels = self.show_axis_labels;
         let show_legend = self.show_legend;
 
-        let grid_lines = if show_grid {
-            Some(
-                div()
-                    .absolute()
-                    .inset_0()
-                    .flex()
-                    .flex_col()
-                    .justify_between()
-                    .children((0..5).map(|_| {
-                        div()
-                            .w_full()
-                            .h(px(1.0))
-                            .bg(theme.tokens.border.opacity(0.3))
-                    })),
-            )
-        } else {
-            None
-        };
+        let grid_lines = show_grid.then(|| vertical_bar_grid(theme.tokens.border.opacity(0.3)));
 
         let labels = self.labels.clone();
         let series_for_legend = self.series.clone();
@@ -679,27 +571,19 @@ impl BarChart {
                             .justify_around()
                             .gap(gap)
                             .px(px(16.0))
-                            .child(
-                                div()
-                                    .absolute()
-                                    .left_0()
-                                    .right_0()
-                                    .top(domain.zero_y(chart_height))
-                                    .h(px(1.0))
-                                    .bg(theme.tokens.border.opacity(0.7)),
-                            )
+                            .child(horizontal_zero_axis(
+                                domain.zero_y(chart_height),
+                                theme.tokens.border.opacity(0.7),
+                            ))
                             .children((0..label_count).map(|label_idx| {
-                                let total_value: f64 = self
+                                let values: Vec<f64> = self
                                     .series
                                     .iter()
                                     .map(|series| {
-                                        finite_or_zero(
-                                            series.data.get(label_idx).copied().unwrap_or(0.0),
-                                        )
+                                        series.data.get(label_idx).copied().unwrap_or(0.0)
                                     })
-                                    .sum();
-                                let mut positive = 0.0;
-                                let mut negative = 0.0;
+                                    .collect();
+                                let (segments, total_value) = signed_stack_segments(&values);
 
                                 div()
                                     .flex_1()
@@ -725,83 +609,45 @@ impl BarChart {
                                         )
                                     })
                                     .child(div().relative().w(bar_width).h_full().children(
-                                        self.series.iter().enumerate().map(
-                                            |(series_idx, series)| {
-                                                let value = finite_or_zero(
-                                                    series
-                                                        .data
-                                                        .get(label_idx)
-                                                        .copied()
-                                                        .unwrap_or(0.0),
-                                                );
-                                                let (start, end) = if value >= 0.0 {
-                                                    let start = positive;
-                                                    positive += value;
-                                                    (start, positive)
-                                                } else {
-                                                    let start = negative;
-                                                    negative += value;
-                                                    (start, negative)
-                                                };
-                                                let (top, height) = domain.vertical_segment(
-                                                    start,
-                                                    end,
-                                                    chart_height,
-                                                );
-                                                let bar_color = series
-                                                    .color
-                                                    .unwrap_or_else(|| default_color(series_idx));
+                                        segments.iter().map(|segment| {
+                                            let (top, height) = domain.vertical_segment(
+                                                segment.start,
+                                                segment.end,
+                                                chart_height,
+                                            );
+                                            let bar_color = self.series[segment.series_index]
+                                                .color
+                                                .unwrap_or_else(|| {
+                                                    default_color(segment.series_index)
+                                                });
 
-                                                div()
-                                                    .absolute()
-                                                    .left_0()
-                                                    .right_0()
-                                                    .top(top)
-                                                    .h(height)
-                                                    .bg(bar_color)
-                                            },
-                                        ),
+                                            div()
+                                                .absolute()
+                                                .left_0()
+                                                .right_0()
+                                                .top(top)
+                                                .h(height)
+                                                .bg(bar_color)
+                                        }),
                                     ))
                             })),
                     ),
             )
             .when(show_axis_labels, |this| {
-                this.child(
-                    div()
-                        .flex()
-                        .justify_around()
-                        .px(px(16.0))
-                        .children(labels.iter().map(|label| {
-                            div()
-                                .text_xs()
-                                .text_color(theme.tokens.muted_foreground)
-                                .text_center()
-                                .child(label.clone())
-                        })),
-                )
+                this.child(bar_category_labels(&labels, theme.tokens.muted_foreground))
             })
             .when(show_legend, |this| {
-                this.child(
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .gap(px(16.0))
-                        .justify_center()
-                        .children(series_for_legend.iter().enumerate().map(|(i, s)| {
-                            let color = s.color.unwrap_or_else(|| default_color(i));
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(px(6.0))
-                                .child(div().size(px(12.0)).rounded(px(2.0)).bg(color))
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(theme.tokens.muted_foreground)
-                                        .child(s.name.clone()),
-                                )
-                        })),
-                )
+                this.child(chart_legend_row(
+                    series_for_legend
+                        .iter()
+                        .enumerate()
+                        .map(|(i, s)| (s.name.clone(), s.color.unwrap_or_else(|| default_color(i))))
+                        .collect(),
+                    theme.tokens.muted_foreground,
+                    LegendText::Xs,
+                    None,
+                    None,
+                ))
             })
     }
 
@@ -856,26 +702,12 @@ impl BarChart {
                                     .relative()
                                     .h(bar_height)
                                     .when(show_grid, |this| {
-                                        this.child(
-                                            div()
-                                                .absolute()
-                                                .inset_0()
-                                                .flex()
-                                                .justify_between()
-                                                .children((0..5).map(|_| {
-                                                    div().h_full().w(px(1.0)).bg(grid_color)
-                                                })),
-                                        )
+                                        this.child(horizontal_bar_grid(grid_color))
                                     })
-                                    .child(
-                                        div()
-                                            .absolute()
-                                            .top_0()
-                                            .bottom_0()
-                                            .left(relative(domain.zero_ratio))
-                                            .w(px(1.0))
-                                            .bg(theme.tokens.border.opacity(0.7)),
-                                    )
+                                    .child(vertical_zero_axis(
+                                        domain.zero_ratio,
+                                        theme.tokens.border.opacity(0.7),
+                                    ))
                                     .children(self.series.iter().enumerate().map(
                                         |(series_idx, series)| {
                                             let value = finite_or_zero(
@@ -917,27 +749,17 @@ impl BarChart {
                     })),
             )
             .when(show_legend, |this| {
-                this.child(
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .gap(px(16.0))
-                        .justify_center()
-                        .children(series_for_legend.iter().enumerate().map(|(i, s)| {
-                            let color = s.color.unwrap_or_else(|| default_color(i));
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(px(6.0))
-                                .child(div().size(px(12.0)).rounded(px(2.0)).bg(color))
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(theme.tokens.muted_foreground)
-                                        .child(s.name.clone()),
-                                )
-                        })),
-                )
+                this.child(chart_legend_row(
+                    series_for_legend
+                        .iter()
+                        .enumerate()
+                        .map(|(i, s)| (s.name.clone(), s.color.unwrap_or_else(|| default_color(i))))
+                        .collect(),
+                    theme.tokens.muted_foreground,
+                    LegendText::Xs,
+                    None,
+                    None,
+                ))
             })
     }
 
@@ -968,15 +790,12 @@ impl BarChart {
                     .flex_col()
                     .gap(gap)
                     .children(labels.iter().enumerate().map(|(label_idx, label)| {
-                        let total_value: f64 = self
+                        let values: Vec<f64> = self
                             .series
                             .iter()
-                            .map(|series| {
-                                finite_or_zero(series.data.get(label_idx).copied().unwrap_or(0.0))
-                            })
-                            .sum();
-                        let mut positive = 0.0;
-                        let mut negative = 0.0;
+                            .map(|series| series.data.get(label_idx).copied().unwrap_or(0.0))
+                            .collect();
+                        let (segments, total_value) = signed_stack_segments(&values);
 
                         div()
                             .flex()
@@ -999,60 +818,30 @@ impl BarChart {
                                     .relative()
                                     .h(bar_height)
                                     .when(show_grid, |this| {
-                                        this.child(
+                                        this.child(horizontal_bar_grid(grid_color))
+                                    })
+                                    .child(vertical_zero_axis(
+                                        domain.zero_ratio,
+                                        theme.tokens.border.opacity(0.7),
+                                    ))
+                                    .child(div().absolute().inset_0().children(
+                                        segments.iter().map(|segment| {
+                                            let (left, width) = domain
+                                                .horizontal_segment(segment.start, segment.end);
+                                            let bar_color = self.series[segment.series_index]
+                                                .color
+                                                .unwrap_or_else(|| {
+                                                    default_color(segment.series_index)
+                                                });
+
                                             div()
                                                 .absolute()
-                                                .inset_0()
-                                                .flex()
-                                                .justify_between()
-                                                .children((0..5).map(|_| {
-                                                    div().h_full().w(px(1.0)).bg(grid_color)
-                                                })),
-                                        )
-                                    })
-                                    .child(
-                                        div()
-                                            .absolute()
-                                            .top_0()
-                                            .bottom_0()
-                                            .left(relative(domain.zero_ratio))
-                                            .w(px(1.0))
-                                            .bg(theme.tokens.border.opacity(0.7)),
-                                    )
-                                    .child(div().absolute().inset_0().children(
-                                        self.series.iter().enumerate().map(
-                                            |(series_idx, series)| {
-                                                let value = finite_or_zero(
-                                                    series
-                                                        .data
-                                                        .get(label_idx)
-                                                        .copied()
-                                                        .unwrap_or(0.0),
-                                                );
-                                                let (start, end) = if value >= 0.0 {
-                                                    let start = positive;
-                                                    positive += value;
-                                                    (start, positive)
-                                                } else {
-                                                    let start = negative;
-                                                    negative += value;
-                                                    (start, negative)
-                                                };
-                                                let (left, width) =
-                                                    domain.horizontal_segment(start, end);
-                                                let bar_color = series
-                                                    .color
-                                                    .unwrap_or_else(|| default_color(series_idx));
-
-                                                div()
-                                                    .absolute()
-                                                    .top_0()
-                                                    .bottom_0()
-                                                    .left(relative(left))
-                                                    .w(relative(width))
-                                                    .bg(bar_color)
-                                            },
-                                        ),
+                                                .top_0()
+                                                .bottom_0()
+                                                .left(relative(left))
+                                                .w(relative(width))
+                                                .bg(bar_color)
+                                        }),
                                     )),
                             )
                             .when(show_values, |this| {
@@ -1067,27 +856,17 @@ impl BarChart {
                     })),
             )
             .when(show_legend, |this| {
-                this.child(
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .gap(px(16.0))
-                        .justify_center()
-                        .children(series_for_legend.iter().enumerate().map(|(i, s)| {
-                            let color = s.color.unwrap_or_else(|| default_color(i));
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(px(6.0))
-                                .child(div().size(px(12.0)).rounded(px(2.0)).bg(color))
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(theme.tokens.muted_foreground)
-                                        .child(s.name.clone()),
-                                )
-                        })),
-                )
+                this.child(chart_legend_row(
+                    series_for_legend
+                        .iter()
+                        .enumerate()
+                        .map(|(i, s)| (s.name.clone(), s.color.unwrap_or_else(|| default_color(i))))
+                        .collect(),
+                    theme.tokens.muted_foreground,
+                    LegendText::Xs,
+                    None,
+                    None,
+                ))
             })
     }
 }

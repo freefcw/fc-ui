@@ -15,6 +15,31 @@ pub(crate) fn default_color(index: usize) -> Hsla {
     gpui::rgb(CHART_COLORS[index % CHART_COLORS.len()]).into()
 }
 
+// Named entries for components that use a palette color as a standalone
+// accent (gauge fill, timeline variant dot, sparkline trend line). Keeping
+// these as palette references instead of re-typed hex literals means a
+// palette change updates those accents together with the series colors.
+
+/// Palette entry 0 (`0x3b82f6`); default accent for gauge and sparkline.
+pub(crate) fn blue() -> Hsla {
+    default_color(0)
+}
+
+/// Palette entry 1 (`0x22c55e`); success/trend-up accent.
+pub(crate) fn green() -> Hsla {
+    default_color(1)
+}
+
+/// Palette entry 2 (`0xf59e0b`); warning accent.
+pub(crate) fn amber() -> Hsla {
+    default_color(2)
+}
+
+/// Palette entry 3 (`0xef4444`); trend-down accent.
+pub(crate) fn red() -> Hsla {
+    default_color(3)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

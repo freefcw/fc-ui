@@ -1,3 +1,4 @@
+use crate::capabilities::data::palette;
 use crate::capabilities::foundation::theme::use_theme;
 use gpui::{prelude::FluentBuilder as _, *};
 use std::rc::Rc;
@@ -108,7 +109,8 @@ impl RenderOnce for Gauge {
         let (width, height) = self.size.dimensions();
         let stroke = self.size.stroke_width();
 
-        let gauge_color = self.color.unwrap_or_else(|| rgb(0x3b82f6).into());
+        // Default gauge accent intentionally tracks chart palette entry 0.
+        let gauge_color = self.color.unwrap_or_else(palette::blue);
         let track = self.track_color.unwrap_or(theme.tokens.muted);
 
         let formatted_value = if let Some(ref fmt) = self.format_fn {

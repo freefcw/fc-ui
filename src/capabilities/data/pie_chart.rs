@@ -1,5 +1,5 @@
 use crate::capabilities::data::pie_geometry::{
-    color_at_angle, positive_finite_total, render_legend, segment_geometry,
+    positive_finite_total, render_dot_ring, render_legend, segment_geometry,
 };
 use crate::capabilities::foundation::theme::use_theme;
 use gpui::{prelude::FluentBuilder as _, *};
@@ -220,38 +220,7 @@ fn render_pie_chart(
         );
     }
 
-    let ring_width = outer_radius - inner_radius;
-    let ring_count = ((ring_width / 3.0).max(1.0) as usize).min(20);
-
-    let mut container = div()
-        .size(chart_size)
-        .rounded(px(9999.0))
-        .relative()
-        .overflow_hidden();
-
-    for ring_idx in 0..ring_count {
-        let ring_radius = inner_radius + (ring_idx as f32 + 0.5) * (ring_width / ring_count as f32);
-        let circumference = std::f32::consts::TAU * ring_radius;
-        let dots_in_ring = (circumference / 4.0).max(16.0) as usize;
-
-        for i in 0..dots_in_ring {
-            let angle = -std::f32::consts::FRAC_PI_2
-                + (i as f32 / dots_in_ring as f32) * std::f32::consts::TAU;
-            let color = color_at_angle(angle, &segment_data);
-            let x = center + ring_radius * angle.cos() - 2.0;
-            let y = center + ring_radius * angle.sin() - 2.0;
-
-            container = container.child(
-                div()
-                    .absolute()
-                    .size(px(5.0))
-                    .rounded(px(9999.0))
-                    .bg(color)
-                    .left(px(x))
-                    .top(px(y)),
-            );
-        }
-    }
+    let mut container = render_dot_ring(chart_size, inner_radius, outer_radius, &segment_data);
 
     if variant == PieChartVariant::Donut {
         let inner_size = inner_radius * 2.0 - 4.0;

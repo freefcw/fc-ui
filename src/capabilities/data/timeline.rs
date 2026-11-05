@@ -1,3 +1,4 @@
+use crate::capabilities::data::palette;
 use crate::capabilities::foundation::theme::use_theme;
 use crate::capabilities::primitives::icon::Icon;
 use crate::capabilities::primitives::icon_source::IconSource;
@@ -216,8 +217,10 @@ impl TimelineItem {
     fn get_color(&self, theme: &crate::capabilities::foundation::theme::Theme) -> Hsla {
         match self.variant {
             TimelineItemVariant::Default => theme.tokens.muted_foreground,
-            TimelineItemVariant::Success => rgb(0x22c55e).into(),
-            TimelineItemVariant::Warning => rgb(0xf59e0b).into(),
+            // Success/warning accents intentionally track chart palette
+            // entries 1 and 2 so a palette change stays consistent.
+            TimelineItemVariant::Success => palette::green(),
+            TimelineItemVariant::Warning => palette::amber(),
             TimelineItemVariant::Error => theme.tokens.destructive,
             TimelineItemVariant::Info => theme.tokens.primary,
         }

@@ -1,3 +1,7 @@
+use crate::capabilities::data::chart_common::{
+    chart_legend_row, format_tick_value, line_area_axis_padding, paint_area_under_line,
+    paint_horizontal_grid_lines, paint_series_line, paint_vertical_grid_lines, LegendText,
+};
 use crate::capabilities::data::{
     chart::{is_finite_data_point, DataPoint, DataRange},
     palette::default_color,
@@ -157,16 +161,6 @@ impl Styled for LineChart {
     }
 }
 
-fn format_y_value(value: f64) -> String {
-    if value.abs() >= 1000.0 {
-        format!("{:.0}k", value / 1000.0)
-    } else if value.abs() >= 1.0 {
-        format!("{:.0}", value)
-    } else {
-        format!("{:.2}", value)
-    }
-}
-
 struct PaintData {
     series: Vec<LineChartSeries>,
     show_grid: bool,
@@ -197,10 +191,8 @@ impl RenderOnce for LineChart {
         let grid_color = theme.tokens.border;
         let text_color = theme.tokens.muted_foreground;
 
-        let padding_left: f32 = if show_y_axis { 50.0 } else { 10.0 };
-        let padding_right: f32 = 20.0;
-        let padding_top: f32 = 20.0;
-        let padding_bottom: f32 = if show_x_axis { 40.0 } else { 10.0 };
+        let (padding_left, padding_right, padding_top, padding_bottom) =
+            line_area_axis_padding(show_x_axis, show_y_axis);
 
         let series_for_legend = series.clone();
 
@@ -212,7 +204,7 @@ impl RenderOnce for LineChart {
                     let normalized = i as f64 / 5.0;
                     let value = data_range.y_min
                         + (data_range.y_max - data_range.y_min) * (1.0 - normalized);
-                    format_y_value(value)
+                    format_tick_value(value, None)
                 })
                 .collect()
         } else {
@@ -273,33 +265,24 @@ impl RenderOnce for LineChart {
 
                                 if paint_data.show_grid {
                                     let grid_lines = 5;
-                                    for i in 0..=grid_lines {
-                                        let y = chart_top
-                                            + chart_height * (i as f32 / grid_lines as f32);
-                                        let mut builder = PathBuilder::stroke(px(1.0));
-                                        builder.move_to(point(chart_left, y));
-                                        builder.line_to(point(chart_right, y));
-                                        if let Ok(path) = builder.build() {
-                                            window.paint_path(
-                                                path,
-                                                paint_data.grid_color.opacity(0.3),
-                                            );
-                                        }
-                                    }
-
-                                    for i in 0..=grid_lines {
-                                        let x = chart_left
-                                            + chart_width * (i as f32 / grid_lines as f32);
-                                        let mut builder = PathBuilder::stroke(px(1.0));
-                                        builder.move_to(point(x, chart_top));
-                                        builder.line_to(point(x, chart_bottom));
-                                        if let Ok(path) = builder.build() {
-                                            window.paint_path(
-                                                path,
-                                                paint_data.grid_color.opacity(0.3),
-                                            );
-                                        }
-                                    }
+                                    paint_horizontal_grid_lines(
+                                        window,
+                                        chart_left,
+                                        chart_right,
+                                        chart_top,
+                                        chart_height,
+                                        grid_lines,
+                                        paint_data.grid_color.opacity(0.3),
+                                    );
+                                    paint_vertical_grid_lines(
+                                        window,
+                                        chart_top,
+                                        chart_bottom,
+                                        chart_left,
+                                        chart_width,
+                                        grid_lines,
+                                        paint_data.grid_color.opacity(0.3),
+                                    );
                                 }
 
                                 for (series_index, s) in paint_data.series.iter().enumerate() {
@@ -324,46 +307,21 @@ impl RenderOnce for LineChart {
                                         .collect();
 
                                     if s.fill_area && screen_points.len() >= 2 {
-                                        let mut builder = PathBuilder::fill();
-                                        builder.move_to(point(screen_points[0].x, chart_bottom));
-                                        builder.line_to(screen_points[0]);
-
-                                        for pt in screen_points.iter().skip(1) {
-                                            builder.line_to(*pt);
-                                        }
-
-                                        builder.line_to(point(
-                                            screen_points.last().unwrap().x,
+                                        paint_area_under_line(
+                                            window,
+                                            &screen_points,
                                             chart_bottom,
-                                        ));
-                                        builder.close();
-
-                                        if let Ok(path) = builder.build() {
-                                            window.paint_path(path, color.opacity(0.15));
-                                        }
+                                            color.opacity(0.15),
+                                        );
                                     }
 
-                                    if screen_points.len() >= 2 {
-                                        let mut builder = PathBuilder::stroke(px(2.0));
-                                        builder.move_to(screen_points[0]);
-
-                                        if paint_data.smooth && screen_points.len() >= 3 {
-                                            for i in 0..screen_points.len() - 1 {
-                                                let p0 = screen_points[i];
-                                                let p1 = screen_points[i + 1];
-                                                let ctrl_x = (p0.x + p1.x) * 0.5;
-                                                builder.curve_to(p1, point(ctrl_x, p0.y));
-                                            }
-                                        } else {
-                                            for pt in screen_points.iter().skip(1) {
-                                                builder.line_to(*pt);
-                                            }
-                                        }
-
-                                        if let Ok(path) = builder.build() {
-                                            window.paint_path(path, color);
-                                        }
-                                    }
+                                    paint_series_line(
+                                        window,
+                                        &screen_points,
+                                        paint_data.smooth,
+                                        px(2.0),
+                                        color,
+                                    );
 
                                     if s.show_points {
                                         let point_radius = px(4.0);
@@ -420,21 +378,20 @@ impl RenderOnce for LineChart {
             )
             .when(self.show_legend && series_for_legend.len() > 1, |this| {
                 this.child(
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .gap(px(16.0))
-                        .px(px(padding_left))
-                        .py(px(8.0))
-                        .children(series_for_legend.iter().enumerate().map(|(i, s)| {
-                            let color = s.color.unwrap_or_else(|| default_color(i));
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(px(6.0))
-                                .child(div().size(px(12.0)).rounded(px(2.0)).bg(color))
-                                .child(div().text_sm().text_color(text_color).child(s.name.clone()))
-                        })),
+                    chart_legend_row(
+                        series_for_legend
+                            .iter()
+                            .enumerate()
+                            .map(|(i, s)| {
+                                (s.name.clone(), s.color.unwrap_or_else(|| default_color(i)))
+                            })
+                            .collect(),
+                        text_color,
+                        LegendText::Sm,
+                        Some(padding_left),
+                        Some(8.0),
+                    )
+                    .justify_start(),
                 )
             })
     }

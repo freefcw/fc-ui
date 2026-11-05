@@ -1,3 +1,4 @@
+use crate::capabilities::data::chart_common::{self, chart_legend_row, LegendText};
 use crate::capabilities::data::palette::default_color;
 use crate::capabilities::foundation::theme::use_theme;
 use gpui::{prelude::FluentBuilder as _, *};
@@ -280,31 +281,37 @@ impl Axis {
         Self::default()
     }
 
+    #[deprecated(note = "currently not honored by rendering; removal decided in 0.10")]
     pub fn label(mut self, label: impl Into<SharedString>) -> Self {
         self.label = Some(label.into());
         self
     }
 
+    #[deprecated(note = "currently not honored by rendering; removal decided in 0.10")]
     pub fn position(mut self, position: AxisPosition) -> Self {
         self.position = position;
         self
     }
 
+    #[deprecated(note = "currently not honored by rendering; removal decided in 0.10")]
     pub fn left(mut self) -> Self {
         self.position = AxisPosition::Left;
         self
     }
 
+    #[deprecated(note = "currently not honored by rendering; removal decided in 0.10")]
     pub fn right(mut self) -> Self {
         self.position = AxisPosition::Right;
         self
     }
 
+    #[deprecated(note = "currently not honored by rendering; removal decided in 0.10")]
     pub fn top(mut self) -> Self {
         self.position = AxisPosition::Top;
         self
     }
 
+    #[deprecated(note = "currently not honored by rendering; removal decided in 0.10")]
     pub fn bottom(mut self) -> Self {
         self.position = AxisPosition::Bottom;
         self
@@ -331,6 +338,7 @@ impl Axis {
         self
     }
 
+    #[deprecated(note = "currently not honored by rendering; removal decided in 0.10")]
     pub fn show_ticks(mut self, show: bool) -> Self {
         self.show_ticks = show;
         self
@@ -342,15 +350,7 @@ impl Axis {
     }
 
     fn format_value(&self, value: f64) -> String {
-        if let Some(ref format) = self.tick_format {
-            format(value)
-        } else if value.abs() >= 1000.0 {
-            format!("{:.0}k", value / 1000.0)
-        } else if value.abs() >= 1.0 {
-            format!("{:.0}", value)
-        } else {
-            format!("{:.2}", value)
-        }
+        chart_common::format_tick_value(value, self.tick_format.as_ref())
     }
 }
 
@@ -384,26 +384,31 @@ impl Legend {
         Self::default()
     }
 
+    #[deprecated(note = "currently not honored by rendering; removal decided in 0.10")]
     pub fn position(mut self, position: LegendPosition) -> Self {
         self.position = position;
         self
     }
 
+    #[deprecated(note = "currently not honored by rendering; removal decided in 0.10")]
     pub fn top(mut self) -> Self {
         self.position = LegendPosition::Top;
         self
     }
 
+    #[deprecated(note = "currently not honored by rendering; removal decided in 0.10")]
     pub fn bottom(mut self) -> Self {
         self.position = LegendPosition::Bottom;
         self
     }
 
+    #[deprecated(note = "currently not honored by rendering; removal decided in 0.10")]
     pub fn left(mut self) -> Self {
         self.position = LegendPosition::Left;
         self
     }
 
+    #[deprecated(note = "currently not honored by rendering; removal decided in 0.10")]
     pub fn right(mut self) -> Self {
         self.position = LegendPosition::Right;
         self
@@ -594,10 +599,18 @@ impl Default for Chart {
 
 impl Chart {
     pub fn new() -> Self {
+        // Assign positions directly instead of the deprecated position
+        // builders: the x-axis always renders on the bottom, the y-axis on
+        // the left.
+        let mut x_axis = Axis::new();
+        x_axis.position = AxisPosition::Bottom;
+        let mut y_axis = Axis::new();
+        y_axis.position = AxisPosition::Left;
+
         Self {
             series: Vec::new(),
-            x_axis: Axis::new().bottom(),
-            y_axis: Axis::new().left(),
+            x_axis,
+            y_axis,
             legend: Legend::new(),
             tooltip: TooltipConfig::new(),
             style: StyleRefinement::default(),
@@ -686,12 +699,9 @@ impl RenderOnce for Chart {
         let show_y_axis = self.y_axis.show_labels;
         let show_x_axis = self.x_axis.show_labels;
 
-        let padding = ChartPadding::new(
-            if show_y_axis { 60.0 } else { 20.0 },
-            20.0,
-            20.0,
-            if show_x_axis { 40.0 } else { 20.0 },
-        );
+        let (pad_left, pad_right, pad_top, pad_bottom) =
+            chart_common::chart_axis_padding(show_x_axis, show_y_axis);
+        let padding = ChartPadding::new(pad_left, pad_right, pad_top, pad_bottom);
 
         let data_range = self.compute_data_range();
         let user_style = self.style;
@@ -771,31 +781,27 @@ impl RenderOnce for Chart {
                                 }
 
                                 if state.y_axis.show_grid {
-                                    for i in 0..=state.y_axis.tick_count {
-                                        let y = area.chart_top()
-                                            + area.chart_height()
-                                                * (i as f32 / state.y_axis.tick_count as f32);
-                                        let mut builder = PathBuilder::stroke(px(1.0));
-                                        builder.move_to(point(area.chart_left(), y));
-                                        builder.line_to(point(area.chart_right(), y));
-                                        if let Ok(path) = builder.build() {
-                                            window.paint_path(path, state.grid_color.opacity(0.2));
-                                        }
-                                    }
+                                    chart_common::paint_horizontal_grid_lines(
+                                        window,
+                                        area.chart_left(),
+                                        area.chart_right(),
+                                        area.chart_top(),
+                                        area.chart_height(),
+                                        state.y_axis.tick_count,
+                                        state.grid_color.opacity(0.2),
+                                    );
                                 }
 
                                 if state.x_axis.show_grid {
-                                    for i in 0..=state.x_axis.tick_count {
-                                        let x = area.chart_left()
-                                            + area.chart_width()
-                                                * (i as f32 / state.x_axis.tick_count as f32);
-                                        let mut builder = PathBuilder::stroke(px(1.0));
-                                        builder.move_to(point(x, area.chart_top()));
-                                        builder.line_to(point(x, area.chart_bottom()));
-                                        if let Ok(path) = builder.build() {
-                                            window.paint_path(path, state.grid_color.opacity(0.2));
-                                        }
-                                    }
+                                    chart_common::paint_vertical_grid_lines(
+                                        window,
+                                        area.chart_top(),
+                                        area.chart_bottom(),
+                                        area.chart_left(),
+                                        area.chart_width(),
+                                        state.x_axis.tick_count,
+                                        state.grid_color.opacity(0.2),
+                                    );
                                 }
 
                                 let mut hovered_point: Option<HoveredPoint> = None;
@@ -820,53 +826,21 @@ impl RenderOnce for Chart {
                                             if matches!(series.series_type, SeriesType::Area)
                                                 && screen_points.len() >= 2
                                             {
-                                                let mut builder = PathBuilder::fill();
-                                                builder.move_to(point(
-                                                    screen_points[0].x,
+                                                chart_common::paint_area_under_line(
+                                                    window,
+                                                    &screen_points,
                                                     area.chart_bottom(),
-                                                ));
-                                                builder.line_to(screen_points[0]);
-
-                                                for pt in screen_points.iter().skip(1) {
-                                                    builder.line_to(*pt);
-                                                }
-
-                                                builder.line_to(point(
-                                                    screen_points.last().unwrap().x,
-                                                    area.chart_bottom(),
-                                                ));
-                                                builder.close();
-
-                                                if let Ok(path) = builder.build() {
-                                                    window.paint_path(
-                                                        path,
-                                                        color.opacity(series.fill_opacity),
-                                                    );
-                                                }
+                                                    color.opacity(series.fill_opacity),
+                                                );
                                             }
 
-                                            if screen_points.len() >= 2 {
-                                                let mut builder =
-                                                    PathBuilder::stroke(px(series.stroke_width));
-                                                builder.move_to(screen_points[0]);
-
-                                                if series.smooth && screen_points.len() >= 3 {
-                                                    for i in 0..screen_points.len() - 1 {
-                                                        let p0 = screen_points[i];
-                                                        let p1 = screen_points[i + 1];
-                                                        let ctrl_x = (p0.x + p1.x) * 0.5;
-                                                        builder.curve_to(p1, point(ctrl_x, p0.y));
-                                                    }
-                                                } else {
-                                                    for pt in screen_points.iter().skip(1) {
-                                                        builder.line_to(*pt);
-                                                    }
-                                                }
-
-                                                if let Ok(path) = builder.build() {
-                                                    window.paint_path(path, color);
-                                                }
-                                            }
+                                            chart_common::paint_series_line(
+                                                window,
+                                                &screen_points,
+                                                series.smooth,
+                                                px(series.stroke_width),
+                                                color,
+                                            );
                                         }
                                         SeriesType::Bar => {
                                             let bar_width = series.bar_width.unwrap_or(20.0);
@@ -1008,24 +982,17 @@ impl RenderOnce for Chart {
                     }),
             )
             .when(legend.show && series_for_legend.len() > 1, |this| {
-                this.child(
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .gap(px(16.0))
-                        .px(px(padding.left))
-                        .py(px(12.0))
-                        .justify_center()
-                        .children(series_for_legend.iter().enumerate().map(|(i, s)| {
-                            let color = s.color.unwrap_or_else(|| default_color(i));
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(px(6.0))
-                                .child(div().size(px(12.0)).rounded(px(2.0)).bg(color))
-                                .child(div().text_sm().text_color(text_color).child(s.name.clone()))
-                        })),
-                )
+                this.child(chart_legend_row(
+                    series_for_legend
+                        .iter()
+                        .enumerate()
+                        .map(|(i, s)| (s.name.clone(), s.color.unwrap_or_else(|| default_color(i))))
+                        .collect(),
+                    text_color,
+                    LegendText::Sm,
+                    Some(padding.left),
+                    Some(12.0),
+                ))
             })
     }
 }

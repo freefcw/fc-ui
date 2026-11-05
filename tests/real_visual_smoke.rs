@@ -38,8 +38,9 @@ fn run() -> anyhow::Result<()> {
         overlays::dialog::{Dialog, DialogSize},
         overlays::popover::{Popover, PopoverContent},
         prelude::{
-            Button, Checkbox, GlassIntensity, GlassMorphism, RangeSlider, RangeSliderState, Select,
-            SelectOption, Slider, SliderState,
+            BarChart, BarChartSeries, Button, Checkbox, GlassIntensity, GlassMorphism, LineChart,
+            LineChartPoint, LineChartSeries, RangeSlider, RangeSliderState, Select, SelectOption,
+            Slider, SliderState,
         },
     };
     use gpui::{
@@ -102,6 +103,42 @@ fn run() -> anyhow::Result<()> {
                         })
                     }),
             )
+        }
+    }
+
+    struct ChartSmokeView;
+
+    impl Render for ChartSmokeView {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            let labels = vec!["Q1", "Q2", "Q3", "Q4"];
+            let series = vec![
+                BarChartSeries::new("Revenue", vec![42.0, 58.0, 51.0, 67.0])
+                    .color(rgb(0x3b82f6).into()),
+                BarChartSeries::new("Costs", vec![18.0, 25.0, 21.0, 30.0])
+                    .color(rgb(0x22c55e).into()),
+            ];
+            div()
+                .size_full()
+                .bg(rgb(0xffffff))
+                .p(px(24.0))
+                .flex()
+                .flex_col()
+                .gap(px(24.0))
+                .child(
+                    BarChart::multi_series(labels, series)
+                        .grouped()
+                        .show_grid(true)
+                        .h(px(160.0)),
+                )
+                .child(LineChart::new(vec![LineChartSeries::new(
+                    "Trend",
+                    vec![
+                        LineChartPoint::new(0.0, 3.0).label("Jan"),
+                        LineChartPoint::new(1.0, 7.0).label("Feb"),
+                        LineChartPoint::new(2.0, 5.0).label("Mar"),
+                        LineChartPoint::new(3.0, 9.0).label("Apr"),
+                    ],
+                )]))
         }
     }
 
@@ -288,6 +325,15 @@ fn run() -> anyhow::Result<()> {
             let overlay_window = overlay_window.into();
             let (overlay_scene, overlay_image) = draw_and_capture(cx, overlay_window)?;
             assert_scene_and_image(overlay_scene, &overlay_image, "transparent overlay scene")?;
+
+            // Charts (shared grid/legend/label foundations) must produce a
+            // populated, non-solid scene.
+            let chart_window = cx.open_offscreen_window(size(px(640.0), px(480.0)), |_, app| {
+                app.new(|_| ChartSmokeView)
+            })?;
+            let chart_window = chart_window.into();
+            let (chart_scene, chart_image) = draw_and_capture(cx, chart_window)?;
+            assert_scene_and_image(chart_scene, &chart_image, "chart scene")?;
 
             // Sliders (shared track/thumb constructors) must render both the
             // single- and dual-thumb variants.

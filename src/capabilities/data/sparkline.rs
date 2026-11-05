@@ -1,9 +1,11 @@
+use crate::capabilities::data::chart_common::{paint_area_under_line, paint_series_line};
+use crate::capabilities::data::palette;
 use crate::capabilities::foundation::theme::use_theme;
 use gpui::{prelude::FluentBuilder as _, *};
 
-const DEFAULT_LINE_COLOR: u32 = 0x3b82f6;
-const TREND_UP_COLOR: u32 = 0x22c55e;
-const TREND_DOWN_COLOR: u32 = 0xef4444;
+// Trend accents intentionally track the shared chart palette (blue is entry
+// 0, green entry 1, red entry 3) so a palette change stays consistent
+// across sparklines and the other chart components.
 
 #[derive(Copy, Clone, Default, PartialEq, Eq)]
 pub enum SparklineVariant {
@@ -239,11 +241,9 @@ impl Sparkline {
 
     fn get_trend_color(&self) -> Hsla {
         match compute_trend(&self.data) {
-            SparklineTrend::Up => rgb(TREND_UP_COLOR).into(),
-            SparklineTrend::Down => rgb(TREND_DOWN_COLOR).into(),
-            SparklineTrend::Neutral => self
-                .line_color
-                .unwrap_or_else(|| rgb(DEFAULT_LINE_COLOR).into()),
+            SparklineTrend::Up => palette::green(),
+            SparklineTrend::Down => palette::red(),
+            SparklineTrend::Neutral => self.line_color.unwrap_or_else(palette::blue),
         }
     }
 }
@@ -263,8 +263,7 @@ impl RenderOnce for Sparkline {
         let effective_line_color = if self.show_trend {
             trend_color
         } else {
-            self.line_color
-                .unwrap_or_else(|| rgb(DEFAULT_LINE_COLOR).into())
+            self.line_color.unwrap_or_else(palette::blue)
         };
 
         let effective_fill_color = self
@@ -293,8 +292,8 @@ impl RenderOnce for Sparkline {
 
         let trend_icon = trend.map(|t| {
             let (icon_char, color) = match t {
-                SparklineTrend::Up => ("↑", rgb(TREND_UP_COLOR).into()),
-                SparklineTrend::Down => ("↓", rgb(TREND_DOWN_COLOR).into()),
+                SparklineTrend::Up => ("↑", palette::green()),
+                SparklineTrend::Down => ("↓", palette::red()),
                 SparklineTrend::Neutral => ("→", theme.tokens.muted_foreground),
             };
             (icon_char, color)
@@ -380,14 +379,13 @@ fn paint_line_sparkline(bounds: Bounds<Pixels>, data: &SparklinePaintData, windo
         })
         .collect();
 
-    let mut builder = PathBuilder::stroke(data.size.line_width());
-    builder.move_to(screen_points[0]);
-    for pt in screen_points.iter().skip(1) {
-        builder.line_to(*pt);
-    }
-    if let Ok(path) = builder.build() {
-        window.paint_path(path, data.line_color);
-    }
+    paint_series_line(
+        window,
+        &screen_points,
+        false,
+        data.size.line_width(),
+        data.line_color,
+    );
 
     if data.show_min_max {
         let point_radius = data.size.point_radius();
@@ -438,27 +436,14 @@ fn paint_area_sparkline(bounds: Bounds<Pixels>, data: &SparklinePaintData, windo
         })
         .collect();
 
-    let mut fill_builder = PathBuilder::fill();
-    fill_builder.move_to(point(screen_points[0].x, chart_bottom));
-    fill_builder.line_to(screen_points[0]);
-    for pt in screen_points.iter().skip(1) {
-        fill_builder.line_to(*pt);
-    }
-    fill_builder.line_to(point(screen_points.last().unwrap().x, chart_bottom));
-    fill_builder.close();
-
-    if let Ok(path) = fill_builder.build() {
-        window.paint_path(path, data.fill_color);
-    }
-
-    let mut line_builder = PathBuilder::stroke(data.size.line_width());
-    line_builder.move_to(screen_points[0]);
-    for pt in screen_points.iter().skip(1) {
-        line_builder.line_to(*pt);
-    }
-    if let Ok(path) = line_builder.build() {
-        window.paint_path(path, data.line_color);
-    }
+    paint_area_under_line(window, &screen_points, chart_bottom, data.fill_color);
+    paint_series_line(
+        window,
+        &screen_points,
+        false,
+        data.size.line_width(),
+        data.line_color,
+    );
 
     if data.show_min_max {
         let point_radius = data.size.point_radius();

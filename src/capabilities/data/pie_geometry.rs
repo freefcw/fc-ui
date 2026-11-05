@@ -1,7 +1,7 @@
 use crate::capabilities::data::palette::default_color;
 use crate::capabilities::data::pie_chart::PieChartSegment;
 use crate::capabilities::foundation::theme::Theme;
-use gpui::{div, hsla, prelude::FluentBuilder as _, px, Div, Hsla, ParentElement, Styled};
+use gpui::{div, hsla, prelude::FluentBuilder as _, px, Div, Hsla, ParentElement, Pixels, Styled};
 
 const START_ANGLE: f32 = -std::f32::consts::FRAC_PI_2;
 
@@ -64,6 +64,55 @@ pub(crate) fn color_at_angle(angle: f32, geometry: &[SegmentGeometry]) -> Hsla {
         .last()
         .map(|segment| segment.color)
         .unwrap_or(hsla(0.0, 0.0, 0.5, 1.0))
+}
+
+/// Render the dotted-ring disc shared by the pie and donut charts.
+///
+/// Line-for-line lift of the ring loop that `pie_chart.rs` and
+/// `donut_chart.rs` each carried; callers keep their own inner/outer radius
+/// computation and append the center disc afterwards.
+pub(crate) fn render_dot_ring(
+    chart_size: Pixels,
+    inner_radius: f32,
+    outer_radius: f32,
+    geometry: &[SegmentGeometry],
+) -> Div {
+    let size_f32 = chart_size / px(1.0);
+    let center = size_f32 * 0.5;
+    let ring_width = outer_radius - inner_radius;
+    let ring_count = ((ring_width / 3.0).max(1.0) as usize).min(20);
+
+    let mut container = div()
+        .size(chart_size)
+        .rounded(px(9999.0))
+        .relative()
+        .overflow_hidden();
+
+    for ring_idx in 0..ring_count {
+        let ring_radius = inner_radius + (ring_idx as f32 + 0.5) * (ring_width / ring_count as f32);
+        let circumference = std::f32::consts::TAU * ring_radius;
+        let dots_in_ring = (circumference / 4.0).max(16.0) as usize;
+
+        for i in 0..dots_in_ring {
+            let angle = -std::f32::consts::FRAC_PI_2
+                + (i as f32 / dots_in_ring as f32) * std::f32::consts::TAU;
+            let color = color_at_angle(angle, geometry);
+            let x = center + ring_radius * angle.cos() - 2.0;
+            let y = center + ring_radius * angle.sin() - 2.0;
+
+            container = container.child(
+                div()
+                    .absolute()
+                    .size(px(5.0))
+                    .rounded(px(9999.0))
+                    .bg(color)
+                    .left(px(x))
+                    .top(px(y)),
+            );
+        }
+    }
+
+    container
 }
 
 pub(crate) fn render_legend(

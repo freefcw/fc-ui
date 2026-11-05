@@ -1,3 +1,8 @@
+use crate::capabilities::data::chart_common::{
+    chart_legend_row, format_tick_value, line_area_axis_padding, paint_area_band,
+    paint_area_under_line, paint_horizontal_grid_lines, paint_series_line,
+    paint_vertical_grid_lines, LegendText,
+};
 use crate::capabilities::data::{chart::is_finite_data_point, palette::default_color};
 use crate::capabilities::foundation::theme::use_theme;
 use gpui::{prelude::FluentBuilder as _, *};
@@ -255,26 +260,14 @@ impl Styled for AreaChart {
     }
 }
 
-fn format_value(value: f64) -> String {
-    if value.abs() >= 1000.0 {
-        format!("{:.0}k", value / 1000.0)
-    } else if value.abs() >= 1.0 {
-        format!("{:.0}", value)
-    } else {
-        format!("{:.2}", value)
-    }
-}
-
 impl RenderOnce for AreaChart {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = use_theme(cx);
         let user_style = self.style;
         let (chart_w, chart_h) = self.size.dimensions();
 
-        let padding_left: f32 = if self.show_y_axis { 50.0 } else { 10.0 };
-        let padding_right: f32 = 20.0;
-        let padding_top: f32 = 20.0;
-        let padding_bottom: f32 = if self.show_x_axis { 40.0 } else { 10.0 };
+        let (padding_left, padding_right, padding_top, padding_bottom) =
+            line_area_axis_padding(self.show_x_axis, self.show_y_axis);
 
         let series_for_legend = self.series.clone();
         let show_legend = self.show_legend && self.series.len() > 1;
@@ -285,7 +278,7 @@ impl RenderOnce for AreaChart {
                 .map(|i| {
                     let normalized = i as f64 / self.y_label_count as f64;
                     let value = range.y_min + (range.y_max - range.y_min) * (1.0 - normalized);
-                    format_value(value)
+                    format_tick_value(value, None)
                 })
                 .collect()
         } else {
@@ -344,27 +337,24 @@ impl RenderOnce for AreaChart {
 
                                 if data.show_grid {
                                     let grid_lines = data.y_label_count;
-                                    for i in 0..=grid_lines {
-                                        let y = chart_top
-                                            + chart_height * (i as f32 / grid_lines as f32);
-                                        let mut builder = PathBuilder::stroke(px(1.0));
-                                        builder.move_to(point(chart_left, y));
-                                        builder.line_to(point(chart_right, y));
-                                        if let Ok(path) = builder.build() {
-                                            window.paint_path(path, data.grid_color.opacity(0.2));
-                                        }
-                                    }
-
-                                    for i in 0..=grid_lines {
-                                        let x = chart_left
-                                            + chart_width * (i as f32 / grid_lines as f32);
-                                        let mut builder = PathBuilder::stroke(px(1.0));
-                                        builder.move_to(point(x, chart_top));
-                                        builder.line_to(point(x, chart_bottom));
-                                        if let Ok(path) = builder.build() {
-                                            window.paint_path(path, data.grid_color.opacity(0.2));
-                                        }
-                                    }
+                                    paint_horizontal_grid_lines(
+                                        window,
+                                        chart_left,
+                                        chart_right,
+                                        chart_top,
+                                        chart_height,
+                                        grid_lines,
+                                        data.grid_color.opacity(0.2),
+                                    );
+                                    paint_vertical_grid_lines(
+                                        window,
+                                        chart_top,
+                                        chart_bottom,
+                                        chart_left,
+                                        chart_width,
+                                        grid_lines,
+                                        data.grid_color.opacity(0.2),
+                                    );
                                 }
 
                                 match data.mode {
@@ -392,33 +382,19 @@ impl RenderOnce for AreaChart {
                                                 continue;
                                             }
 
-                                            let mut fill_builder = PathBuilder::fill();
-                                            fill_builder
-                                                .move_to(point(screen_pts[0].x, chart_bottom));
-                                            fill_builder.line_to(screen_pts[0]);
-                                            for pt in screen_pts.iter().skip(1) {
-                                                fill_builder.line_to(*pt);
-                                            }
-                                            fill_builder.line_to(point(
-                                                screen_pts.last().unwrap().x,
+                                            paint_area_under_line(
+                                                window,
+                                                &screen_pts,
                                                 chart_bottom,
-                                            ));
-                                            fill_builder.close();
-                                            if let Ok(path) = fill_builder.build() {
-                                                window.paint_path(
-                                                    path,
-                                                    color.opacity(data.fill_opacity),
-                                                );
-                                            }
-
-                                            let mut stroke_builder = PathBuilder::stroke(px(2.0));
-                                            stroke_builder.move_to(screen_pts[0]);
-                                            for pt in screen_pts.iter().skip(1) {
-                                                stroke_builder.line_to(*pt);
-                                            }
-                                            if let Ok(path) = stroke_builder.build() {
-                                                window.paint_path(path, color);
-                                            }
+                                                color.opacity(data.fill_opacity),
+                                            );
+                                            paint_series_line(
+                                                window,
+                                                &screen_pts,
+                                                false,
+                                                px(2.0),
+                                                color,
+                                            );
                                         }
                                     }
                                     AreaChartMode::Stacked => {
@@ -480,30 +456,19 @@ impl RenderOnce for AreaChart {
 
                                             let bottom_pts = baselines.last().unwrap();
 
-                                            let mut fill_builder = PathBuilder::fill();
-                                            fill_builder.move_to(bottom_pts[0]);
-                                            for pt in top_pts.iter() {
-                                                fill_builder.line_to(*pt);
-                                            }
-                                            for pt in bottom_pts.iter().rev() {
-                                                fill_builder.line_to(*pt);
-                                            }
-                                            fill_builder.close();
-                                            if let Ok(path) = fill_builder.build() {
-                                                window.paint_path(
-                                                    path,
-                                                    color.opacity(data.fill_opacity),
-                                                );
-                                            }
-
-                                            let mut stroke_builder = PathBuilder::stroke(px(2.0));
-                                            stroke_builder.move_to(top_pts[0]);
-                                            for pt in top_pts.iter().skip(1) {
-                                                stroke_builder.line_to(*pt);
-                                            }
-                                            if let Ok(path) = stroke_builder.build() {
-                                                window.paint_path(path, color);
-                                            }
+                                            paint_area_band(
+                                                window,
+                                                &top_pts,
+                                                bottom_pts,
+                                                color.opacity(data.fill_opacity),
+                                            );
+                                            paint_series_line(
+                                                window,
+                                                &top_pts,
+                                                false,
+                                                px(2.0),
+                                                color,
+                                            );
 
                                             baselines.push(top_pts);
                                         }
@@ -552,26 +517,20 @@ impl RenderOnce for AreaChart {
             )
             .when(show_legend, |this| {
                 this.child(
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .gap(px(16.0))
-                        .px(px(padding_left))
-                        .py(px(8.0))
-                        .children(series_for_legend.iter().enumerate().map(|(i, s)| {
-                            let color = s.color.unwrap_or_else(|| default_color(i));
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(px(6.0))
-                                .child(div().size(px(12.0)).rounded(px(2.0)).bg(color))
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(text_color)
-                                        .child(s.label.clone()),
-                                )
-                        })),
+                    chart_legend_row(
+                        series_for_legend
+                            .iter()
+                            .enumerate()
+                            .map(|(i, s)| {
+                                (s.label.clone(), s.color.unwrap_or_else(|| default_color(i)))
+                            })
+                            .collect(),
+                        text_color,
+                        LegendText::Xs,
+                        Some(padding_left),
+                        Some(8.0),
+                    )
+                    .justify_start(),
                 )
             })
     }
