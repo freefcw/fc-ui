@@ -6,6 +6,7 @@ use std::rc::Rc;
 const SHEET_CONTEXT: &str = "Sheet";
 
 use crate::capabilities::foundation::theme::use_theme;
+use crate::capabilities::overlays::overlay_shell::{dismissible_backdrop, OverlayFocusGuard};
 use crate::capabilities::primitives::button::{Button, ButtonSize, ButtonVariant};
 
 actions!(sheet, [SheetClose]);
@@ -54,9 +55,7 @@ pub struct Sheet {
     show_close_button: bool,
     close_on_backdrop_click: bool,
     on_close: Option<Rc<dyn Fn(&mut Window, &mut App)>>,
-    focused: bool,
-    previous_focus: Option<FocusHandle>,
-    _focus_lost_subscription: Option<Subscription>,
+    focus_guard: OverlayFocusGuard,
     style: StyleRefinement,
 }
 
@@ -75,9 +74,7 @@ impl Sheet {
             show_close_button: true,
             close_on_backdrop_click: true,
             on_close: None,
-            focused: false,
-            previous_focus: None,
-            _focus_lost_subscription: None,
+            focus_guard: OverlayFocusGuard::new(),
             style: StyleRefinement::default(),
         }
     }
@@ -143,11 +140,7 @@ impl Sheet {
     }
 
     fn restore_previous_focus(&mut self, window: &mut Window, cx: &App) {
-        if let Some(previous_focus) = self.previous_focus.take() {
-            window.focus(&previous_focus);
-        } else if let Some(restore_target) = window.focus_lost_restore_target(cx) {
-            window.focus(&restore_target);
-        }
+        self.focus_guard.restore_focus(window, cx);
     }
 
     fn handle_close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -193,18 +186,10 @@ impl Render for Sheet {
         let sheet_size = self.get_sheet_size();
         let user_style = self.style.clone();
 
-        if !self.focused {
-            self.previous_focus = window.focused(cx);
-            window.focus(&self.focus_handle);
-            self.focused = true;
-            self._focus_lost_subscription = Some(cx.on_focus_lost(window, |this, window, cx| {
-                if this.focused {
-                    this.focused = false;
-                    this.restore_previous_focus(window, cx);
-                    cx.notify();
-                }
-            }));
-        }
+        self.focus_guard
+            .capture_focus(window, cx, &self.focus_handle, |sheet: &mut Sheet| {
+                &mut sheet.focus_guard
+            });
 
         div()
             .track_focus(&self.focus_handle)
@@ -213,15 +198,14 @@ impl Render for Sheet {
             .absolute()
             .inset_0()
             .flex()
-            .bg(hsla(0.0, 0.0, 0.0, 0.5))
-            .when(self.close_on_backdrop_click, |this: Div| {
-                this.on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _, window, cx| {
+            .child(dismissible_backdrop(
+                hsla(0.0, 0.0, 0.0, 0.5),
+                cx.listener(|this, _, window, cx| {
+                    if this.close_on_backdrop_click {
                         this.handle_close(window, cx);
-                    }),
-                )
-            })
+                    }
+                }),
+            ))
             .child(
                 div()
                     .occlude()

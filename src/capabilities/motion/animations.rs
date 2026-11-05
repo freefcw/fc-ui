@@ -77,6 +77,12 @@ pub mod durations {
     /// Very fast (150ms) - for subtle state changes
     pub const FASTEST: Duration = Duration::from_millis(150);
 
+    /// Quick exit (120ms) - for small overlay dismissals (popovers, menus)
+    pub const EXIT_QUICK: Duration = Duration::from_millis(120);
+
+    /// Standard exit (250ms) - default for overlay dismissals (dialogs, toasts)
+    pub const EXIT_STANDARD: Duration = Duration::from_millis(250);
+
     /// Fast (200ms) - for quick transitions
     pub const FAST: Duration = Duration::from_millis(200);
 

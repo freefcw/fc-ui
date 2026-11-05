@@ -5,7 +5,9 @@ use smol::Timer;
 use std::time::Duration;
 
 use crate::capabilities::foundation::theme::use_theme;
-use crate::capabilities::motion::animations::easings;
+use crate::capabilities::overlays::overlay_shell::{
+    dismiss_animation, schedule_reap, TOAST_TIMING,
+};
 use crate::capabilities::primitives::icon::Icon;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -133,13 +135,18 @@ impl ToastManager {
         if let Some(duration) = duration {
             cx.spawn_in(window, async move |this, cx| {
                 Timer::after(duration).await;
-                let _ = this.update(cx, |this, cx| {
+                let _ = this.update_in(cx, |this, window, cx| {
                     this.dismissing.insert(id);
                     cx.notify();
-                });
-                Timer::after(Duration::from_millis(250)).await;
-                let _ = this.update(cx, |this, cx| {
-                    this.dismiss_toast(id, cx);
+                    schedule_reap(
+                        &cx.entity(),
+                        window,
+                        cx,
+                        TOAST_TIMING,
+                        move |this, _window, cx| {
+                            this.dismiss_toast(id, cx);
+                        },
+                    );
                 });
             })
             .detach();
@@ -166,13 +173,15 @@ impl ToastManager {
         self.dismissing.insert(id);
         cx.notify();
 
-        cx.spawn_in(window, async move |this, cx| {
-            Timer::after(Duration::from_millis(250)).await;
-            let _ = this.update(cx, |this, cx| {
+        schedule_reap(
+            &cx.entity(),
+            window,
+            cx,
+            TOAST_TIMING,
+            move |this, _window, cx| {
                 this.dismiss_toast(id, cx);
-            });
-        })
-        .detach();
+            },
+        );
     }
 
     pub fn is_dismissing(&self, id: u64) -> bool {
@@ -345,16 +354,7 @@ impl Render for ToastManager {
                                     .into(),
                                     toast_id,
                                 ),
-                                Animation::new(Duration::from_millis(if is_dismissing {
-                                    250
-                                } else {
-                                    300
-                                }))
-                                .with_easing(if is_dismissing {
-                                    easings::ease_in_cubic as fn(f32) -> f32
-                                } else {
-                                    easings::ease_out_cubic as fn(f32) -> f32
-                                }),
+                                dismiss_animation(TOAST_TIMING, is_dismissing),
                                 move |el, delta| {
                                     if is_dismissing {
                                         el.opacity(1.0 - delta).mt(px(8.0 * delta))

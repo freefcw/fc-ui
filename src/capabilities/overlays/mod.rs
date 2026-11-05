@@ -5,6 +5,7 @@ pub mod context_menu;
 pub mod dialog;
 pub mod hover_card;
 pub mod notification_center;
+pub(crate) mod overlay_shell;
 pub mod popover;
 pub mod popover_menu;
 pub mod sheet;

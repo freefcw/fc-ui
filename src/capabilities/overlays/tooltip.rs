@@ -14,10 +14,12 @@ pub enum TooltipPlacement {
 }
 
 #[derive(Default)]
+#[deprecated(note = "not implemented: visibility is hover-driven; removal in 0.10")]
 pub struct TooltipState {
     is_visible: bool,
 }
 
+#[allow(deprecated)] // self-references within the deprecated type's own impl
 impl TooltipState {
     pub fn new() -> Self {
         Self::default()
@@ -61,6 +63,7 @@ impl Tooltip {
 
     /// Currently not implemented: visibility is pure hover-driven and the
     /// tooltip appears immediately. The value is stored for future use.
+    #[deprecated(note = "not implemented: visibility is hover-driven; removal in 0.10")]
     pub fn show_delay(mut self, delay: Duration) -> Self {
         self.show_delay = delay;
         self
@@ -68,6 +71,7 @@ impl Tooltip {
 
     /// Currently not implemented: visibility is pure hover-driven and the
     /// tooltip disappears immediately. The value is stored for future use.
+    #[deprecated(note = "not implemented: visibility is hover-driven; removal in 0.10")]
     pub fn hide_delay(mut self, delay: Duration) -> Self {
         self.hide_delay = delay;
         self

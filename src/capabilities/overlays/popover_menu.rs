@@ -1,7 +1,7 @@
 //! Popover menu component with positioned menu items.
 
 use crate::capabilities::foundation::theme::use_theme;
-use crate::capabilities::primitives::icon::Icon;
+use crate::capabilities::overlays::overlay_shell::{menu_panel, menu_row, MenuRow, MenuRowChrome};
 use gpui::prelude::FluentBuilder;
 use gpui::*;
 use std::rc::Rc;
@@ -97,18 +97,8 @@ impl RenderOnce for PopoverMenu {
                 deferred(
                     anchored().snap_to_window().position(self.position).child(
                         div().occlude().child(
-                            div()
-                                .min_w(px(200.0))
+                            menu_panel(cx)
                                 .max_w(px(300.0))
-                                .flex()
-                                .flex_col()
-                                .bg(theme.tokens.popover)
-                                .text_color(theme.tokens.popover_foreground)
-                                .border_1()
-                                .border_color(theme.tokens.border)
-                                .rounded(theme.tokens.radius_md)
-                                .shadow_lg()
-                                .p(px(4.0))
                                 .map(|this| {
                                     let mut div = this;
                                     div.style().refine(&user_style);
@@ -118,46 +108,24 @@ impl RenderOnce for PopoverMenu {
                                     cx.stop_propagation();
                                 })
                                 .children(self.items.into_iter().map(|item| {
-                                    let on_click = item.on_click;
-                                    let disabled = item.disabled;
-
-                                    div()
-                                        .flex()
-                                        .items_center()
-                                        .gap(px(8.0))
-                                        .px(px(12.0))
-                                        .py(px(8.0))
-                                        .rounded(px(4.0))
-                                        .cursor(if disabled {
-                                            CursorStyle::Arrow
-                                        } else {
-                                            CursorStyle::PointingHand
-                                        })
-                                        .when(!disabled, |this| {
-                                            this.hover(|style| {
-                                                style.bg(theme.tokens.accent.opacity(0.1))
-                                            })
-                                        })
-                                        .when(disabled, |this| this.opacity(0.5))
-                                        .when_some(item.icon, |this, icon_name| {
-                                            this.child(
-                                                Icon::new(icon_name)
-                                                    .size(px(16.0))
-                                                    .color(theme.tokens.foreground),
-                                            )
-                                        })
-                                        .child(div().text_size(px(14.0)).child(item.label))
-                                        .when(!disabled && on_click.is_some(), |this| {
-                                            this.on_mouse_down(
-                                                MouseButton::Left,
-                                                move |_, window, cx| {
-                                                    if let Some(ref handler) = on_click {
-                                                        handler(window, cx);
-                                                    }
-                                                    cx.stop_propagation();
-                                                },
-                                            )
-                                        })
+                                    menu_row(
+                                        cx,
+                                        MenuRow {
+                                            id: item.id,
+                                            label: item.label,
+                                            icon: item.icon,
+                                            disabled: item.disabled,
+                                            on_click: item.on_click,
+                                            on_close: None,
+                                        },
+                                        MenuRowChrome {
+                                            padding_x: px(12.0),
+                                            padding_y: px(8.0),
+                                            radius: px(4.0),
+                                            icon_size: px(16.0),
+                                            icon_color: Some(theme.tokens.foreground),
+                                        },
+                                    )
                                 })),
                         ),
                     ),

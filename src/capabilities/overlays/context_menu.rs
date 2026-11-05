@@ -2,11 +2,11 @@
 
 use gpui::{prelude::FluentBuilder as _, *};
 use std::rc::Rc;
-use std::time::Duration;
 
 use crate::capabilities::foundation::theme::use_theme;
-use crate::capabilities::motion::animations::easings;
-use crate::capabilities::primitives::icon::Icon;
+use crate::capabilities::overlays::overlay_shell::{
+    dismiss_animation, menu_panel, menu_row, MenuRow, MenuRowChrome, CONTEXT_MENU_TIMING,
+};
 
 #[derive(Clone)]
 pub struct ContextMenuItem {
@@ -137,24 +137,11 @@ impl RenderOnce for ContextMenu {
                 })
             })
             .child(
-                div()
+                menu_panel(cx)
                     .absolute()
                     .occlude()
                     .left(position.x)
                     .top(position.y)
-                    .min_w(px(200.0))
-                    .bg(theme.tokens.popover)
-                    .border_1()
-                    .border_color(theme.tokens.border)
-                    .rounded(theme.tokens.radius_md)
-                    .shadow(smallvec::smallvec![BoxShadow {
-                        color: hsla(0.0, 0.0, 0.0, 0.1),
-                        offset: point(px(0.0), px(2.0)),
-                        blur_radius: px(8.0),
-                        spread_radius: px(0.0),
-                        inset: false,
-                    }])
-                    .p(px(4.0))
                     .map(|this| {
                         let mut div = this;
                         div.style().refine(&user_style);
@@ -170,46 +157,25 @@ impl RenderOnce for ContextMenu {
                                 .into_any_element();
                         }
 
-                        let on_close = self.on_close.clone();
-                        let handler = item.on_click.clone();
-                        let disabled = item.disabled;
-
-                        div()
-                            .id(item.id)
-                            .flex()
-                            .items_center()
-                            .gap(px(8.0))
-                            .px(px(8.0))
-                            .py(px(6.0))
-                            .rounded(theme.tokens.radius_sm)
-                            .text_size(px(14.0))
-                            .cursor(if disabled {
-                                CursorStyle::Arrow
-                            } else {
-                                CursorStyle::PointingHand
-                            })
-                            .when(disabled, |this: Stateful<Div>| {
-                                this.text_color(theme.tokens.muted_foreground).opacity(0.5)
-                            })
-                            .when(!disabled, |this: Stateful<Div>| {
-                                this.text_color(theme.tokens.popover_foreground)
-                                    .hover(|style| style.bg(theme.tokens.accent.opacity(0.1)))
-                            })
-                            .when(!disabled && handler.is_some(), |this: Stateful<Div>| {
-                                let handler = handler.unwrap();
-                                let on_close = on_close.clone();
-                                this.on_mouse_down(MouseButton::Left, move |_, window, cx| {
-                                    handler(window, cx);
-                                    if let Some(close_handler) = &on_close {
-                                        close_handler(window, cx);
-                                    }
-                                })
-                            })
-                            .when_some(item.icon, |this: Stateful<Div>, icon| {
-                                this.child(Icon::new(icon).size(px(14.0)))
-                            })
-                            .child(item.label)
-                            .into_any_element()
+                        menu_row(
+                            cx,
+                            MenuRow {
+                                id: item.id,
+                                label: item.label,
+                                icon: item.icon,
+                                disabled: item.disabled,
+                                on_click: item.on_click,
+                                on_close: on_close_handler.clone(),
+                            },
+                            MenuRowChrome {
+                                padding_x: px(8.0),
+                                padding_y: px(6.0),
+                                radius: theme.tokens.radius_sm,
+                                icon_size: px(14.0),
+                                icon_color: None,
+                            },
+                        )
+                        .into_any_element()
                     }))
                     .with_animation(
                         if self.dismissing {
@@ -217,16 +183,7 @@ impl RenderOnce for ContextMenu {
                         } else {
                             "ctx-menu-enter"
                         },
-                        Animation::new(Duration::from_millis(if self.dismissing {
-                            100
-                        } else {
-                            120
-                        }))
-                        .with_easing(if self.dismissing {
-                            easings::ease_in_cubic as fn(f32) -> f32
-                        } else {
-                            easings::ease_out_cubic as fn(f32) -> f32
-                        }),
+                        dismiss_animation(CONTEXT_MENU_TIMING, dismissing),
                         move |el, delta| {
                             if dismissing {
                                 el.opacity(1.0 - delta).mt(px(4.0 * delta))

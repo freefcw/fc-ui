@@ -1,15 +1,16 @@
 //! Dialog component with focus trap and backdrop.
 //!
 //! Note: this [`Dialog`] is a stateful entity; do not confuse it with
-//! [`super::confirm_dialog::Dialog`], a lightweight `RenderOnce` element for
-//! simple confirmation layouts without focus management.
+//! [`super::confirm_dialog::DialogFrame`], a lightweight `RenderOnce`
+//! element for simple confirmation layouts without focus management.
 
 use gpui::{prelude::FluentBuilder as _, *};
 use std::rc::Rc;
-use std::time::Duration;
 
 use crate::capabilities::foundation::theme::use_theme;
-use crate::capabilities::motion::animations::easings;
+use crate::capabilities::overlays::overlay_shell::{
+    dismiss_animation, fade_animation, schedule_reap, OverlayFocusGuard, DIALOG_TIMING,
+};
 use crate::capabilities::primitives::button::{Button, ButtonSize, ButtonVariant};
 
 actions!(dialog, [DialogCancel]);
@@ -64,11 +65,9 @@ pub struct Dialog {
     close_on_backdrop_click: bool,
     close_on_escape: bool,
     on_close: Option<Rc<dyn Fn(&mut Window, &mut App)>>,
-    focused: bool,
+    focus_guard: OverlayFocusGuard,
     dismissing: bool,
     dismiss_complete: bool,
-    previous_focus: Option<FocusHandle>,
-    _focus_lost_subscription: Option<Subscription>,
     style: StyleRefinement,
 }
 
@@ -86,11 +85,9 @@ impl Dialog {
             close_on_backdrop_click: true,
             close_on_escape: true,
             on_close: None,
-            focused: false,
+            focus_guard: OverlayFocusGuard::new(),
             dismissing: false,
             dismiss_complete: false,
-            previous_focus: None,
-            _focus_lost_subscription: None,
             style: StyleRefinement::default(),
         }
     }
@@ -168,11 +165,7 @@ impl Dialog {
     }
 
     fn restore_previous_focus(&mut self, window: &mut Window, cx: &App) {
-        if let Some(previous_focus) = self.previous_focus.take() {
-            window.focus(&previous_focus);
-        } else if let Some(restore_target) = window.focus_lost_restore_target(cx) {
-            window.focus(&restore_target);
-        }
+        self.focus_guard.restore_focus(window, cx);
     }
 
     fn handle_close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -182,20 +175,20 @@ impl Dialog {
         self.dismissing = true;
         cx.notify();
 
-        cx.spawn_in(window, async move |this, cx| {
-            cx.background_executor()
-                .timer(Duration::from_millis(200))
-                .await;
-            let _ = this.update_in(cx, |dialog, window, cx| {
+        schedule_reap(
+            &cx.entity(),
+            window,
+            cx,
+            DIALOG_TIMING,
+            |dialog, window, cx| {
                 dialog.dismiss_complete = true;
                 dialog.restore_previous_focus(window, cx);
                 if let Some(handler) = dialog.on_close.take() {
                     (handler)(window, cx);
                 }
                 cx.notify();
-            });
-        })
-        .detach();
+            },
+        );
     }
 }
 
@@ -230,18 +223,10 @@ impl Render for Dialog {
         let user_style = self.style.clone();
         let dismissing = self.dismissing;
 
-        if !self.focused {
-            self.previous_focus = window.focused(cx);
-            window.focus(&self.focus_handle);
-            self.focused = true;
-            self._focus_lost_subscription = Some(cx.on_focus_lost(window, |this, window, cx| {
-                if this.focused {
-                    this.focused = false;
-                    this.restore_previous_focus(window, cx);
-                    cx.notify();
-                }
-            }));
-        }
+        self.focus_guard
+            .capture_focus(window, cx, &self.focus_handle, |dialog: &mut Dialog| {
+                &mut dialog.focus_guard
+            });
 
         div()
             .id("dialog-overlay")
@@ -408,12 +393,7 @@ impl Render for Dialog {
                         } else {
                             "dialog-content-enter"
                         },
-                        Animation::new(Duration::from_millis(if dismissing { 200 } else { 250 }))
-                            .with_easing(if dismissing {
-                                easings::ease_in_cubic as fn(f32) -> f32
-                            } else {
-                                easings::ease_out_cubic as fn(f32) -> f32
-                            }),
+                        dismiss_animation(DIALOG_TIMING, dismissing),
                         move |el, delta| {
                             if dismissing {
                                 el.opacity(1.0 - delta).mt(px(8.0 * delta))
@@ -429,11 +409,7 @@ impl Render for Dialog {
                 } else {
                     "dialog-backdrop-fade"
                 },
-                Animation::new(Duration::from_millis(200)).with_easing(if dismissing {
-                    easings::ease_in_cubic as fn(f32) -> f32
-                } else {
-                    easings::ease_out_cubic as fn(f32) -> f32
-                }),
+                fade_animation(DIALOG_TIMING.exit, dismissing),
                 move |el, delta| {
                     if dismissing {
                         el.opacity(1.0 - delta)

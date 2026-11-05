@@ -1,11 +1,12 @@
 //! Popover component with anchored positioning.
 
 use gpui::{prelude::FluentBuilder as _, *};
-use std::time::Duration;
 use std::{cell::RefCell, rc::Rc};
 
 use crate::capabilities::foundation::theme::use_theme;
-use crate::capabilities::motion::animations::easings;
+use crate::capabilities::overlays::overlay_shell::{
+    dismiss_animation, schedule_reap, POPOVER_TIMING,
+};
 
 const POPOVER_MARGIN: Pixels = px(8.0);
 const CONTEXT: &str = "Popover";
@@ -71,13 +72,9 @@ impl Render for PopoverContent {
                 this.dismissing = true;
                 cx.notify();
 
-                cx.spawn_in(window, async move |entity, cx| {
-                    smol::Timer::after(Duration::from_millis(120)).await;
-                    let _ = entity.update(cx, |_, cx| {
-                        cx.emit(DismissEvent);
-                    });
-                })
-                .detach();
+                schedule_reap(&cx.entity(), window, cx, POPOVER_TIMING, |_, _, cx| {
+                    cx.emit(DismissEvent);
+                });
             }))
             .child((self.content)(window, cx))
             .with_animation(
@@ -86,12 +83,7 @@ impl Render for PopoverContent {
                 } else {
                     "popover-enter"
                 },
-                Animation::new(Duration::from_millis(if dismissing { 120 } else { 150 }))
-                    .with_easing(if dismissing {
-                        easings::ease_in_cubic as fn(f32) -> f32
-                    } else {
-                        easings::ease_out_cubic as fn(f32) -> f32
-                    }),
+                dismiss_animation(POPOVER_TIMING, dismissing),
                 move |el, delta| {
                     if dismissing {
                         el.opacity(1.0 - delta).mt(px(4.0 * delta))

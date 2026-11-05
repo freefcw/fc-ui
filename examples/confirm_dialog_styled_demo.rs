@@ -1,5 +1,5 @@
 use fc_ui::{
-    components::{confirm_dialog::Dialog, scrollable::scrollable_vertical},
+    components::{confirm_dialog::DialogFrame, scrollable::scrollable_vertical},
     prelude::*,
 };
 use gpui::*;
@@ -312,7 +312,7 @@ impl Render for DialogStyledDemo {
         // Render dialogs conditionally
         if self.show_default {
             root = root.child(
-                Dialog::new()
+                DialogFrame::new()
                     .header(
                         div()
                             .p(px(24.0))
@@ -354,7 +354,7 @@ impl Render for DialogStyledDemo {
 
         if self.show_custom_size {
             root = root.child(
-                Dialog::new()
+                DialogFrame::new()
                     .width(px(700.0))
                     .w(px(700.0))  // Custom width via Styled trait
                     .min_h(px(400.0))  // Custom min height via Styled trait
@@ -401,7 +401,7 @@ impl Render for DialogStyledDemo {
 
         if self.show_custom_colors {
             root = root.child(
-                Dialog::new()
+                DialogFrame::new()
                     .bg(rgb(0x1e293b))  // Custom dark blue background via Styled trait
                     .border_color(rgb(0x3b82f6))  // Custom blue border via Styled trait
                     .header(
@@ -449,7 +449,7 @@ impl Render for DialogStyledDemo {
 
         if self.show_custom_radius {
             root = root.child(
-                Dialog::new()
+                DialogFrame::new()
                     .rounded(px(0.0)) // No border radius via Styled trait
                     .header(
                         div()
@@ -488,7 +488,7 @@ impl Render for DialogStyledDemo {
 
         if self.show_custom_shadow {
             root = root.child(
-                Dialog::new()
+                DialogFrame::new()
                     .shadow_2xl()  // Extra large shadow via Styled trait
                     .header(
                         div()
@@ -533,7 +533,7 @@ impl Render for DialogStyledDemo {
 
         if self.show_custom_border {
             root = root.child(
-                Dialog::new()
+                DialogFrame::new()
                     .border_4()  // Thick border via Styled trait
                     .border_color(rgb(0x8b5cf6))  // Purple border via Styled trait
                     .header(
@@ -580,7 +580,7 @@ impl Render for DialogStyledDemo {
 
         if self.show_combined {
             root = root.child(
-                Dialog::new()
+                DialogFrame::new()
                     .w(px(600.0)) // Custom width
                     .min_h(px(350.0)) // Custom min height
                     .bg(rgb(0x0f172a)) // Dark background

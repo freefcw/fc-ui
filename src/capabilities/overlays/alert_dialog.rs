@@ -6,6 +6,7 @@ use std::rc::Rc;
 const ALERT_DIALOG_CONTEXT: &str = "AlertDialog";
 
 use crate::capabilities::foundation::theme::use_theme;
+use crate::capabilities::overlays::overlay_shell::{backdrop, OverlayFocusGuard};
 use crate::capabilities::primitives::button::{Button, ButtonSize, ButtonVariant};
 
 actions!(alert_dialog, [AlertDialogCancel]);
@@ -19,9 +20,7 @@ pub struct AlertDialog {
     destructive: bool,
     on_cancel: Option<Rc<dyn Fn(&mut Window, &mut App)>>,
     on_action: Option<Rc<dyn Fn(&mut Window, &mut App)>>,
-    focused: bool,
-    previous_focus: Option<FocusHandle>,
-    _focus_lost_subscription: Option<Subscription>,
+    focus_guard: OverlayFocusGuard,
     style: StyleRefinement,
 }
 
@@ -36,9 +35,7 @@ impl AlertDialog {
             destructive: false,
             on_cancel: None,
             on_action: None,
-            focused: false,
-            previous_focus: None,
-            _focus_lost_subscription: None,
+            focus_guard: OverlayFocusGuard::new(),
             style: StyleRefinement::default(),
         }
     }
@@ -85,11 +82,7 @@ impl AlertDialog {
     }
 
     fn restore_previous_focus(&mut self, window: &mut Window, cx: &App) {
-        if let Some(previous_focus) = self.previous_focus.take() {
-            window.focus(&previous_focus);
-        } else if let Some(restore_target) = window.focus_lost_restore_target(cx) {
-            window.focus(&restore_target);
-        }
+        self.focus_guard.restore_focus(window, cx);
     }
 
     fn handle_cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -143,18 +136,12 @@ impl Render for AlertDialog {
         let action_text = self.action_text.clone();
         let destructive = self.destructive;
 
-        if !self.focused {
-            self.previous_focus = window.focused(cx);
-            window.focus(&self.focus_handle);
-            self.focused = true;
-            self._focus_lost_subscription = Some(cx.on_focus_lost(window, |this, window, cx| {
-                if this.focused {
-                    this.focused = false;
-                    this.restore_previous_focus(window, cx);
-                    cx.notify();
-                }
-            }));
-        }
+        self.focus_guard.capture_focus(
+            window,
+            cx,
+            &self.focus_handle,
+            |alert: &mut AlertDialog| &mut alert.focus_guard,
+        );
 
         div()
             .track_focus(&self.focus_handle)
@@ -165,7 +152,7 @@ impl Render for AlertDialog {
             .flex()
             .items_center()
             .justify_center()
-            .bg(hsla(0.0, 0.0, 0.0, 0.5))
+            .child(backdrop(hsla(0.0, 0.0, 0.0, 0.5)))
             .child(
                 div()
                     .w(px(500.0))

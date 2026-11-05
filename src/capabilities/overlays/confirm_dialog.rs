@@ -1,15 +1,17 @@
-//! Dialog component - Modal dialog with backdrop and customizable content.
+//! Dialog frame - a modal dialog layout shell with backdrop and
+//! customizable slots.
 //!
-//! Note: this [`Dialog`] is a simple `RenderOnce` element, distinct from
-//! [`super::dialog::Dialog`], which is a stateful entity with focus
-//! management, escape / backdrop dismissal and an `on_close` callback. Use
-//! `super::dialog::Dialog` for interactive modals.
+//! Note: [`DialogFrame`] (formerly `Dialog`) is a simple `RenderOnce`
+//! element, distinct from [`super::dialog::Dialog`], which is a stateful
+//! entity with focus management, escape / backdrop dismissal and an
+//! `on_close` callback. Use `super::dialog::Dialog` for interactive modals;
+//! use `DialogFrame` when the host manages interaction itself.
 
 use crate::capabilities::foundation::theme::use_theme;
 use crate::capabilities::layout::VStack;
 use gpui::{prelude::FluentBuilder as _, *};
 #[derive(IntoElement)]
-pub struct Dialog {
+pub struct DialogFrame {
     width: Option<Pixels>,
     max_width: Option<Length>,
     header: Option<AnyElement>,
@@ -19,13 +21,13 @@ pub struct Dialog {
     style: StyleRefinement,
 }
 
-impl Default for Dialog {
+impl Default for DialogFrame {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Dialog {
+impl DialogFrame {
     pub fn new() -> Self {
         Self {
             width: None,
@@ -72,13 +74,20 @@ impl Dialog {
     }
 }
 
-impl Styled for Dialog {
+/// Deprecated alias for [`DialogFrame`]; the interactive dialog is
+/// [`super::dialog::Dialog`].
+#[deprecated(
+    note = "renamed to DialogFrame; the dialog.rs Dialog is the interactive one; alias removed in 0.10"
+)]
+pub type Dialog = DialogFrame;
+
+impl Styled for DialogFrame {
     fn style(&mut self) -> &mut StyleRefinement {
         &mut self.style
     }
 }
 
-impl RenderOnce for Dialog {
+impl RenderOnce for DialogFrame {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = use_theme(cx);
         let backdrop_click_handler = self.on_backdrop_click;
@@ -93,17 +102,14 @@ impl RenderOnce for Dialog {
             .items_center()
             .justify_center()
             .child(
-                div()
-                    .absolute()
-                    .top_0()
-                    .left_0()
-                    .size_full()
-                    .bg(gpui::black().opacity(0.5))
-                    .when_some(backdrop_click_handler, |this, handler| {
-                        this.on_mouse_down(MouseButton::Left, move |_event, window, cx| {
-                            (handler)(window, cx);
-                        })
-                    }),
+                crate::capabilities::overlays::overlay_shell::dismissible_backdrop(
+                    gpui::black().opacity(0.5),
+                    move |_, window, cx| {
+                        if let Some(handler) = backdrop_click_handler.as_ref() {
+                            handler(window, cx);
+                        }
+                    },
+                ),
             )
             .child(
                 VStack::new()
