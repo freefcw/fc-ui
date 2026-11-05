@@ -170,7 +170,7 @@ impl Default for CalendarLocale {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DateValue {
     pub year: i32,
     pub month: u32,
@@ -261,6 +261,38 @@ pub(crate) fn is_weekend(date: &DateValue) -> bool {
     // Day 0 (1970-01-01) was a Thursday; shift so 0 == Sunday.
     let weekday = (days_from_civil(date.year as i64, date.month, date.day) + 4).rem_euclid(7);
     weekday == 0 || weekday == 6
+}
+
+/// Height of one calendar day cell (and its empty placeholder).
+const DAY_CELL_HEIGHT: Pixels = px(36.0);
+
+/// Week rows (Sunday-first) for a month with `days_in_month` days whose first
+/// day falls on `first_day_of_week`: `Some(day)` cells plus `None` padding
+/// before/after the month.
+fn month_weeks(days_in_month: u32, first_day_of_week: u32) -> Vec<Vec<Option<u32>>> {
+    let mut weeks = Vec::new();
+    let mut current_day = 1;
+    let mut day_of_week = 0;
+
+    while current_day <= days_in_month {
+        let mut week_days = Vec::new();
+
+        for _ in 0..7 {
+            if (day_of_week < first_day_of_week && current_day == 1) || current_day > days_in_month
+            {
+                week_days.push(None);
+            } else {
+                week_days.push(Some(current_day));
+                current_day += 1;
+            }
+            day_of_week += 1;
+        }
+
+        day_of_week = 0;
+        weeks.push(week_days);
+    }
+
+    weeks
 }
 
 #[derive(IntoElement)]
@@ -476,28 +508,7 @@ impl RenderOnce for Calendar {
                     })),
             )
             .child(div().flex().flex_col().gap(px(4.0)).children({
-                let mut weeks = Vec::new();
-                let mut current_day = 1;
-                let mut day_of_week = 0;
-
-                while current_day <= days_in_month {
-                    let mut week_days = Vec::new();
-
-                    for _ in 0..7 {
-                        if (day_of_week < first_day_of_week && current_day == 1)
-                            || current_day > days_in_month
-                        {
-                            week_days.push(None);
-                        } else {
-                            week_days.push(Some(current_day));
-                            current_day += 1;
-                        }
-                        day_of_week += 1;
-                    }
-
-                    day_of_week = 0;
-                    weeks.push(week_days);
-                }
+                let weeks = month_weeks(days_in_month, first_day_of_week);
 
                 let on_date_select_for_weeks = on_date_select_handler.clone();
                 let is_date_disabled_for_weeks = is_date_disabled_fn.clone();
@@ -554,7 +565,7 @@ impl RenderOnce for Calendar {
                                         .flex()
                                         .items_center()
                                         .justify_center()
-                                        .h(px(36.0))
+                                        .h(DAY_CELL_HEIGHT)
                                         .text_size(px(14.0))
                                         .rounded(theme.tokens.radius_sm)
                                         // Disabled state styling
@@ -616,7 +627,7 @@ impl RenderOnce for Calendar {
                                         .child(day.to_string())
                                         .into_any_element()
                                 }
-                                None => div().flex_1().h(px(36.0)).into_any_element(),
+                                None => div().flex_1().h(DAY_CELL_HEIGHT).into_any_element(),
                             }
                         }))
                 })

@@ -1,4 +1,14 @@
 //! DatePicker component - Date selection with calendar popup and keyboard navigation.
+//!
+//! # Breaking change (controls dedup pass)
+//!
+//! `DatePickerState`'s public fields (`selected_date`, `selected_range`,
+//! `range_start_temp`, `selection_mode`, `is_open`, `viewing_month`) are now
+//! private; read them through the new getters (`selected_date()`,
+//! `selected_range()`, `range_start_temp()`, `selection_mode()`, `is_open()`,
+//! `viewing_month()`). The mutators now take `&mut Context<Self>` (still
+//! callable from any `entity.update` closure) and notify observers
+//! themselves.
 
 use gpui::{prelude::FluentBuilder as _, *};
 use std::rc::Rc;
@@ -59,14 +69,30 @@ pub enum DateSelectionMode {
     Range,
 }
 
+/// Whether `date` is unselectable given the picker's min/max window, the
+/// explicit disabled list and the weekend rule. Shared by the calendar's
+/// `is_date_disabled` predicate and the date-select handler.
+fn date_is_disabled(
+    date: &DateValue,
+    min_date: Option<DateValue>,
+    max_date: Option<DateValue>,
+    disabled_dates: &[DateValue],
+    disable_weekends: bool,
+) -> bool {
+    let is_before_min = min_date.is_some_and(|min| *date < min);
+    let is_after_max = max_date.is_some_and(|max| *date > max);
+    let is_in_disabled_list = disabled_dates.iter().any(|d| d == date);
+    is_before_min || is_after_max || is_in_disabled_list || (disable_weekends && is_weekend(date))
+}
+
 /// State for DatePicker component
 pub struct DatePickerState {
-    pub selected_date: Option<DateValue>,
-    pub selected_range: Option<DateRange>,
-    pub range_start_temp: Option<DateValue>, // Temporary storage for first click in range mode
-    pub selection_mode: DateSelectionMode,
-    pub is_open: bool,
-    pub viewing_month: DateValue,
+    selected_date: Option<DateValue>,
+    selected_range: Option<DateRange>,
+    range_start_temp: Option<DateValue>, // Temporary storage for first click in range mode
+    selection_mode: DateSelectionMode,
+    is_open: bool,
+    viewing_month: DateValue,
     focus_handle: FocusHandle,
 }
 
@@ -109,7 +135,37 @@ impl DatePickerState {
         }
     }
 
-    pub fn select_date(&mut self, date: DateValue, _cx: &mut App) {
+    /// The currently selected date (single mode).
+    pub fn selected_date(&self) -> Option<DateValue> {
+        self.selected_date
+    }
+
+    /// The completed selection (range mode).
+    pub fn selected_range(&self) -> Option<DateRange> {
+        self.selected_range
+    }
+
+    /// The tentative first click while a range selection is in progress.
+    pub fn range_start_temp(&self) -> Option<DateValue> {
+        self.range_start_temp
+    }
+
+    /// The active selection mode (single date or range).
+    pub fn selection_mode(&self) -> DateSelectionMode {
+        self.selection_mode
+    }
+
+    /// Whether the picker popup is open.
+    pub fn is_open(&self) -> bool {
+        self.is_open
+    }
+
+    /// The month currently shown in the calendar view.
+    pub fn viewing_month(&self) -> DateValue {
+        self.viewing_month
+    }
+
+    pub fn select_date(&mut self, date: DateValue, cx: &mut Context<Self>) {
         match self.selection_mode {
             DateSelectionMode::Single => {
                 self.selected_date = Some(date);
@@ -117,13 +173,8 @@ impl DatePickerState {
             }
             DateSelectionMode::Range => {
                 if let Some(start) = self.range_start_temp {
-                    // Second click - complete the range
-                    let (range_start, range_end) = if date.year < start.year
-                        || (date.year == start.year && date.month < start.month)
-                        || (date.year == start.year
-                            && date.month == start.month
-                            && date.day < start.day)
-                    {
+                    // Second click - complete the range (chronological order)
+                    let (range_start, range_end) = if date < start {
                         (date, start)
                     } else {
                         (start, date)
@@ -141,40 +192,48 @@ impl DatePickerState {
                 self.viewing_month = date;
             }
         }
+        cx.notify();
     }
 
-    pub fn set_selection_mode(&mut self, mode: DateSelectionMode, _cx: &mut App) {
+    pub fn set_selection_mode(&mut self, mode: DateSelectionMode, cx: &mut Context<Self>) {
         self.selection_mode = mode;
         // Clear selections when changing mode
         self.selected_date = None;
         self.selected_range = None;
         self.range_start_temp = None;
+        cx.notify();
     }
 
-    pub fn clear_date(&mut self, _cx: &mut App) {
+    pub fn clear_date(&mut self, cx: &mut Context<Self>) {
         self.selected_date = None;
         self.selected_range = None;
         self.range_start_temp = None;
+        cx.notify();
     }
 
-    pub fn set_viewing_month(&mut self, date: DateValue, _cx: &mut App) {
+    pub fn set_viewing_month(&mut self, date: DateValue, cx: &mut Context<Self>) {
         self.viewing_month = date;
+        cx.notify();
     }
 
-    pub fn toggle_open(&mut self, _cx: &mut App) {
+    pub fn toggle_open(&mut self, cx: &mut Context<Self>) {
         self.is_open = !self.is_open;
+        cx.notify();
     }
 
-    pub fn close(&mut self, _cx: &mut App) {
+    pub fn close(&mut self, cx: &mut Context<Self>) {
         self.is_open = false;
+        cx.notify();
     }
 
-    pub fn open(&mut self, _cx: &mut App) {
+    pub fn open(&mut self, cx: &mut Context<Self>) {
         self.is_open = true;
+        cx.notify();
     }
 
-    pub fn jump_to_today(&mut self, _cx: &mut App) {
+    pub fn jump_to_today(&mut self, cx: &mut Context<Self>) {
         self.viewing_month = today();
+        cx.notify();
     }
 }
 
@@ -491,70 +550,26 @@ impl RenderOnce for DatePicker {
                                             let max = max_date_clone;
                                             let disabled = disabled_dates_clone.clone();
                                             move |date: &DateValue| {
-                                                let is_before_min = if let Some(min) = min {
-                                                    date.year < min.year
-                                                        || (date.year == min.year
-                                                            && date.month < min.month)
-                                                        || (date.year == min.year
-                                                            && date.month == min.month
-                                                            && date.day < min.day)
-                                                } else {
-                                                    false
-                                                };
-
-                                                let is_after_max = if let Some(max) = max {
-                                                    date.year > max.year
-                                                        || (date.year == max.year
-                                                            && date.month > max.month)
-                                                        || (date.year == max.year
-                                                            && date.month == max.month
-                                                            && date.day > max.day)
-                                                } else {
-                                                    false
-                                                };
-
-                                                let is_in_disabled_list =
-                                                    disabled.iter().any(|d| d == date);
-                                                is_before_min
-                                                    || is_after_max
-                                                    || is_in_disabled_list
-                                                    || (disable_weekends && is_weekend(date))
+                                                date_is_disabled(
+                                                    date,
+                                                    min,
+                                                    max,
+                                                    &disabled,
+                                                    disable_weekends,
+                                                )
                                             }
                                         })
                                         .on_date_select({
                                             let popover_for_dismiss = popover_entity.clone();
                                             let on_select_for_date = on_select.clone();
                                             move |date, window, app_cx| {
-                                                let is_before_min =
-                                                    if let Some(min) = min_date_clone {
-                                                        date.year < min.year
-                                                            || (date.year == min.year
-                                                                && date.month < min.month)
-                                                            || (date.year == min.year
-                                                                && date.month == min.month
-                                                                && date.day < min.day)
-                                                    } else {
-                                                        false
-                                                    };
-
-                                                let is_after_max = if let Some(max) = max_date_clone
-                                                {
-                                                    date.year > max.year
-                                                        || (date.year == max.year
-                                                            && date.month > max.month)
-                                                        || (date.year == max.year
-                                                            && date.month == max.month
-                                                            && date.day > max.day)
-                                                } else {
-                                                    false
-                                                };
-
-                                                let is_in_disabled_list =
-                                                    disabled_dates_clone.iter().any(|d| d == date);
-                                                let is_disabled = is_before_min
-                                                    || is_after_max
-                                                    || is_in_disabled_list
-                                                    || (disable_weekends && is_weekend(date));
+                                                let is_disabled = date_is_disabled(
+                                                    date,
+                                                    min_date_clone,
+                                                    max_date_clone,
+                                                    &disabled_dates_clone,
+                                                    disable_weekends,
+                                                );
 
                                                 if !is_disabled {
                                                     // Check if we should close (different logic for single vs range mode)
@@ -567,13 +582,13 @@ impl RenderOnce for DatePicker {
                                                             .range_start_temp
                                                             .is_some(); // In range mode, close on second click
 
-                                                    // Update the date picker state
+                                                    // Update the date picker state (the mutators
+                                                    // notify observers)
                                                     state_for_select.update(app_cx, |state, cx| {
                                                         state.select_date(*date, cx);
                                                         if should_close {
                                                             state.close(cx);
                                                         }
-                                                        cx.notify(); // Notify to trigger re-render
                                                     });
 
                                                     // Call the on_select callback (only when selection is complete)
@@ -598,7 +613,6 @@ impl RenderOnce for DatePicker {
                                         .on_month_change(move |date, _window, app_cx| {
                                             state_for_month.update(app_cx, |state, cx| {
                                                 state.set_viewing_month(*date, cx);
-                                                cx.notify(); // Notify to trigger re-render
                                             });
                                         })
                                 })
@@ -621,7 +635,6 @@ impl RenderOnce for DatePicker {
                                                         state_today.update(app_cx, |state, cx| {
                                                             state.select_date(today, cx);
                                                             state.close(cx);
-                                                            cx.notify(); // Notify to trigger re-render
                                                         });
 
                                                         // Call the on_select callback

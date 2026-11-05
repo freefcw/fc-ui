@@ -371,7 +371,7 @@ impl Render for DatePickerDemoApp {
                                                 .on_select(cx.listener(|this, _date, _window, cx| {
                                                     // Read the range from state
                                                     let state = this.range_picker_state.read(cx);
-                                                    if let Some(range) = state.selected_range {
+                                                    if let Some(range) = state.selected_range() {
                                                         let start_str = DateFormat::IsoDate.format(&range.start, &CalendarLocale::english());
                                                         let end_str = DateFormat::IsoDate.format(&range.end, &CalendarLocale::english());
                                                         this.selected_range = Some(format!("{} to {}", start_str, end_str));
