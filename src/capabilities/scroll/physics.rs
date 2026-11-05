@@ -1,3 +1,6 @@
+//! Scroll momentum and overscroll physics used by scroll-backed containers
+//! and virtual lists.
+
 #[derive(Clone, Debug)]
 pub struct ScrollPhysics {
     velocity: f32,

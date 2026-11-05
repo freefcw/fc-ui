@@ -1,1 +1,1 @@
-pub use crate::capabilities::motion::scroll_physics::*;
+pub use crate::capabilities::scroll::physics::*;

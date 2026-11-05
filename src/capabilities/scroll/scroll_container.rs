@@ -2,7 +2,7 @@
 
 use crate::capabilities::layout::{Align, VStack};
 use crate::capabilities::motion::animations::{easings, lerp_f32};
-use crate::capabilities::motion::scroll_physics::ScrollPhysics;
+use crate::capabilities::scroll::physics::ScrollPhysics;
 use crate::capabilities::scroll::scrollbar::{Scrollbar, ScrollbarAxis, ScrollbarState};
 use gpui::*;
 use std::cell::RefCell;
@@ -12,6 +12,31 @@ use std::sync::atomic::AtomicUsize;
 
 static SCROLL_CONTAINER_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
+/// Attach the physics-driven wheel handler to a scrollable element.
+///
+/// With smooth scrolling disabled, GPUI's built-in wheel handling applies
+/// the delta directly, skipping the physics simulation; with no physics state
+/// configured there is nothing to drive.
+fn apply_scroll_behavior(
+    mut scrollable: Stateful<Div>,
+    smooth_scroll: bool,
+    physics_state: Option<&PhysicsScrollState>,
+    handle: &ScrollHandle,
+    direction: ScrollDirection,
+) -> Stateful<Div> {
+    if smooth_scroll {
+        if let Some(physics) = physics_state {
+            let physics_c = physics.clone();
+            let handle_c = handle.clone();
+            let dir = direction;
+            scrollable = scrollable.on_scroll_wheel(move |event, window, _cx| {
+                physics_c.handle_scroll_event(&handle_c, dir, event, window);
+            });
+        }
+    }
+    scrollable
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScrollDirection {
     Vertical,
@@ -20,6 +45,17 @@ pub enum ScrollDirection {
 }
 
 const PIXELS_PER_LINE: f32 = 20.0;
+
+/// Frame delta the physics simulation advances per `on_next_frame` tick.
+/// GPUI's frame callback does not report real elapsed time, so `tick` is
+/// driven at this nominal 60 Hz dt; `ScrollPhysics::tick` normalizes its
+/// decay by `dt * 60.0` to stay frame-rate independent.
+const PHYSICS_FRAME_DT: f32 = 1.0 / 60.0;
+
+/// Scroll-to-target animation speed, in progress fraction per second:
+/// `1 / 3.33 ≈ 0.3 s` per animation (≈18 frames at 60 Hz), matching the
+/// original hardcoded `progress + dt * 3.33`.
+const SCROLL_ANIM_SPEED: f32 = 3.33;
 
 #[derive(Clone)]
 pub struct PhysicsScrollState {
@@ -202,11 +238,11 @@ fn drive_physics_frame(
             return;
         }
 
-        let dt = 1.0 / 60.0;
+        let dt = PHYSICS_FRAME_DT;
         let active;
 
         let target_result = if let Some(ref mut target) = inner.scroll_target {
-            target.progress = (target.progress + dt * 3.33).min(1.0);
+            target.progress = (target.progress + dt * SCROLL_ANIM_SPEED).min(1.0);
             let t = easings::ease_out_cubic(target.progress);
             let y_pos = if target.animate_y {
                 Some(lerp_f32(target.start_y, target.end_y, t))
@@ -457,18 +493,13 @@ impl IntoElement for ScrollContainer {
                 ScrollDirection::Both => scrollable.overflow_scroll(),
             };
 
-            // With smooth scrolling disabled, GPUI's built-in wheel handling
-            // applies the delta directly, skipping the physics simulation.
-            if self.smooth_scroll {
-                if let Some(ref physics) = self.physics_state {
-                    let physics_c = physics.clone();
-                    let handle_c = handle.clone();
-                    let dir = self.direction;
-                    scrollable = scrollable.on_scroll_wheel(move |event, window, _cx| {
-                        physics_c.handle_scroll_event(&handle_c, dir, event, window);
-                    });
-                }
-            }
+            scrollable = apply_scroll_behavior(
+                scrollable,
+                self.smooth_scroll,
+                self.physics_state.as_ref(),
+                &handle,
+                self.direction,
+            );
 
             scrollable
         } else {
@@ -495,18 +526,13 @@ impl IntoElement for ScrollContainer {
 
             scrollable = scrollable.relative().size_full();
 
-            // With smooth scrolling disabled, GPUI's built-in wheel handling
-            // applies the delta directly, skipping the physics simulation.
-            if self.smooth_scroll {
-                if let Some(ref physics) = self.physics_state {
-                    let physics_c = physics.clone();
-                    let handle_c = handle.clone();
-                    let dir = self.direction;
-                    scrollable = scrollable.on_scroll_wheel(move |event, window, _cx| {
-                        physics_c.handle_scroll_event(&handle_c, dir, event, window);
-                    });
-                }
-            }
+            scrollable = apply_scroll_behavior(
+                scrollable,
+                self.smooth_scroll,
+                self.physics_state.as_ref(),
+                &handle,
+                self.direction,
+            );
 
             let wrapper = div()
                 .id(ElementId::Name(format!("{}-wrapper", id_to_use).into()))

@@ -1,4 +1,5 @@
 pub mod infinite_scroll;
+pub mod physics;
 pub mod resizable;
 pub mod scroll_container;
 pub mod scrollable;
