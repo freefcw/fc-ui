@@ -18,6 +18,7 @@ use crate::capabilities::{
         video_player::{self, VideoPlayerTogglePlay},
     },
     navigation::{
+        command_palette::{self, CloseCommand},
         sidebar::{self, ToggleSidebar},
         tabs::{self, TabNext},
     },
@@ -61,6 +62,7 @@ fn assert_representative_bindings(cx: &App) {
         ("sidebar", &ToggleSidebar, 0),
         ("dropdown", &CloseDropdown, 1),
         ("tabs", &TabNext, 1),
+        ("command-palette", &CloseCommand, 1),
         ("popover", &ClosePopover, 1),
         ("dialog", &DialogCancel, 1),
     ];
@@ -87,6 +89,7 @@ fn init_individually(cx: &mut App) {
     editor::init(cx);
     sidebar::init_sidebar(cx);
     tabs::init_tabs(cx);
+    command_palette::init_command_palette(cx);
     popover::init(cx);
     dialog::init_dialog(cx);
     sheet::init_sheet(cx);

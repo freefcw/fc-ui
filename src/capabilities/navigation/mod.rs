@@ -22,4 +22,8 @@ pub(crate) fn init(cx: &mut gpui::App) {
     menu::init_menu_bar(cx);
     sidebar::init_sidebar(cx);
     tabs::init_tabs(cx);
+    // Command palette bindings are appended last: they are scoped to the
+    // palette's own "CommandPalette" key context and never shadow the
+    // context-scoped bindings installed above.
+    command_palette::init_command_palette(cx);
 }

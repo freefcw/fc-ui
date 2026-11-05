@@ -1,6 +1,6 @@
 //! Command palette component with fuzzy search.
 
-use crate::capabilities::controls::input::Input;
+use crate::capabilities::controls::input::{Escape as InputEscape, Input};
 use crate::capabilities::controls::input_state::InputState;
 use crate::capabilities::foundation::theme::use_theme;
 use crate::capabilities::primitives::icon::Icon;
@@ -118,7 +118,6 @@ pub struct CommandPaletteState {
     search_query: String,
     filtered_commands: Vec<Command>,
     selected_index: usize,
-    recent_commands: Vec<SharedString>,
 }
 
 impl CommandPaletteState {
@@ -130,7 +129,6 @@ impl CommandPaletteState {
             search_query: String::new(),
             filtered_commands,
             selected_index: 0,
-            recent_commands: Vec::new(),
         }
     }
 
@@ -170,10 +168,6 @@ impl CommandPaletteState {
         if let Some(command) = self.filtered_commands.get(self.selected_index) {
             if let Some(handler) = &command.on_select {
                 handler(window, cx);
-                self.recent_commands.push(command.id.clone());
-                if self.recent_commands.len() > 10 {
-                    self.recent_commands.remove(0);
-                }
                 return true;
             }
         }
@@ -198,23 +192,45 @@ pub struct CommandPalette {
 }
 
 impl CommandPalette {
-    pub fn new(_window: &mut Window, cx: &mut Context<Self>, commands: Vec<Command>) -> Self {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>, commands: Vec<Command>) -> Self {
         let state = cx.new(|_| CommandPaletteState::new(commands));
         let search_input =
             cx.new(|cx| InputState::new(cx).placeholder("Type a command or search..."));
         let focus_handle = cx.focus_handle();
 
-        cx.subscribe(&search_input, |this, _input, event, cx| {
+        cx.subscribe_in(&search_input, window, |this, _input, event, window, cx| {
             use crate::capabilities::controls::input_state::InputEvent;
-            if matches!(event, InputEvent::Change) {
-                let query = this.search_input.read(cx).content().to_string();
-                this.state.update(cx, |state, _cx| {
-                    state.update_search(query);
-                });
-                cx.notify();
+            match event {
+                InputEvent::Change => {
+                    let query = this.search_input.read(cx).content().to_string();
+                    this.state.update(cx, |state, _cx| {
+                        state.update_search(query);
+                    });
+                    cx.notify();
+                }
+                // The search input holds the deepest `enter` binding and stops
+                // the action from bubbling (see `InputState::enter`), so the
+                // palette follows the input convention and reacts to the
+                // emitted event instead of the `SelectCommand` action.
+                InputEvent::Enter => {
+                    let executed = this
+                        .state
+                        .update(cx, |state, cx| state.execute_selected(window, cx));
+                    if executed {
+                        if let Some(handler) = &this.on_close {
+                            handler(window, cx);
+                        }
+                    }
+                }
+                _ => {}
             }
         })
         .detach();
+
+        // A palette is opened to be used: focus the query field so typing
+        // works immediately and the palette's "CommandPalette" key context
+        // is active for the scoped navigation bindings.
+        window.focus(&search_input.read(cx).focus_handle(cx));
 
         Self {
             state,
@@ -327,6 +343,14 @@ impl Render for CommandPalette {
                             .py(px(12.0))
                             .border_b_1()
                             .border_color(theme.tokens.border)
+                            // The focused input dispatches its own Escape action.
+                            // Route it here before its default blur handler runs.
+                            .capture_action(cx.listener(|this, _: &InputEscape, window, cx| {
+                                if let Some(handler) = &this.on_close {
+                                    handler(window, cx);
+                                }
+                                cx.stop_propagation();
+                            }))
                             .child(
                                 Input::new(&self.search_input)
                                     .placeholder("Type a command or search..."),
@@ -451,4 +475,26 @@ fn render_command_item(command: Command, selected: bool, cx: &App) -> impl IntoE
                 }))
                 .into_any_element()
         }))
+}
+
+/// Initialize command palette key bindings.
+///
+/// The bindings are scoped to the `"CommandPalette"` key context that the
+/// palette root installs via `key_context`, so up/down/enter/escape only
+/// dispatch while focus is inside the palette.
+///
+/// While the search input is focused it owns the leaf-level `enter` and
+/// `escape` bindings (see `InputState`), so selection from the query field
+/// goes through the `InputEvent::Enter` subscription, and its Escape action
+/// is captured by the search field container to close the palette.
+pub fn init_command_palette(cx: &mut App) {
+    if !crate::capabilities::foundation::initialization::begin(cx, "command-palette") {
+        return;
+    }
+    cx.bind_keys([
+        KeyBinding::new("up", NavigateUp, Some("CommandPalette")),
+        KeyBinding::new("down", NavigateDown, Some("CommandPalette")),
+        KeyBinding::new("enter", SelectCommand, Some("CommandPalette")),
+        KeyBinding::new("escape", CloseCommand, Some("CommandPalette")),
+    ]);
 }
