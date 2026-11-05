@@ -1,4 +1,6 @@
 use crate::capabilities::foundation::theme::use_theme;
+use crate::capabilities::media::format_time;
+use crate::capabilities::media::playback::{self, PlaybackCore, SliderDrag};
 use gpui::{prelude::FluentBuilder as _, *};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -12,6 +14,7 @@ pub enum VideoPlaybackState {
     Stopped,
     Playing,
     Paused,
+    #[deprecated(note = "never constructed; removal in 0.10")]
     Buffering,
 }
 
@@ -117,12 +120,7 @@ impl VideoPlaybackSpeed {
 
 pub struct VideoPlayerState {
     playback_state: VideoPlaybackState,
-    current_time: f64,
-    duration: f64,
-    volume: f32,
-    is_muted: bool,
-    previous_volume: f32,
-    playback_speed: VideoPlaybackSpeed,
+    core: PlaybackCore<VideoPlaybackSpeed>,
     is_fullscreen: bool,
     show_controls: bool,
     last_interaction: Instant,
@@ -143,12 +141,7 @@ impl VideoPlayerState {
     pub fn new(cx: &mut Context<Self>) -> Self {
         Self {
             playback_state: VideoPlaybackState::Stopped,
-            current_time: 0.0,
-            duration: 0.0,
-            volume: 1.0,
-            is_muted: false,
-            previous_volume: 1.0,
-            playback_speed: VideoPlaybackSpeed::Normal,
+            core: PlaybackCore::new(1.0, VideoPlaybackSpeed::Normal),
             is_fullscreen: false,
             show_controls: true,
             last_interaction: Instant::now(),
@@ -212,7 +205,7 @@ impl VideoPlayerState {
 
     pub fn stop(&mut self, cx: &mut Context<Self>) {
         self.playback_state = VideoPlaybackState::Stopped;
-        self.current_time = 0.0;
+        self.core.set_current_time(0.0);
         self.show_controls = true;
         self.cancel_auto_hide();
         cx.notify();
@@ -222,101 +215,84 @@ impl VideoPlayerState {
         match self.playback_state {
             VideoPlaybackState::Playing => self.pause(cx),
             VideoPlaybackState::Paused | VideoPlaybackState::Stopped => self.play(cx),
+            #[allow(deprecated)]
             VideoPlaybackState::Buffering => {}
         }
     }
 
     pub fn current_time(&self) -> f64 {
-        self.current_time
+        self.core.current_time()
     }
 
     pub fn set_current_time(&mut self, time: f64, cx: &mut Context<Self>) {
-        self.current_time = time.clamp(0.0, self.duration);
+        self.core.set_current_time(time);
         cx.notify();
     }
 
     pub fn duration(&self) -> f64 {
-        self.duration
+        self.core.duration()
     }
 
     pub fn set_duration(&mut self, duration: f64, cx: &mut Context<Self>) {
-        self.duration = duration.max(0.0);
+        self.core.set_duration(duration);
         cx.notify();
     }
 
     pub fn progress(&self) -> f64 {
-        if self.duration <= 0.0 {
-            return 0.0;
-        }
-        (self.current_time / self.duration).clamp(0.0, 1.0)
+        self.core.progress()
     }
 
     pub fn seek(&mut self, position: f64, cx: &mut Context<Self>) {
         let clamped = position.clamp(0.0, 1.0);
-        self.current_time = clamped * self.duration;
+        self.core.set_current_time(clamped * self.core.duration());
         self.touch_controls(cx);
         cx.notify();
     }
 
     pub fn seek_relative(&mut self, delta: f64, cx: &mut Context<Self>) {
-        let new_time = (self.current_time + delta).clamp(0.0, self.duration);
-        self.current_time = new_time;
+        self.core.set_current_time(self.core.current_time() + delta);
         self.touch_controls(cx);
         cx.notify();
     }
 
     pub fn volume(&self) -> f32 {
-        self.volume
+        self.core.volume()
     }
 
     pub fn effective_volume(&self) -> f32 {
-        if self.is_muted {
-            0.0
-        } else {
-            self.volume
-        }
+        self.core.effective_volume()
     }
 
     pub fn set_volume(&mut self, volume: f32, cx: &mut Context<Self>) {
-        self.volume = volume.clamp(0.0, 1.0);
-        if self.volume > 0.0 {
-            self.is_muted = false;
-        }
+        self.core.set_volume(volume);
         self.touch_controls(cx);
         cx.notify();
     }
 
     pub fn is_muted(&self) -> bool {
-        self.is_muted
+        self.core.muted()
     }
 
     pub fn toggle_mute(&mut self, cx: &mut Context<Self>) {
-        if self.is_muted {
-            self.is_muted = false;
-            if self.volume == 0.0 {
-                self.volume = self.previous_volume;
-            }
-        } else {
-            self.previous_volume = self.volume;
-            self.is_muted = true;
-        }
+        self.core.toggle_mute_restoring_volume();
         self.touch_controls(cx);
         cx.notify();
     }
 
     pub fn playback_speed(&self) -> VideoPlaybackSpeed {
-        self.playback_speed
+        *self.core.speed()
     }
 
     pub fn set_playback_speed(&mut self, speed: VideoPlaybackSpeed, cx: &mut Context<Self>) {
-        self.playback_speed = speed;
+        self.core.set_speed(speed);
         self.show_speed_menu = false;
         self.touch_controls(cx);
         cx.notify();
     }
 
     pub fn cycle_playback_speed(&mut self, cx: &mut Context<Self>) {
-        self.playback_speed = self.playback_speed.next();
+        let next = self.core.speed().next();
+        self.core.set_speed(next);
         self.touch_controls(cx);
         cx.notify();
     }
@@ -382,25 +358,16 @@ impl VideoPlayerState {
     }
 
     fn update_seek_from_position(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
-        let track_width = self.progress_bounds.size.width;
-        if track_width <= px(0.0) {
+        let Some(percentage) = playback::track_fraction(position, self.progress_bounds) else {
             return;
-        }
-
-        let relative_x = (position.x - self.progress_bounds.left()).clamp(px(0.0), track_width);
-        let percentage = (relative_x / track_width).clamp(0.0, 1.0);
-        self.seek(percentage as f64, cx);
+        };
+        self.seek(f64::from(percentage), cx);
     }
 
     fn update_volume_from_position(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
-        let track_width = self.volume_bounds.size.width;
-        if track_width <= px(0.0) {
-            return;
+        if let Some(volume) = playback::track_fraction(position, self.volume_bounds) {
+            self.set_volume(volume, cx);
         }
-
-        let relative_x = (position.x - self.volume_bounds.left()).clamp(px(0.0), track_width);
-        let percentage = (relative_x / track_width).clamp(0.0, 1.0);
-        self.set_volume(percentage as f32, cx);
     }
 }
 
@@ -444,7 +411,19 @@ pub fn init_video_player(cx: &mut App) {
     ]);
 }
 
-use crate::capabilities::media::format_time;
+/// State-derived values the video controls render from, snapshotted once per
+/// frame so the split render methods share a single state read.
+struct VideoControlSnapshot {
+    is_playing: bool,
+    current_time: f64,
+    duration: f64,
+    progress: f64,
+    volume: f32,
+    is_muted: bool,
+    playback_speed: VideoPlaybackSpeed,
+    is_fullscreen: bool,
+    show_speed_menu: bool,
+}
 
 #[derive(IntoElement)]
 pub struct VideoPlayer {
@@ -553,41 +532,29 @@ impl RenderOnce for VideoPlayer {
         let focus_handle = state.focus_handle(cx);
 
         let playback_state = state.playback_state();
-        let is_playing = state.is_playing();
-        let current_time = state.current_time();
-        let duration = state.duration();
-        let progress = state.progress();
-        let volume = state.volume();
-        let is_muted = state.is_muted();
-        let playback_speed = state.playback_speed();
-        let is_fullscreen = state.is_fullscreen();
+        let current_frame = state.current_frame().cloned();
         let show_controls = state.show_controls();
-        let show_speed_menu = state.show_speed_menu;
+        let snapshot = VideoControlSnapshot {
+            is_playing: state.is_playing(),
+            current_time: state.current_time(),
+            duration: state.duration(),
+            progress: state.progress(),
+            volume: state.volume(),
+            is_muted: state.is_muted(),
+            playback_speed: state.playback_speed(),
+            is_fullscreen: state.is_fullscreen(),
+            show_speed_menu: state.show_speed_menu,
+        };
 
         let (width, height) = self.size.dimensions();
-        let controls_height = self.size.controls_height();
-        let icon_size = self.size.icon_size();
 
         let show_poster = self.show_poster
             && self.poster.is_some()
             && playback_state == VideoPlaybackState::Stopped;
 
-        let current_frame = state.current_frame().cloned();
         let overlay_only = self.overlay_only;
+        let user_style = self.style.clone();
 
-        let user_style = self.style;
-
-        let volume_icon = if is_muted || volume == 0.0 {
-            "volume-x"
-        } else if volume < 0.5 {
-            "volume-1"
-        } else {
-            "volume-2"
-        };
-
-        let play_icon = if is_playing { "pause" } else { "play" };
-
-        let state_entity = self.state.clone();
         let state_for_actions = self.state.clone();
         let state_for_mouse = self.state.clone();
 
@@ -596,7 +563,6 @@ impl RenderOnce for VideoPlayer {
         let on_seek = self.on_seek.clone();
         let on_volume_change = self.on_volume_change.clone();
         let on_fullscreen = self.on_fullscreen.clone();
-        let on_playback_speed_change = self.on_playback_speed_change.clone();
 
         div()
             .id("video-player")
@@ -697,571 +663,562 @@ impl RenderOnce for VideoPlayer {
                     state.touch_controls(cx);
                 })
             })
-            .when(show_poster, {
-                let poster = self.poster.clone();
-                move |this| {
-                    this.child(
-                        div()
-                            .absolute()
-                            .inset_0()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .when_some(poster, |this, poster_src| {
-                                this.child(
-                                    img(poster_src)
-                                        .size_full()
-                                        .object_fit(ObjectFit::Cover)
-                                )
-                            })
-                    )
-                }
-            })
+            .when(show_poster, |this| this.child(self.render_poster()))
             .when(!show_poster && !overlay_only, |this| {
-                if let Some(ref frame) = current_frame {
-                    this.child(
-                        div()
-                            .absolute()
-                            .inset_0()
-                            .child(
-                                img(frame.clone())
-                                    .size_full()
-                                    .object_fit(ObjectFit::Contain)
-                            )
-                    )
-                } else {
-                    this.child(
-                        div()
-                            .absolute()
-                            .inset_0()
-                            .bg(gpui::black())
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .text_color(gpui::white().opacity(0.5))
-                            .text_sm()
-                            .font_family(theme.tokens.font_family.clone())
-                            .child("Video content area")
-                    )
-                }
+                this.child(self.render_content_area(&theme, current_frame.as_ref()))
             })
-            .child({
-                let state_play = state_entity.clone();
-                let on_play_center = on_play.clone();
-                let on_pause_center = on_pause.clone();
-
-                div()
-                    .id("center-play-button")
-                    .absolute()
-                    .inset_0()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .when(show_controls || !is_playing, |this| {
-                        this.child(
-                            div()
-                                .id("play-overlay")
-                                .size(px(72.0))
-                                .rounded_full()
-                                .bg(gpui::black().opacity(0.6))
-                                .border_2()
-                                .border_color(gpui::white().opacity(0.3))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .cursor(CursorStyle::PointingHand)
-                                .hover(|style| style.bg(gpui::black().opacity(0.8)))
-                                .on_mouse_down(MouseButton::Left, move |_, window, cx| {
-                                    let is_playing_now = state_play.read(cx).is_playing();
-                                    cx.update_entity(&state_play, |state, cx| state.toggle_play(cx));
-                                    if is_playing_now {
-                                        if let Some(handler) = &on_pause_center {
-                                            handler(window, cx);
-                                        }
-                                    } else if let Some(handler) = &on_play_center {
-                                        handler(window, cx);
-                                    }
-                                })
-                                .child(
-                                    svg()
-                                        .path(format!("icons/{}.svg", play_icon))
-                                        .size(px(32.0))
-                                        .text_color(gpui::white())
-                                )
-                        )
-                    })
-            })
+            .child(self.render_center_play_button(
+                show_controls || !snapshot.is_playing,
+                snapshot.is_playing,
+            ))
             .when(show_controls, |this| {
-                let state_progress = state_entity.clone();
-                let state_progress_drag = state_entity.clone();
-                let state_progress_move = state_entity.clone();
-                let state_progress_up = state_entity.clone();
-                let on_seek_progress = on_seek.clone();
-                let on_seek_drag = on_seek.clone();
+                this.child(self.render_controls_overlay(window, &theme, &snapshot))
+            })
+    }
+}
 
-                let state_volume = state_entity.clone();
-                let state_volume_icon = state_entity.clone();
-                let state_volume_drag = state_entity.clone();
-                let state_volume_move = state_entity.clone();
-                let state_volume_up = state_entity.clone();
-                let on_volume_slider = on_volume_change.clone();
-                let on_volume_drag_change = on_volume_change.clone();
+impl VideoPlayer {
+    fn render_poster(&self) -> impl IntoElement {
+        div()
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .when_some(self.poster.clone(), |this, poster_src| {
+                this.child(img(poster_src).size_full().object_fit(ObjectFit::Cover))
+            })
+    }
 
-                let state_play_btn = state_entity.clone();
-                let on_play_btn = on_play.clone();
-                let on_pause_btn = on_pause.clone();
+    fn render_content_area(
+        &self,
+        theme: &crate::capabilities::foundation::theme::Theme,
+        current_frame: Option<&SharedString>,
+    ) -> impl IntoElement {
+        if let Some(frame) = current_frame {
+            div().absolute().inset_0().child(
+                img(frame.clone())
+                    .size_full()
+                    .object_fit(ObjectFit::Contain),
+            )
+        } else {
+            div()
+                .absolute()
+                .inset_0()
+                .bg(gpui::black())
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(gpui::white().opacity(0.5))
+                .text_sm()
+                .font_family(theme.tokens.font_family.clone())
+                .child("Video content area")
+        }
+    }
 
-                let state_skip_back = state_entity.clone();
-                let on_seek_back = on_seek.clone();
+    fn render_center_play_button(&self, show: bool, is_playing: bool) -> impl IntoElement {
+        let state_play = self.state.clone();
+        let on_play_center = self.on_play.clone();
+        let on_pause_center = self.on_pause.clone();
 
-                let state_skip_forward = state_entity.clone();
-                let on_seek_forward = on_seek.clone();
-
-                let state_speed = state_entity.clone();
-                let state_speed_item = state_entity.clone();
-                let on_speed_change = on_playback_speed_change.clone();
-
-                let state_fullscreen = state_entity.clone();
-                let on_fullscreen_btn = on_fullscreen.clone();
-
+        div()
+            .id("center-play-button")
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .when(show, move |this| {
                 this.child(
                     div()
-                        .id("controls-overlay")
-                        .absolute()
-                        .bottom_0()
-                        .left_0()
-                        .right_0()
-                        .h(controls_height + px(40.0))
-                        .bg(gpui::black().opacity(0.7))
+                        .id("play-overlay")
+                        .size(px(72.0))
+                        .rounded_full()
+                        .bg(gpui::black().opacity(0.6))
+                        .border_2()
+                        .border_color(gpui::white().opacity(0.3))
                         .flex()
-                        .flex_col()
-                        .justify_end()
+                        .items_center()
+                        .justify_center()
+                        .cursor(CursorStyle::PointingHand)
+                        .hover(|style| style.bg(gpui::black().opacity(0.8)))
+                        .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                            let is_playing_now = state_play.read(cx).is_playing();
+                            cx.update_entity(&state_play, |state, cx| state.toggle_play(cx));
+                            if is_playing_now {
+                                if let Some(handler) = &on_pause_center {
+                                    handler(window, cx);
+                                }
+                            } else if let Some(handler) = &on_play_center {
+                                handler(window, cx);
+                            }
+                        })
                         .child(
-                            div()
-                                .id("progress-bar-container")
-                                .px(px(12.0))
-                                .pb(px(4.0))
-                                .child(
-                                    div()
-                                        .id("progress-bar")
-                                        .relative()
-                                        .h(px(6.0))
-                                        .w_full()
-                                        .bg(gpui::white().opacity(0.3))
-                                        .rounded_full()
-                                        .cursor(CursorStyle::PointingHand)
-                                        .child(
-                                            canvas(
-                                                {
-                                                    let state = state_progress.clone();
-                                                    move |bounds, _, cx| {
-                                                        state.update(cx, |state, _| {
-                                                            state.progress_bounds = bounds;
-                                                        });
-                                                    }
-                                                },
-                                                |_, _, _, _| {},
-                                            )
-                                            .absolute()
-                                            .size_full(),
-                                        )
-                                        .child(
-                                            div()
-                                                .absolute()
-                                                .left_0()
-                                                .top_0()
-                                                .h_full()
-                                                .w(relative(progress as f32))
-                                                .bg(theme.tokens.primary)
-                                                .rounded_full()
-                                        )
-                                        .child(
-                                            div()
-                                                .absolute()
-                                                .left(relative(progress as f32))
-                                                .top(px(-3.0))
-                                                .ml(px(-6.0))
-                                                .size(px(12.0))
-                                                .rounded_full()
-                                                .bg(theme.tokens.primary)
-                                                .border_2()
-                                                .border_color(gpui::white())
-                                        )
-                                        .on_mouse_down(
-                                            MouseButton::Left,
-                                            window.listener_for(
-                                                &state_progress_drag,
-                                                {
-                                                    let on_seek = on_seek_progress.clone();
-                                                    move |state, e: &MouseDownEvent, window, cx| {
-                                                        state.is_seeking = true;
-                                                        state.update_seek_from_position(e.position, cx);
-                                                        if let Some(handler) = &on_seek {
-                                                            handler(state.current_time, window, cx);
-                                                        }
-                                                    }
-                                                },
-                                            ),
-                                        )
-                                        .on_mouse_move(
-                                            window.listener_for(
-                                                &state_progress_move,
-                                                {
-                                                    let on_seek = on_seek_drag.clone();
-                                                    move |state, e: &MouseMoveEvent, window, cx| {
-                                                        if state.is_seeking {
-                                                            state.update_seek_from_position(e.position, cx);
-                                                            if let Some(handler) = &on_seek {
-                                                                handler(state.current_time, window, cx);
-                                                            }
-                                                        }
-                                                    }
-                                                },
-                                            ),
-                                        )
-                                        .on_mouse_up(
-                                            MouseButton::Left,
-                                            window.listener_for(
-                                                &state_progress_up,
-                                                move |state, _: &MouseUpEvent, _, _| {
-                                                    state.is_seeking = false;
-                                                },
-                                            ),
-                                        )
-                                        .on_mouse_up_out(
-                                            MouseButton::Left,
-                                            window.listener_for(
-                                                &state_progress_up,
-                                                move |state, _: &MouseUpEvent, _, _| {
-                                                    state.is_seeking = false;
-                                                },
-                                            ),
-                                        )
-                                )
-                        )
-                        .child(
-                            div()
-                                .id("controls-bar")
-                                .h(controls_height)
-                                .px(px(12.0))
-                                .flex()
-                                .items_center()
-                                .justify_between()
-                                .child(
-                                    div()
-                                        .flex()
-                                        .items_center()
-                                        .gap(px(8.0))
-                                        .child(
-                                            div()
-                                                .id("skip-back-btn")
-                                                .size(px(32.0))
-                                                .rounded(theme.tokens.radius_md)
-                                                .flex()
-                                                .items_center()
-                                                .justify_center()
-                                                .cursor(CursorStyle::PointingHand)
-                                                .hover(|style| style.bg(gpui::white().opacity(0.2)))
-                                                .on_mouse_down(MouseButton::Left, move |_, window, cx| {
-                                                    cx.update_entity(&state_skip_back, |state, cx| {
-                                                        state.seek_relative(-10.0, cx);
-                                                    });
-                                                    if let Some(handler) = &on_seek_back {
-                                                        handler(state_skip_back.read(cx).current_time(), window, cx);
-                                                    }
-                                                })
-                                                .child(
-                                                    svg()
-                                                        .path("icons/rewind.svg")
-                                                        .size(icon_size)
-                                                        .text_color(gpui::white())
-                                                )
-                                        )
-                                        .child(
-                                            div()
-                                                .id("play-pause-btn")
-                                                .size(px(40.0))
-                                                .rounded_full()
-                                                .bg(theme.tokens.primary)
-                                                .flex()
-                                                .items_center()
-                                                .justify_center()
-                                                .cursor(CursorStyle::PointingHand)
-                                                .hover(|style| style.opacity(0.9))
-                                                .on_mouse_down(MouseButton::Left, move |_, window, cx| {
-                                                    let is_playing_now = state_play_btn.read(cx).is_playing();
-                                                    cx.update_entity(&state_play_btn, |state, cx| state.toggle_play(cx));
-                                                    if is_playing_now {
-                                                        if let Some(handler) = &on_pause_btn {
-                                                            handler(window, cx);
-                                                        }
-                                                    } else if let Some(handler) = &on_play_btn {
-                                                        handler(window, cx);
-                                                    }
-                                                })
-                                                .child(
-                                                    svg()
-                                                        .path(format!("icons/{}.svg", play_icon))
-                                                        .size(icon_size)
-                                                        .text_color(theme.tokens.primary_foreground)
-                                                )
-                                        )
-                                        .child(
-                                            div()
-                                                .id("skip-forward-btn")
-                                                .size(px(32.0))
-                                                .rounded(theme.tokens.radius_md)
-                                                .flex()
-                                                .items_center()
-                                                .justify_center()
-                                                .cursor(CursorStyle::PointingHand)
-                                                .hover(|style| style.bg(gpui::white().opacity(0.2)))
-                                                .on_mouse_down(MouseButton::Left, move |_, window, cx| {
-                                                    cx.update_entity(&state_skip_forward, |state, cx| {
-                                                        state.seek_relative(10.0, cx);
-                                                    });
-                                                    if let Some(handler) = &on_seek_forward {
-                                                        handler(state_skip_forward.read(cx).current_time(), window, cx);
-                                                    }
-                                                })
-                                                .child(
-                                                    svg()
-                                                        .path("icons/fast-forward.svg")
-                                                        .size(icon_size)
-                                                        .text_color(gpui::white())
-                                                )
-                                        )
-                                        .child(
-                                            div()
-                                                .ml(px(8.0))
-                                                .text_sm()
-                                                .text_color(gpui::white())
-                                                .font_family(theme.tokens.font_family.clone())
-                                                .child(format!("{} / {}", format_time(current_time), format_time(duration)))
-                                        )
-                                )
-                                .child(
-                                    div()
-                                        .flex()
-                                        .items_center()
-                                        .gap(px(8.0))
-                                        .child(
-                                            div()
-                                                .flex()
-                                                .items_center()
-                                                .gap(px(4.0))
-                                                .child(
-                                                    div()
-                                                        .id("volume-btn")
-                                                        .size(px(32.0))
-                                                        .rounded(theme.tokens.radius_md)
-                                                        .flex()
-                                                        .items_center()
-                                                        .justify_center()
-                                                        .cursor(CursorStyle::PointingHand)
-                                                        .hover(|style| style.bg(gpui::white().opacity(0.2)))
-                                                        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                                                            cx.update_entity(&state_volume_icon, |state, cx| state.toggle_mute(cx));
-                                                        })
-                                                        .child(
-                                                            svg()
-                                                                .path(format!("icons/{}.svg", volume_icon))
-                                                                .size(icon_size)
-                                                                .text_color(gpui::white())
-                                                        )
-                                                )
-                                                .child(
-                                                    div()
-                                                        .id("volume-slider")
-                                                        .relative()
-                                                        .w(px(80.0))
-                                                        .h(px(4.0))
-                                                        .bg(gpui::white().opacity(0.3))
-                                                        .rounded_full()
-                                                        .cursor(CursorStyle::PointingHand)
-                                                        .child(
-                                                            canvas(
-                                                                {
-                                                                    let state = state_volume.clone();
-                                                                    move |bounds, _, cx| {
-                                                                        state.update(cx, |state, _| {
-                                                                            state.volume_bounds = bounds;
-                                                                        });
-                                                                    }
-                                                                },
-                                                                |_, _, _, _| {},
-                                                            )
-                                                            .absolute()
-                                                            .size_full(),
-                                                        )
-                                                        .child(
-                                                            div()
-                                                                .absolute()
-                                                                .left_0()
-                                                                .top_0()
-                                                                .h_full()
-                                                                .w(relative(volume))
-                                                                .bg(gpui::white())
-                                                                .rounded_full()
-                                                        )
-                                                        .child(
-                                                            div()
-                                                                .absolute()
-                                                                .left(relative(volume))
-                                                                .top(px(-4.0))
-                                                                .ml(px(-6.0))
-                                                                .size(px(12.0))
-                                                                .rounded_full()
-                                                                .bg(gpui::white())
-                                                        )
-                                                        .on_mouse_down(
-                                                            MouseButton::Left,
-                                                            window.listener_for(
-                                                                &state_volume_drag,
-                                                                {
-                                                                    let on_volume = on_volume_slider.clone();
-                                                                    move |state, e: &MouseDownEvent, window, cx| {
-                                                                        state.is_volume_dragging = true;
-                                                                        state.update_volume_from_position(e.position, cx);
-                                                                        if let Some(handler) = &on_volume {
-                                                                            handler(state.volume, window, cx);
-                                                                        }
-                                                                    }
-                                                                },
-                                                            ),
-                                                        )
-                                                        .on_mouse_move(
-                                                            window.listener_for(
-                                                                &state_volume_move,
-                                                                {
-                                                                    let on_volume = on_volume_drag_change.clone();
-                                                                    move |state, e: &MouseMoveEvent, window, cx| {
-                                                                        if state.is_volume_dragging {
-                                                                            state.update_volume_from_position(e.position, cx);
-                                                                            if let Some(handler) = &on_volume {
-                                                                                handler(state.volume, window, cx);
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                },
-                                                            ),
-                                                        )
-                                                        .on_mouse_up(
-                                                            MouseButton::Left,
-                                                            window.listener_for(
-                                                                &state_volume_up,
-                                                                move |state, _: &MouseUpEvent, _, _| {
-                                                                    state.is_volume_dragging = false;
-                                                                },
-                                                            ),
-                                                        )
-                                                        .on_mouse_up_out(
-                                                            MouseButton::Left,
-                                                            window.listener_for(
-                                                                &state_volume_up,
-                                                                move |state, _: &MouseUpEvent, _, _| {
-                                                                    state.is_volume_dragging = false;
-                                                                },
-                                                            ),
-                                                        )
-                                                )
-                                        )
-                                        .child(
-                                            div()
-                                                .id("speed-btn")
-                                                .relative()
-                                                .child(
-                                                    div()
-                                                        .px(px(8.0))
-                                                        .py(px(4.0))
-                                                        .rounded(theme.tokens.radius_md)
-                                                        .text_xs()
-                                                        .text_color(gpui::white())
-                                                        .font_family(theme.tokens.font_family.clone())
-                                                        .cursor(CursorStyle::PointingHand)
-                                                        .hover(|style| style.bg(gpui::white().opacity(0.2)))
-                                                        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                                                            cx.update_entity(&state_speed, |state, cx| state.toggle_speed_menu(cx));
-                                                        })
-                                                        .child(playback_speed.label())
-                                                )
-                                                .when(show_speed_menu, {
-                                                    let theme = theme.clone();
-                                                    move |this| {
-                                                        this.child(
-                                                            div()
-                                                                .absolute()
-                                                                .bottom(px(36.0))
-                                                                .right_0()
-                                                                .w(px(80.0))
-                                                                .bg(theme.tokens.popover)
-                                                                .rounded(theme.tokens.radius_md)
-                                                                .border_1()
-                                                                .border_color(theme.tokens.border)
-                                                                .shadow(smallvec::smallvec![theme.tokens.shadow_lg])
-                                                                .py(px(4.0))
-                                                                .children(
-                                                                    VideoPlaybackSpeed::all().iter().map(|speed| {
-                                                                        let state_item = state_speed_item.clone();
-                                                                        let on_speed = on_speed_change.clone();
-                                                                        let speed_val = *speed;
-                                                                        let is_selected = speed_val == playback_speed;
-
-                                                                        div()
-                                                                            .id(ElementId::Name(format!("speed-{}", speed_val.label()).into()))
-                                                                            .px(px(12.0))
-                                                                            .py(px(6.0))
-                                                                            .text_xs()
-                                                                            .text_color(if is_selected {
-                                                                                theme.tokens.primary
-                                                                            } else {
-                                                                                theme.tokens.popover_foreground
-                                                                            })
-                                                                            .font_family(theme.tokens.font_family.clone())
-                                                                            .cursor(CursorStyle::PointingHand)
-                                                                            .hover(|style| style.bg(theme.tokens.accent))
-                                                                            .on_mouse_down(MouseButton::Left, move |_, window, cx| {
-                                                                                cx.update_entity(&state_item, |state, cx| {
-                                                                                    state.set_playback_speed(speed_val, cx);
-                                                                                });
-                                                                                if let Some(handler) = &on_speed {
-                                                                                    handler(speed_val, window, cx);
-                                                                                }
-                                                                            })
-                                                                            .child(speed_val.label())
-                                                                    })
-                                                                )
-                                                        )
-                                                    }
-                                                })
-                                        )
-                                        .child(
-                                            div()
-                                                .id("fullscreen-btn")
-                                                .size(px(32.0))
-                                                .rounded(theme.tokens.radius_md)
-                                                .flex()
-                                                .items_center()
-                                                .justify_center()
-                                                .cursor(CursorStyle::PointingHand)
-                                                .hover(|style| style.bg(gpui::white().opacity(0.2)))
-                                                .on_mouse_down(MouseButton::Left, move |_, window, cx| {
-                                                    cx.update_entity(&state_fullscreen, |state, cx| state.toggle_fullscreen(window, cx));
-                                                    let is_fs = state_fullscreen.read(cx).is_fullscreen();
-                                                    if let Some(handler) = &on_fullscreen_btn {
-                                                        handler(is_fs, window, cx);
-                                                    }
-                                                })
-                                                .child(
-                                                    svg()
-                                                        .path(if is_fullscreen { "icons/minimize.svg" } else { "icons/maximize.svg" })
-                                                        .size(icon_size)
-                                                        .text_color(gpui::white())
-                                                )
-                                        )
-                                )
-                        )
+                            svg()
+                                .path(format!(
+                                    "icons/{}.svg",
+                                    if is_playing { "pause" } else { "play" }
+                                ))
+                                .size(px(32.0))
+                                .text_color(gpui::white()),
+                        ),
                 )
             })
+    }
+
+    fn render_controls_overlay(
+        &self,
+        window: &mut Window,
+        theme: &crate::capabilities::foundation::theme::Theme,
+        snapshot: &VideoControlSnapshot,
+    ) -> impl IntoElement {
+        let controls_height = self.size.controls_height();
+
+        div()
+            .id("controls-overlay")
+            .absolute()
+            .bottom_0()
+            .left_0()
+            .right_0()
+            .h(controls_height + px(40.0))
+            .bg(gpui::black().opacity(0.7))
+            .flex()
+            .flex_col()
+            .justify_end()
+            .child(
+                div()
+                    .id("progress-bar-container")
+                    .px(px(12.0))
+                    .pb(px(4.0))
+                    .child(self.render_progress_bar(window, theme, snapshot.progress)),
+            )
+            .child(self.render_controls_bar(window, theme, snapshot))
+    }
+
+    fn render_progress_bar(
+        &self,
+        window: &mut Window,
+        theme: &crate::capabilities::foundation::theme::Theme,
+        progress: f64,
+    ) -> impl IntoElement {
+        let state_bounds = self.state.clone();
+        let state_drag = self.state.clone();
+        let on_seek = self.on_seek.clone();
+
+        playback::attach_slider_drag(
+            div()
+                .id("progress-bar")
+                .relative()
+                .h(px(6.0))
+                .w_full()
+                .bg(gpui::white().opacity(0.3))
+                .rounded_full()
+                .cursor(CursorStyle::PointingHand)
+                .child(
+                    canvas(
+                        move |bounds, _, cx| {
+                            state_bounds.update(cx, |state, _| {
+                                state.progress_bounds = bounds;
+                            });
+                        },
+                        |_, _, _, _| {},
+                    )
+                    .absolute()
+                    .size_full(),
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .left_0()
+                        .top_0()
+                        .h_full()
+                        .w(relative(progress as f32))
+                        .bg(theme.tokens.primary)
+                        .rounded_full(),
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .left(relative(progress as f32))
+                        .top(px(-3.0))
+                        .ml(px(-6.0))
+                        .size(px(12.0))
+                        .rounded_full()
+                        .bg(theme.tokens.primary)
+                        .border_2()
+                        .border_color(gpui::white()),
+                ),
+            window,
+            SliderDrag {
+                state: state_drag,
+                on_change: on_seek,
+                is_dragging: |s: &VideoPlayerState| s.is_seeking,
+                set_dragging: |s: &mut VideoPlayerState, dragging| s.is_seeking = dragging,
+                apply_position: |s, position, cx| s.update_seek_from_position(position, cx),
+                current_value: |s: &VideoPlayerState| s.current_time(),
+            },
+        )
+    }
+
+    fn render_controls_bar(
+        &self,
+        window: &mut Window,
+        theme: &crate::capabilities::foundation::theme::Theme,
+        snapshot: &VideoControlSnapshot,
+    ) -> impl IntoElement {
+        let controls_height = self.size.controls_height();
+
+        div()
+            .id("controls-bar")
+            .h(controls_height)
+            .px(px(12.0))
+            .flex()
+            .items_center()
+            .justify_between()
+            .child(self.render_transport_controls(theme, snapshot))
+            .child(self.render_utility_controls(window, theme, snapshot))
+    }
+
+    fn render_transport_controls(
+        &self,
+        theme: &crate::capabilities::foundation::theme::Theme,
+        snapshot: &VideoControlSnapshot,
+    ) -> impl IntoElement {
+        let icon_size = self.size.icon_size();
+
+        div()
+            .flex()
+            .items_center()
+            .gap(px(8.0))
+            .child(self.render_skip_button(
+                theme,
+                "skip-back-btn",
+                "icons/rewind.svg",
+                -10.0,
+                icon_size,
+            ))
+            .child(self.render_play_pause_button(theme, snapshot.is_playing, icon_size))
+            .child(self.render_skip_button(
+                theme,
+                "skip-forward-btn",
+                "icons/fast-forward.svg",
+                10.0,
+                icon_size,
+            ))
+            .child(
+                div()
+                    .ml(px(8.0))
+                    .text_sm()
+                    .text_color(gpui::white())
+                    .font_family(theme.tokens.font_family.clone())
+                    .child(format!(
+                        "{} / {}",
+                        format_time(snapshot.current_time),
+                        format_time(snapshot.duration)
+                    )),
+            )
+    }
+
+    fn render_skip_button(
+        &self,
+        theme: &crate::capabilities::foundation::theme::Theme,
+        id: &'static str,
+        icon_path: &'static str,
+        delta_seconds: f64,
+        icon_size: Pixels,
+    ) -> impl IntoElement {
+        let state = self.state.clone();
+        let on_seek = self.on_seek.clone();
+
+        div()
+            .id(id)
+            .size(px(32.0))
+            .rounded(theme.tokens.radius_md)
+            .flex()
+            .items_center()
+            .justify_center()
+            .cursor(CursorStyle::PointingHand)
+            .hover(|style| style.bg(gpui::white().opacity(0.2)))
+            .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                cx.update_entity(&state, |state, cx| {
+                    state.seek_relative(delta_seconds, cx);
+                });
+                if let Some(handler) = &on_seek {
+                    handler(state.read(cx).current_time(), window, cx);
+                }
+            })
+            .child(
+                svg()
+                    .path(icon_path)
+                    .size(icon_size)
+                    .text_color(gpui::white()),
+            )
+    }
+
+    fn render_play_pause_button(
+        &self,
+        theme: &crate::capabilities::foundation::theme::Theme,
+        is_playing: bool,
+        icon_size: Pixels,
+    ) -> impl IntoElement {
+        let state = self.state.clone();
+        let on_play = self.on_play.clone();
+        let on_pause = self.on_pause.clone();
+
+        div()
+            .id("play-pause-btn")
+            .size(px(40.0))
+            .rounded_full()
+            .bg(theme.tokens.primary)
+            .flex()
+            .items_center()
+            .justify_center()
+            .cursor(CursorStyle::PointingHand)
+            .hover(|style| style.opacity(0.9))
+            .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                let is_playing_now = state.read(cx).is_playing();
+                cx.update_entity(&state, |state, cx| state.toggle_play(cx));
+                if is_playing_now {
+                    if let Some(handler) = &on_pause {
+                        handler(window, cx);
+                    }
+                } else if let Some(handler) = &on_play {
+                    handler(window, cx);
+                }
+            })
+            .child(
+                svg()
+                    .path(if is_playing {
+                        "icons/pause.svg"
+                    } else {
+                        "icons/play.svg"
+                    })
+                    .size(icon_size)
+                    .text_color(theme.tokens.primary_foreground),
+            )
+    }
+
+    fn render_utility_controls(
+        &self,
+        window: &mut Window,
+        theme: &crate::capabilities::foundation::theme::Theme,
+        snapshot: &VideoControlSnapshot,
+    ) -> impl IntoElement {
+        div()
+            .flex()
+            .items_center()
+            .gap(px(8.0))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(4.0))
+                    .child(self.render_volume_button(theme, snapshot))
+                    .child(self.render_volume_slider(window, snapshot.volume)),
+            )
+            .child(self.render_speed_control(theme, snapshot))
+            .child(self.render_fullscreen_button(theme, snapshot.is_fullscreen))
+    }
+
+    fn render_volume_button(
+        &self,
+        theme: &crate::capabilities::foundation::theme::Theme,
+        snapshot: &VideoControlSnapshot,
+    ) -> impl IntoElement {
+        let state = self.state.clone();
+        let icon_size = self.size.icon_size();
+        let volume_icon = playback::volume_icon(snapshot.volume, snapshot.is_muted);
+
+        div()
+            .id("volume-btn")
+            .size(px(32.0))
+            .rounded(theme.tokens.radius_md)
+            .flex()
+            .items_center()
+            .justify_center()
+            .cursor(CursorStyle::PointingHand)
+            .hover(|style| style.bg(gpui::white().opacity(0.2)))
+            .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                cx.update_entity(&state, |state, cx| state.toggle_mute(cx));
+            })
+            .child(
+                svg()
+                    .path(format!("icons/{}.svg", volume_icon))
+                    .size(icon_size)
+                    .text_color(gpui::white()),
+            )
+    }
+
+    fn render_volume_slider(&self, window: &mut Window, volume: f32) -> impl IntoElement {
+        let state_bounds = self.state.clone();
+        let state_drag = self.state.clone();
+        let on_volume_change = self.on_volume_change.clone();
+
+        playback::attach_slider_drag(
+            div()
+                .id("volume-slider")
+                .relative()
+                .w(px(80.0))
+                .h(px(4.0))
+                .bg(gpui::white().opacity(0.3))
+                .rounded_full()
+                .cursor(CursorStyle::PointingHand)
+                .child(
+                    canvas(
+                        move |bounds, _, cx| {
+                            state_bounds.update(cx, |state, _| {
+                                state.volume_bounds = bounds;
+                            });
+                        },
+                        |_, _, _, _| {},
+                    )
+                    .absolute()
+                    .size_full(),
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .left_0()
+                        .top_0()
+                        .h_full()
+                        .w(relative(volume))
+                        .bg(gpui::white())
+                        .rounded_full(),
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .left(relative(volume))
+                        .top(px(-4.0))
+                        .ml(px(-6.0))
+                        .size(px(12.0))
+                        .rounded_full()
+                        .bg(gpui::white()),
+                ),
+            window,
+            SliderDrag {
+                state: state_drag,
+                on_change: on_volume_change,
+                is_dragging: |s: &VideoPlayerState| s.is_volume_dragging,
+                set_dragging: |s: &mut VideoPlayerState, dragging| s.is_volume_dragging = dragging,
+                apply_position: |s, position, cx| s.update_volume_from_position(position, cx),
+                current_value: |s: &VideoPlayerState| s.volume(),
+            },
+        )
+    }
+
+    fn render_speed_control(
+        &self,
+        theme: &crate::capabilities::foundation::theme::Theme,
+        snapshot: &VideoControlSnapshot,
+    ) -> impl IntoElement {
+        let state = self.state.clone();
+        let state_items = self.state.clone();
+        let on_speed_change = self.on_playback_speed_change.clone();
+        let current_speed = snapshot.playback_speed;
+        let show_speed_menu = snapshot.show_speed_menu;
+        let theme = theme.clone();
+
+        div()
+            .id("speed-btn")
+            .relative()
+            .child(
+                div()
+                    .px(px(8.0))
+                    .py(px(4.0))
+                    .rounded(theme.tokens.radius_md)
+                    .text_xs()
+                    .text_color(gpui::white())
+                    .font_family(theme.tokens.font_family.clone())
+                    .cursor(CursorStyle::PointingHand)
+                    .hover(|style| style.bg(gpui::white().opacity(0.2)))
+                    .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                        cx.update_entity(&state, |state, cx| state.toggle_speed_menu(cx));
+                    })
+                    .child(current_speed.label()),
+            )
+            .when(show_speed_menu, move |this| {
+                this.child(
+                    div()
+                        .absolute()
+                        .bottom(px(36.0))
+                        .right_0()
+                        .w(px(80.0))
+                        .bg(theme.tokens.popover)
+                        .rounded(theme.tokens.radius_md)
+                        .border_1()
+                        .border_color(theme.tokens.border)
+                        .shadow(smallvec::smallvec![theme.tokens.shadow_lg])
+                        .py(px(4.0))
+                        .children(VideoPlaybackSpeed::all().iter().map(|speed| {
+                            let state_item = state_items.clone();
+                            let on_speed = on_speed_change.clone();
+                            let speed_val = *speed;
+                            let is_selected = speed_val == current_speed;
+
+                            div()
+                                .id(ElementId::Name(
+                                    format!("speed-{}", speed_val.label()).into(),
+                                ))
+                                .px(px(12.0))
+                                .py(px(6.0))
+                                .text_xs()
+                                .text_color(if is_selected {
+                                    theme.tokens.primary
+                                } else {
+                                    theme.tokens.popover_foreground
+                                })
+                                .font_family(theme.tokens.font_family.clone())
+                                .cursor(CursorStyle::PointingHand)
+                                .hover(|style| style.bg(theme.tokens.accent))
+                                .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                                    cx.update_entity(&state_item, |state, cx| {
+                                        state.set_playback_speed(speed_val, cx);
+                                    });
+                                    if let Some(handler) = &on_speed {
+                                        handler(speed_val, window, cx);
+                                    }
+                                })
+                                .child(speed_val.label())
+                        })),
+                )
+            })
+    }
+
+    fn render_fullscreen_button(
+        &self,
+        theme: &crate::capabilities::foundation::theme::Theme,
+        is_fullscreen: bool,
+    ) -> impl IntoElement {
+        let state = self.state.clone();
+        let on_fullscreen = self.on_fullscreen.clone();
+        let icon_size = self.size.icon_size();
+
+        div()
+            .id("fullscreen-btn")
+            .size(px(32.0))
+            .rounded(theme.tokens.radius_md)
+            .flex()
+            .items_center()
+            .justify_center()
+            .cursor(CursorStyle::PointingHand)
+            .hover(|style| style.bg(gpui::white().opacity(0.2)))
+            .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                cx.update_entity(&state, |state, cx| state.toggle_fullscreen(window, cx));
+                let is_fs = state.read(cx).is_fullscreen();
+                if let Some(handler) = &on_fullscreen {
+                    handler(is_fs, window, cx);
+                }
+            })
+            .child(
+                svg()
+                    .path(if is_fullscreen {
+                        "icons/minimize.svg"
+                    } else {
+                        "icons/maximize.svg"
+                    })
+                    .size(icon_size)
+                    .text_color(gpui::white()),
+            )
     }
 }

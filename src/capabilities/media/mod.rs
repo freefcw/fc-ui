@@ -3,6 +3,7 @@ pub mod canvas_component;
 pub mod crop_area;
 pub mod file_upload;
 pub mod image_viewer;
+pub(crate) mod playback;
 #[cfg(feature = "qrcode")]
 pub mod qr_code;
 pub mod svg_renderer;

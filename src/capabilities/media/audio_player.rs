@@ -1,5 +1,6 @@
 use crate::capabilities::foundation::icon_config::resolve_icon_path;
 use crate::capabilities::foundation::theme::use_theme;
+use crate::capabilities::media::playback::{self, PlaybackCore, SliderDrag};
 use gpui::{prelude::*, *};
 use std::rc::Rc;
 #[cfg(feature = "audio")]
@@ -140,11 +141,7 @@ fn open_decoder(path: &str) -> Result<rodio::Decoder<std::io::BufReader<std::fs:
 
 pub struct AudioPlayerState {
     is_playing: bool,
-    is_muted: bool,
-    current_time: f32,
-    duration: f32,
-    volume: f32,
-    playback_speed: PlaybackSpeed,
+    core: PlaybackCore<PlaybackSpeed>,
     focus_handle: FocusHandle,
     progress_dragging: bool,
     volume_dragging: bool,
@@ -159,11 +156,7 @@ impl AudioPlayerState {
     pub fn new(cx: &mut Context<Self>) -> Self {
         Self {
             is_playing: false,
-            is_muted: false,
-            current_time: 0.0,
-            duration: 0.0,
-            volume: 0.8,
-            playback_speed: PlaybackSpeed::Normal,
+            core: PlaybackCore::new(0.8, PlaybackSpeed::Normal),
             focus_handle: cx.focus_handle(),
             progress_dragging: false,
             volume_dragging: false,
@@ -183,11 +176,11 @@ impl AudioPlayerState {
             if let Ok(mut backend) = backend.lock() {
                 match backend.load(&path_str) {
                     Ok(duration) => {
-                        self.duration = duration.as_secs_f32();
-                        self.current_time = 0.0;
+                        self.core.set_duration(f64::from(duration.as_secs_f32()));
+                        self.core.set_current_time(0.0);
                         self.is_playing = false;
-                        backend.set_volume(self.volume);
-                        backend.set_speed(self.playback_speed.value());
+                        backend.set_volume(self.core.volume());
+                        backend.set_speed(self.core.speed().value());
                         self.source_path = Some(path_str);
                         cx.notify();
                         return true;
@@ -245,54 +238,48 @@ impl AudioPlayerState {
     }
 
     pub fn is_muted(&self) -> bool {
-        self.is_muted
+        self.core.muted()
     }
 
     pub fn set_muted(&mut self, muted: bool, cx: &mut Context<Self>) {
-        self.is_muted = muted;
+        self.core.set_muted(muted);
         #[cfg(feature = "audio")]
         self.apply_volume();
         cx.notify();
     }
 
     pub fn toggle_muted(&mut self, cx: &mut Context<Self>) {
-        self.is_muted = !self.is_muted;
+        self.core.set_muted(!self.core.muted());
         #[cfg(feature = "audio")]
         self.apply_volume();
         cx.notify();
     }
 
     pub fn current_time(&self) -> f32 {
-        self.current_time
+        self.core.current_time() as f32
     }
 
     pub fn set_current_time(&mut self, time: f32, cx: &mut Context<Self>) {
-        self.current_time = time.clamp(0.0, self.duration);
+        self.core.set_current_time(f64::from(time));
         cx.notify();
     }
 
     pub fn duration(&self) -> f32 {
-        self.duration
+        self.core.duration() as f32
     }
 
     pub fn set_duration(&mut self, duration: f32, cx: &mut Context<Self>) {
-        if duration < 0.0 {
-            return;
+        if self.core.try_set_duration(f64::from(duration)) {
+            cx.notify();
         }
-        self.duration = duration;
-        self.current_time = self.current_time.min(duration);
-        cx.notify();
     }
 
     pub fn volume(&self) -> f32 {
-        self.volume
+        self.core.volume()
     }
 
     pub fn set_volume(&mut self, volume: f32, cx: &mut Context<Self>) {
-        self.volume = volume.clamp(0.0, 1.0);
-        if self.volume > 0.0 {
-            self.is_muted = false;
-        }
+        self.core.set_volume(volume);
         #[cfg(feature = "audio")]
         self.apply_volume();
         cx.notify();
@@ -302,26 +289,21 @@ impl AudioPlayerState {
     fn apply_volume(&self) {
         if let Some(ref backend) = self.backend {
             if let Ok(backend) = backend.lock() {
-                let effective_vol = if self.is_muted { 0.0 } else { self.volume };
-                backend.set_volume(effective_vol);
+                backend.set_volume(self.core.effective_volume());
             }
         }
     }
 
     pub fn effective_volume(&self) -> f32 {
-        if self.is_muted {
-            0.0
-        } else {
-            self.volume
-        }
+        self.core.effective_volume()
     }
 
     pub fn playback_speed(&self) -> PlaybackSpeed {
-        self.playback_speed
+        *self.core.speed()
     }
 
     pub fn set_playback_speed(&mut self, speed: PlaybackSpeed, cx: &mut Context<Self>) {
-        self.playback_speed = speed;
+        self.core.set_speed(speed);
         #[cfg(feature = "audio")]
         if let Some(ref backend) = self.backend {
             if let Ok(backend) = backend.lock() {
@@ -332,11 +314,12 @@ impl AudioPlayerState {
     }
 
     pub fn cycle_playback_speed(&mut self, cx: &mut Context<Self>) {
-        self.playback_speed = self.playback_speed.next();
+        let next = self.core.speed().next();
+        self.core.set_speed(next);
         #[cfg(feature = "audio")]
         if let Some(ref backend) = self.backend {
             if let Ok(backend) = backend.lock() {
-                backend.set_speed(self.playback_speed.value());
+                backend.set_speed(next.value());
             }
         }
         cx.notify();
@@ -344,7 +327,7 @@ impl AudioPlayerState {
 
     pub fn stop(&mut self, cx: &mut Context<Self>) {
         self.is_playing = false;
-        self.current_time = 0.0;
+        self.core.set_current_time(0.0);
         #[cfg(feature = "audio")]
         if let Some(ref backend) = self.backend {
             if let Ok(backend) = backend.lock() {
@@ -366,41 +349,32 @@ impl AudioPlayerState {
 
     #[cfg(not(feature = "audio"))]
     pub fn is_finished(&self) -> bool {
-        self.current_time >= self.duration
+        self.current_time() >= self.duration()
     }
 
     fn progress_percentage(&self) -> f32 {
-        if self.duration <= 0.0 {
-            return 0.0;
-        }
-        (self.current_time / self.duration).clamp(0.0, 1.0)
+        self.core.progress() as f32
     }
 
     fn update_progress_from_position(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
-        let track_width = self.progress_bounds.size.width;
-        if track_width <= px(0.0) {
+        let Some(percentage) = playback::track_fraction(position, self.progress_bounds) else {
             return;
-        }
-        let relative_x = (position.x - self.progress_bounds.left()).clamp(px(0.0), track_width);
-        let percentage = (relative_x / track_width).clamp(0.0, 1.0);
-        self.current_time = percentage * self.duration;
+        };
+        self.core
+            .set_current_time(f64::from(percentage) * self.core.duration());
         #[cfg(feature = "audio")]
         if let Some(ref backend) = self.backend {
             if let Ok(backend) = backend.lock() {
-                backend.seek(std::time::Duration::from_secs_f32(self.current_time));
+                backend.seek(std::time::Duration::from_secs_f32(self.current_time()));
             }
         }
         cx.notify();
     }
 
     fn update_volume_from_position(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
-        let track_width = self.volume_bounds.size.width;
-        if track_width <= px(0.0) {
-            return;
+        if let Some(volume) = playback::track_fraction(position, self.volume_bounds) {
+            self.set_volume(volume, cx);
         }
-        let relative_x = (position.x - self.volume_bounds.left()).clamp(px(0.0), track_width);
-        let volume = (relative_x / track_width).clamp(0.0, 1.0);
-        self.set_volume(volume, cx);
     }
 
     #[cfg(feature = "audio")]
@@ -526,12 +500,12 @@ impl RenderOnce for AudioPlayer {
         let theme = use_theme(cx);
         let state = self.state.read(cx);
         let is_playing = state.is_playing;
-        let is_muted = state.is_muted;
-        let current_time = state.current_time;
-        let duration = state.duration;
-        let volume = state.volume;
+        let is_muted = state.is_muted();
+        let current_time = state.current_time();
+        let duration = state.duration();
+        let volume = state.volume();
         let progress_percentage = state.progress_percentage();
-        let playback_speed = state.playback_speed;
+        let playback_speed = state.playback_speed();
         let user_style = self.style.clone();
 
         let (padding, gap, button_size, icon_size, track_height, thumb_size) = match self.size {
@@ -540,13 +514,7 @@ impl RenderOnce for AudioPlayer {
         };
 
         let play_icon = if is_playing { "pause" } else { "play" };
-        let volume_icon = if is_muted || volume == 0.0 {
-            "volume-x"
-        } else if volume < 0.5 {
-            "volume-1"
-        } else {
-            "volume-2"
-        };
+        let volume_icon = playback::volume_icon(volume, is_muted);
 
         let base = div()
             .flex()
@@ -790,47 +758,21 @@ impl AudioPlayer {
                     .when(!disabled, |this| this.cursor(CursorStyle::PointingHand)),
             )
             .when(!disabled, |this| {
-                let state_down = state.clone();
-                let on_seek_down = on_seek.clone();
-                let state_move = state.clone();
-                let on_seek_move = on_seek.clone();
-                let state_up = state.clone();
-
-                this.on_mouse_down(
-                    MouseButton::Left,
-                    window.listener_for(
-                        &state_down,
-                        move |state, e: &MouseDownEvent, window, cx| {
-                            state.progress_dragging = true;
-                            state.update_progress_from_position(e.position, cx);
-                            if let Some(ref handler) = on_seek_down {
-                                handler(state.current_time, window, cx);
-                            }
+                playback::attach_slider_drag(
+                    this,
+                    window,
+                    SliderDrag {
+                        state: state.clone(),
+                        on_change: on_seek.clone(),
+                        is_dragging: |s: &AudioPlayerState| s.progress_dragging,
+                        set_dragging: |s: &mut AudioPlayerState, dragging| {
+                            s.progress_dragging = dragging
                         },
-                    ),
-                )
-                .on_mouse_move(window.listener_for(
-                    &state_move,
-                    move |state, e: &MouseMoveEvent, window, cx| {
-                        if state.progress_dragging {
-                            state.update_progress_from_position(e.position, cx);
-                            if let Some(ref handler) = on_seek_move {
-                                handler(state.current_time, window, cx);
-                            }
-                        }
+                        apply_position: |s, position, cx| {
+                            s.update_progress_from_position(position, cx)
+                        },
+                        current_value: |s: &AudioPlayerState| s.current_time(),
                     },
-                ))
-                .on_mouse_up(
-                    MouseButton::Left,
-                    window.listener_for(&state_up, move |state, _: &MouseUpEvent, _, _| {
-                        state.progress_dragging = false;
-                    }),
-                )
-                .on_mouse_up_out(
-                    MouseButton::Left,
-                    window.listener_for(&state_up, move |state, _: &MouseUpEvent, _, _| {
-                        state.progress_dragging = false;
-                    }),
                 )
             })
     }
@@ -933,47 +875,21 @@ impl AudioPlayer {
                     .when(!disabled, |this| this.cursor(CursorStyle::PointingHand)),
             )
             .when(!disabled, |this| {
-                let state_down = state.clone();
-                let on_vol_down = on_volume_change.clone();
-                let state_move = state.clone();
-                let on_vol_move = on_volume_change.clone();
-                let state_up = state.clone();
-
-                this.on_mouse_down(
-                    MouseButton::Left,
-                    window.listener_for(
-                        &state_down,
-                        move |state, e: &MouseDownEvent, window, cx| {
-                            state.volume_dragging = true;
-                            state.update_volume_from_position(e.position, cx);
-                            if let Some(ref handler) = on_vol_down {
-                                handler(state.volume, window, cx);
-                            }
+                playback::attach_slider_drag(
+                    this,
+                    window,
+                    SliderDrag {
+                        state: state.clone(),
+                        on_change: on_volume_change.clone(),
+                        is_dragging: |s: &AudioPlayerState| s.volume_dragging,
+                        set_dragging: |s: &mut AudioPlayerState, dragging| {
+                            s.volume_dragging = dragging
                         },
-                    ),
-                )
-                .on_mouse_move(window.listener_for(
-                    &state_move,
-                    move |state, e: &MouseMoveEvent, window, cx| {
-                        if state.volume_dragging {
-                            state.update_volume_from_position(e.position, cx);
-                            if let Some(ref handler) = on_vol_move {
-                                handler(state.volume, window, cx);
-                            }
-                        }
+                        apply_position: |s, position, cx| {
+                            s.update_volume_from_position(position, cx)
+                        },
+                        current_value: |s: &AudioPlayerState| s.volume(),
                     },
-                ))
-                .on_mouse_up(
-                    MouseButton::Left,
-                    window.listener_for(&state_up, move |state, _: &MouseUpEvent, _, _| {
-                        state.volume_dragging = false;
-                    }),
-                )
-                .on_mouse_up_out(
-                    MouseButton::Left,
-                    window.listener_for(&state_up, move |state, _: &MouseUpEvent, _, _| {
-                        state.volume_dragging = false;
-                    }),
                 )
             })
     }
@@ -1008,7 +924,7 @@ impl AudioPlayer {
                 this.on_click(window.listener_for(&state, move |state, _, window, cx| {
                     state.cycle_playback_speed(cx);
                     if let Some(ref handler) = on_speed_change {
-                        handler(state.playback_speed, window, cx);
+                        handler(state.playback_speed(), window, cx);
                     }
                 }))
             })
