@@ -15,5 +15,6 @@ pub(crate) mod pie_geometry;
 pub mod radar_chart;
 pub mod sparkline;
 pub mod table;
+pub(crate) mod table_common;
 pub mod timeline;
 pub mod treemap;

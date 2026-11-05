@@ -1,3 +1,6 @@
+use crate::capabilities::data::table_common::{
+    column_resize_handle, compare_cell_values, sortable_header_content, HeaderSortState,
+};
 use crate::capabilities::foundation::theme::use_theme;
 use gpui::{prelude::FluentBuilder as _, *};
 use std::collections::HashMap;
@@ -318,12 +321,7 @@ impl<T: 'static> DataGridState<T> {
         self.data.sort_by(|a, b| {
             let va = getter(a);
             let vb = getter(b);
-            let ordering = match (va.parse::<f64>(), vb.parse::<f64>()) {
-                (Ok(number_a), Ok(number_b)) => number_a
-                    .partial_cmp(&number_b)
-                    .unwrap_or(std::cmp::Ordering::Equal),
-                _ => va.cmp(&vb),
-            };
+            let ordering = compare_cell_values(&va, &vb);
             if ascending {
                 ordering
             } else {
@@ -474,49 +472,6 @@ impl<T: 'static> RenderOnce for DataGrid<T> {
             })
             .collect();
 
-        let mut all_cells: Vec<Vec<AnyElement>> = Vec::with_capacity(num_rows);
-        for row_idx in 0..num_rows {
-            let mut row_cells: Vec<AnyElement> = Vec::with_capacity(num_cols);
-            for col_idx in 0..num_cols {
-                let is_editing = editing
-                    .as_ref()
-                    .is_some_and(|p| p.row == row_idx && p.col == col_idx);
-                if is_editing {
-                    let editor = &state.columns[col_idx].editor;
-                    let edit_display = match editor {
-                        CellEditor::Checkbox => {
-                            if DataGridState::<T>::is_truthy(&edit_val) {
-                                "☑"
-                            } else {
-                                "☐"
-                            }
-                        }
-                        CellEditor::Text | CellEditor::Number | CellEditor::Custom => "",
-                    };
-                    let value = if edit_display.is_empty() {
-                        format!("{}|", edit_val)
-                    } else {
-                        edit_display.to_string()
-                    };
-                    row_cells.push(
-                        div()
-                            .flex()
-                            .items_center()
-                            .size_full()
-                            .text_size(px(13.0))
-                            .text_color(theme.tokens.foreground)
-                            .child(value)
-                            .into_any_element(),
-                    );
-                } else {
-                    let content =
-                        (state.columns[col_idx].cell_renderer)(&state.data[row_idx], row_idx);
-                    row_cells.push(content);
-                }
-            }
-            all_cells.push(row_cells);
-        }
-
         let total_width: f32 = col_infos.iter().map(|c| -> f32 { c.width.into() }).sum();
         let total_width_px = px(total_width);
 
@@ -525,24 +480,18 @@ impl<T: 'static> RenderOnce for DataGrid<T> {
             .enumerate()
             .map(|(col_idx, info)| {
                 let is_sorted = sort_col.as_ref() == Some(&info.id);
-                let sort_indicator = if is_sorted {
+                let sort_state = if is_sorted {
                     match sort_dir {
-                        GridSortDirection::Ascending => "\u{25B2}",
-                        GridSortDirection::Descending => "\u{25BC}",
-                        GridSortDirection::None => "",
+                        GridSortDirection::Ascending => HeaderSortState::Ascending,
+                        GridSortDirection::Descending => HeaderSortState::Descending,
+                        GridSortDirection::None => HeaderSortState::None,
                     }
                 } else {
-                    ""
+                    HeaderSortState::None
                 };
 
-                let header_content = div()
-                    .flex()
-                    .items_center()
-                    .gap(px(6.0))
-                    .child(info.header.clone())
-                    .when(!sort_indicator.is_empty(), |el| {
-                        el.child(div().text_size(px(10.0)).child(sort_indicator))
-                    });
+                let header_content =
+                    sortable_header_content(info.header.clone(), sort_state, px(6.0));
 
                 let base = div()
                     .flex()
@@ -584,27 +533,19 @@ impl<T: 'static> RenderOnce for DataGrid<T> {
                     let col_width = info.width;
                     let st = state_entity.clone();
                     with_sort.child(
-                        div()
-                            .id(ElementId::NamedInteger("grid-rsz".into(), col_idx as u64))
-                            .absolute()
-                            .right(px(0.0))
-                            .top(px(0.0))
-                            .w(px(4.0))
-                            .h_full()
-                            .cursor(CursorStyle::ResizeLeftRight)
-                            .hover(|s| s.bg(theme.tokens.primary.opacity(0.5)))
-                            .on_mouse_down(
-                                MouseButton::Left,
-                                move |event: &MouseDownEvent, _, cx| {
-                                    cx.stop_propagation();
-                                    st.update(cx, |s, scx| {
-                                        s.resizing_column = Some(col_idx);
-                                        s.resize_start_x = event.position.x.into();
-                                        s.resize_start_width = col_width;
-                                        scx.notify();
-                                    });
-                                },
-                            ),
+                        column_resize_handle(
+                            theme.tokens.primary.opacity(0.5),
+                            move |event: &MouseDownEvent, _, cx| {
+                                cx.stop_propagation();
+                                st.update(cx, |s, scx| {
+                                    s.resizing_column = Some(col_idx);
+                                    s.resize_start_x = event.position.x.into();
+                                    s.resize_start_width = col_width;
+                                    scx.notify();
+                                });
+                            },
+                        )
+                        .id(ElementId::NamedInteger("grid-rsz".into(), col_idx as u64)),
                     )
                 } else {
                     with_sort
@@ -620,30 +561,58 @@ impl<T: 'static> RenderOnce for DataGrid<T> {
             .min_w(total_width_px)
             .children(header_cells);
 
-        let body_rows: Vec<AnyElement> = all_cells
-            .into_iter()
-            .enumerate()
-            .map(|(row_idx, cell_contents)| {
+        let body_rows: Vec<AnyElement> = (0..num_rows)
+            .map(|row_idx| {
                 let row_bg = if striped && row_idx % 2 == 1 {
                     theme.tokens.muted.opacity(0.3)
                 } else {
                     theme.tokens.background
                 };
 
-                let cells: Vec<AnyElement> = cell_contents
-                    .into_iter()
-                    .enumerate()
-                    .map(|(col_idx, content)| {
+                let cells: Vec<AnyElement> = (0..num_cols)
+                    .map(|col_idx| {
                         let width = col_infos[col_idx].width;
                         let is_editing = editing
                             .as_ref()
                             .is_some_and(|p| p.row == row_idx && p.col == col_idx);
                         let is_editable = col_infos[col_idx].editable;
 
+                        let content: AnyElement = if is_editing {
+                            let editor = &state.columns[col_idx].editor;
+                            let edit_display = match editor {
+                                CellEditor::Checkbox => {
+                                    if DataGridState::<T>::is_truthy(&edit_val) {
+                                        "☑"
+                                    } else {
+                                        "☐"
+                                    }
+                                }
+                                CellEditor::Text | CellEditor::Number | CellEditor::Custom => "",
+                            };
+                            let value = if edit_display.is_empty() {
+                                format!("{}|", edit_val)
+                            } else {
+                                edit_display.to_string()
+                            };
+                            div()
+                                .flex()
+                                .items_center()
+                                .size_full()
+                                .text_size(px(13.0))
+                                .text_color(theme.tokens.foreground)
+                                .child(value)
+                                .into_any_element()
+                        } else {
+                            (state.columns[col_idx].cell_renderer)(&state.data[row_idx], row_idx)
+                        };
+
                         let mut cell = div()
+                            // Row and column are encoded separately so wide
+                            // grids cannot collide the way the previous
+                            // `row_idx * 10000 + col_idx` packing could.
                             .id(ElementId::NamedInteger(
-                                "grid-cell".into(),
-                                (row_idx * 10000 + col_idx) as u64,
+                                format!("grid-cell-{}", row_idx).into(),
+                                col_idx as u64,
                             ))
                             .flex()
                             .items_center()

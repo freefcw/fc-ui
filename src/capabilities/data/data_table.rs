@@ -2,6 +2,9 @@
 
 use crate::capabilities::controls::input::{Input, InputSize, InputState};
 use crate::capabilities::controls::select::{Select, SelectEvent, SelectOption};
+use crate::capabilities::data::table_common::{
+    column_resize_handle, compare_cell_values, sortable_header_content, HeaderSortState,
+};
 use crate::capabilities::foundation::theme::use_theme;
 use crate::capabilities::primitives::icon_source::IconSource;
 use crate::capabilities::scroll::uniform_virtual_list::vlist_uniform_view;
@@ -273,12 +276,7 @@ impl<T: Clone + 'static> DataTableState<T> {
             .collect();
 
         indexed_values.sort_by(|(_, a), (_, b)| {
-            let ordering = match (a.parse::<f64>(), b.parse::<f64>()) {
-                (Ok(number_a), Ok(number_b)) => number_a
-                    .partial_cmp(&number_b)
-                    .unwrap_or(std::cmp::Ordering::Equal),
-                _ => a.cmp(b),
-            };
+            let ordering = compare_cell_values(a, b);
             match direction {
                 SortDirection::Ascending => ordering,
                 SortDirection::Descending => ordering.reverse(),
@@ -1031,21 +1029,18 @@ impl<T: Clone + 'static> DataTable<T> {
                             style
                         }
                     })
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(8.0))
-                            .child(column.header.clone())
-                            .when(is_sorted, |el| {
-                                el.child(div().text_size(px(10.0)).child(
-                                    match self.state.sort_direction {
-                                        SortDirection::Ascending => "▲",
-                                        SortDirection::Descending => "▼",
-                                    },
-                                ))
-                            }),
-                    );
+                    .child(sortable_header_content(
+                        column.header.clone(),
+                        if is_sorted {
+                            match self.state.sort_direction {
+                                SortDirection::Ascending => HeaderSortState::Ascending,
+                                SortDirection::Descending => HeaderSortState::Descending,
+                            }
+                        } else {
+                            HeaderSortState::None
+                        },
+                        px(8.0),
+                    ));
 
                 if sortable {
                     header_cell = header_cell.on_mouse_down(
@@ -1080,27 +1075,16 @@ impl<T: Clone + 'static> DataTable<T> {
                 }
 
                 header_cell = header_cell.when(column.resizable, |el| {
-                    el.child(
-                        div()
-                            .w(px(4.0))
-                            .h_full()
-                            .absolute()
-                            .right(px(0.0))
-                            .top(px(0.0))
-                            .cursor(CursorStyle::ResizeLeftRight)
-                            .bg(gpui::transparent_black())
-                            .hover(|style| style.bg(theme.tokens.primary.opacity(0.5)))
-                            .on_mouse_down(
-                                MouseButton::Left,
-                                cx.listener(move |this, event: &MouseDownEvent, _window, cx| {
-                                    cx.stop_propagation();
-                                    this.resizing_column = Some(col_idx);
-                                    this.resize_start_x = event.position.x.into();
-                                    this.resize_start_width = this.state.column_widths[col_idx];
-                                    cx.notify();
-                                }),
-                            ),
-                    )
+                    el.child(column_resize_handle(
+                        theme.tokens.primary.opacity(0.5),
+                        cx.listener(move |this, event: &MouseDownEvent, _window, cx| {
+                            cx.stop_propagation();
+                            this.resizing_column = Some(col_idx);
+                            this.resize_start_x = event.position.x.into();
+                            this.resize_start_width = this.state.column_widths[col_idx];
+                            cx.notify();
+                        }),
+                    ))
                 });
 
                 header_cell
