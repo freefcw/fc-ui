@@ -100,6 +100,34 @@ impl Default for ThemeTokens {
     }
 }
 
+/// The per-theme semantic palette: the color fields are the only values that
+/// actually differ between the built-in presets. All shared layout
+/// boilerplate (radius scale, shadow geometry, ring offset, transition
+/// durations, fonts, spacing/typography scales) lives in
+/// [`ThemeTokens::from_colors`].
+#[derive(Clone, Debug)]
+struct ThemeColors {
+    background: Hsla,
+    foreground: Hsla,
+    card: Hsla,
+    card_foreground: Hsla,
+    popover: Hsla,
+    popover_foreground: Hsla,
+    muted: Hsla,
+    muted_foreground: Hsla,
+    accent: Hsla,
+    accent_foreground: Hsla,
+    primary: Hsla,
+    primary_foreground: Hsla,
+    secondary: Hsla,
+    secondary_foreground: Hsla,
+    destructive: Hsla,
+    destructive_foreground: Hsla,
+    border: Hsla,
+    input: Hsla,
+    ring: Hsla,
+}
+
 impl ThemeTokens {
     fn standard_spacing_duration_z() -> (
         Pixels,
@@ -220,27 +248,39 @@ impl ThemeTokens {
         self
     }
 
-    pub fn light() -> Self {
+    /// Assemble a theme from its palette, carrying every piece of layout
+    /// boilerplate shared by all built-in presets: the default radius scale
+    /// (4/6/8/12), the shared shadow geometry with the standard alpha ramp
+    /// (0.15/0.2/0.15/0.15/0.15), ring offset, transition durations, fonts,
+    /// and the standard spacing/duration/z-index/typography scales via
+    /// `apply_standard`.
+    ///
+    /// The standard-scale fields are zero-filled rather than filled via
+    /// `..Default::default()` because `Default` routes through `light()`,
+    /// which itself goes through this constructor (a struct-update tail
+    /// would recurse infinitely). `apply_standard` overwrites every zeroed
+    /// field afterwards, so the resulting values are identical.
+    fn from_colors(colors: ThemeColors) -> Self {
         Self {
-            background: rgb(0xffffff).into(),
-            foreground: rgb(0x0a0a0a).into(),
-            card: rgb(0xffffff).into(),
-            card_foreground: rgb(0x0a0a0a).into(),
-            popover: rgb(0xffffff).into(),
-            popover_foreground: rgb(0x0a0a0a).into(),
-            muted: rgb(0xf5f5f5).into(),
-            muted_foreground: rgb(0x737373).into(),
-            accent: rgb(0xf5f5f5).into(),
-            accent_foreground: rgb(0x0a0a0a).into(),
-            primary: rgb(0x000000).into(),
-            primary_foreground: rgb(0xffffff).into(),
-            secondary: rgb(0xf5f5f5).into(),
-            secondary_foreground: rgb(0x0a0a0a).into(),
-            destructive: rgb(0xef4444).into(),
-            destructive_foreground: rgb(0xffffff).into(),
-            border: rgb(0xe5e5e5).into(),
-            input: rgb(0xe5e5e5).into(),
-            ring: rgb(0xd4d4d8).into(),
+            background: colors.background,
+            foreground: colors.foreground,
+            card: colors.card,
+            card_foreground: colors.card_foreground,
+            popover: colors.popover,
+            popover_foreground: colors.popover_foreground,
+            muted: colors.muted,
+            muted_foreground: colors.muted_foreground,
+            accent: colors.accent,
+            accent_foreground: colors.accent_foreground,
+            primary: colors.primary,
+            primary_foreground: colors.primary_foreground,
+            secondary: colors.secondary,
+            secondary_foreground: colors.secondary_foreground,
+            destructive: colors.destructive,
+            destructive_foreground: colors.destructive_foreground,
+            border: colors.border,
+            input: colors.input,
+            ring: colors.ring,
 
             radius_sm: px(4.0),
             radius_md: px(6.0),
@@ -252,43 +292,41 @@ impl ThemeTokens {
                 blur_radius: px(2.0),
                 spread_radius: px(0.0),
                 inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.05),
+                color: hsla(0.0, 0.0, 0.0, 0.15),
             },
             shadow_sm: BoxShadow {
                 offset: point(px(0.0), px(1.0)),
                 blur_radius: px(3.0),
                 spread_radius: px(0.0),
                 inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.1),
+                color: hsla(0.0, 0.0, 0.0, 0.2),
             },
             shadow_md: BoxShadow {
                 offset: point(px(0.0), px(4.0)),
                 blur_radius: px(6.0),
                 spread_radius: px(-1.0),
                 inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.1),
+                color: hsla(0.0, 0.0, 0.0, 0.15),
             },
             shadow_lg: BoxShadow {
                 offset: point(px(0.0), px(10.0)),
                 blur_radius: px(15.0),
                 spread_radius: px(-3.0),
                 inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.1),
+                color: hsla(0.0, 0.0, 0.0, 0.15),
             },
             shadow_xl: BoxShadow {
                 offset: point(px(0.0), px(20.0)),
                 blur_radius: px(25.0),
                 spread_radius: px(-5.0),
                 inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.1),
+                color: hsla(0.0, 0.0, 0.0, 0.15),
             },
 
             ring_offset: px(2.0),
-
             transition_fast: Duration::from_millis(150),
             transition_base: Duration::from_millis(200),
             transition_slow: Duration::from_millis(300),
-
             font_family: UI_FONT_FAMILY.into(),
             font_mono: UI_MONO_FONT_FAMILY.into(),
 
@@ -333,8 +371,55 @@ impl ThemeTokens {
         .apply_standard()
     }
 
+    /// Override the default radius scale (the pastel themes round their
+    /// corners more than the default 4/6/8/12 scale).
+    fn with_radius_scale(mut self, sm: f32, md: f32, lg: f32, xl: f32) -> Self {
+        self.radius_sm = px(sm);
+        self.radius_md = px(md);
+        self.radius_lg = px(lg);
+        self.radius_xl = px(xl);
+        self
+    }
+
+    /// Override the shared shadow alpha ramp (`light` and `dark` deviate
+    /// from the standard 0.15/0.2/0.15/0.15/0.15 ramp).
+    fn with_shadow_alphas(mut self, xs: f32, sm: f32, md: f32, lg: f32, xl: f32) -> Self {
+        self.shadow_xs.color = hsla(0.0, 0.0, 0.0, xs);
+        self.shadow_sm.color = hsla(0.0, 0.0, 0.0, sm);
+        self.shadow_md.color = hsla(0.0, 0.0, 0.0, md);
+        self.shadow_lg.color = hsla(0.0, 0.0, 0.0, lg);
+        self.shadow_xl.color = hsla(0.0, 0.0, 0.0, xl);
+        self
+    }
+
+    pub fn light() -> Self {
+        Self::from_colors(ThemeColors {
+            background: rgb(0xffffff).into(),
+            foreground: rgb(0x0a0a0a).into(),
+            card: rgb(0xffffff).into(),
+            card_foreground: rgb(0x0a0a0a).into(),
+            popover: rgb(0xffffff).into(),
+            popover_foreground: rgb(0x0a0a0a).into(),
+            muted: rgb(0xf5f5f5).into(),
+            muted_foreground: rgb(0x737373).into(),
+            accent: rgb(0xf5f5f5).into(),
+            accent_foreground: rgb(0x0a0a0a).into(),
+            primary: rgb(0x000000).into(),
+            primary_foreground: rgb(0xffffff).into(),
+            secondary: rgb(0xf5f5f5).into(),
+            secondary_foreground: rgb(0x0a0a0a).into(),
+            destructive: rgb(0xef4444).into(),
+            destructive_foreground: rgb(0xffffff).into(),
+            border: rgb(0xe5e5e5).into(),
+            input: rgb(0xe5e5e5).into(),
+            ring: rgb(0xd4d4d8).into(),
+        })
+        // Light keeps much softer shadows than the shared ramp.
+        .with_shadow_alphas(0.05, 0.1, 0.1, 0.1, 0.1)
+    }
+
     pub fn dark() -> Self {
-        Self {
+        Self::from_colors(ThemeColors {
             background: rgb(0x000000).into(),
             foreground: rgb(0xf5f5f5).into(),
             card: rgb(0x0a0a0a).into(),
@@ -354,64 +439,13 @@ impl ThemeTokens {
             border: rgb(0x333333).into(),
             input: rgb(0x333333).into(),
             ring: rgb(0xffffff).into(),
-
-            radius_sm: px(4.0),
-            radius_md: px(6.0),
-            radius_lg: px(8.0),
-            radius_xl: px(12.0),
-
-            shadow_xs: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(2.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.5),
-            },
-            shadow_sm: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(3.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.6),
-            },
-            shadow_md: BoxShadow {
-                offset: point(px(0.0), px(4.0)),
-                blur_radius: px(6.0),
-                spread_radius: px(-1.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.7),
-            },
-            shadow_lg: BoxShadow {
-                offset: point(px(0.0), px(10.0)),
-                blur_radius: px(15.0),
-                spread_radius: px(-3.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.8),
-            },
-            shadow_xl: BoxShadow {
-                offset: point(px(0.0), px(20.0)),
-                blur_radius: px(25.0),
-                spread_radius: px(-5.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.9),
-            },
-
-            ring_offset: px(2.0),
-
-            transition_fast: Duration::from_millis(150),
-            transition_base: Duration::from_millis(200),
-            transition_slow: Duration::from_millis(300),
-
-            font_family: UI_FONT_FAMILY.into(),
-            font_mono: UI_MONO_FONT_FAMILY.into(),
-
-            ..Default::default()
-        }
-        .apply_standard()
+        })
+        // Dark deepens shadow alphas progressively for stronger depth.
+        .with_shadow_alphas(0.5, 0.6, 0.7, 0.8, 0.9)
     }
 
     pub fn midnight_blue() -> Self {
-        Self {
+        Self::from_colors(ThemeColors {
             background: rgb(0x0a0f14).into(), // Darker for better contrast
             foreground: rgb(0xe6edf3).into(),
             card: rgb(0x0f1419).into(),
@@ -431,64 +465,11 @@ impl ThemeTokens {
             border: rgb(0x21262d).into(),
             input: rgb(0x21262d).into(),
             ring: rgb(0x60a5fa).into(),
-
-            radius_sm: px(4.0),
-            radius_md: px(6.0),
-            radius_lg: px(8.0),
-            radius_xl: px(12.0),
-
-            shadow_xs: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(2.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_sm: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(3.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.2),
-            },
-            shadow_md: BoxShadow {
-                offset: point(px(0.0), px(4.0)),
-                blur_radius: px(6.0),
-                spread_radius: px(-1.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_lg: BoxShadow {
-                offset: point(px(0.0), px(10.0)),
-                blur_radius: px(15.0),
-                spread_radius: px(-3.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_xl: BoxShadow {
-                offset: point(px(0.0), px(20.0)),
-                blur_radius: px(25.0),
-                spread_radius: px(-5.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-
-            ring_offset: px(2.0),
-
-            transition_fast: Duration::from_millis(150),
-            transition_base: Duration::from_millis(200),
-            transition_slow: Duration::from_millis(300),
-
-            font_family: UI_FONT_FAMILY.into(),
-            font_mono: UI_MONO_FONT_FAMILY.into(),
-
-            ..Default::default()
-        }
-        .apply_standard()
+        })
     }
 
     pub fn forest_grove() -> Self {
-        Self {
+        Self::from_colors(ThemeColors {
             background: rgb(0x0a0e0b).into(), // Darker for contrast
             foreground: rgb(0xd4e5d4).into(),
             card: rgb(0x0f1410).into(),
@@ -508,64 +489,11 @@ impl ThemeTokens {
             border: rgb(0x1a2520).into(),
             input: rgb(0x1a2520).into(),
             ring: rgb(0x4ade80).into(),
-
-            radius_sm: px(4.0),
-            radius_md: px(6.0),
-            radius_lg: px(8.0),
-            radius_xl: px(12.0),
-
-            shadow_xs: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(2.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_sm: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(3.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.2),
-            },
-            shadow_md: BoxShadow {
-                offset: point(px(0.0), px(4.0)),
-                blur_radius: px(6.0),
-                spread_radius: px(-1.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_lg: BoxShadow {
-                offset: point(px(0.0), px(10.0)),
-                blur_radius: px(15.0),
-                spread_radius: px(-3.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_xl: BoxShadow {
-                offset: point(px(0.0), px(20.0)),
-                blur_radius: px(25.0),
-                spread_radius: px(-5.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-
-            ring_offset: px(2.0),
-
-            transition_fast: Duration::from_millis(150),
-            transition_base: Duration::from_millis(200),
-            transition_slow: Duration::from_millis(300),
-
-            font_family: UI_FONT_FAMILY.into(),
-            font_mono: UI_MONO_FONT_FAMILY.into(),
-
-            ..Default::default()
-        }
-        .apply_standard()
+        })
     }
 
     pub fn sunset_amber() -> Self {
-        Self {
+        Self::from_colors(ThemeColors {
             background: rgb(0x140a05).into(), // Much darker for contrast
             foreground: rgb(0xfef3c7).into(),
             card: rgb(0x1c0f08).into(),
@@ -585,64 +513,11 @@ impl ThemeTokens {
             border: rgb(0x3a2415).into(),
             input: rgb(0x3a2415).into(),
             ring: rgb(0xfbbf24).into(),
-
-            radius_sm: px(4.0),
-            radius_md: px(6.0),
-            radius_lg: px(8.0),
-            radius_xl: px(12.0),
-
-            shadow_xs: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(2.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_sm: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(3.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.2),
-            },
-            shadow_md: BoxShadow {
-                offset: point(px(0.0), px(4.0)),
-                blur_radius: px(6.0),
-                spread_radius: px(-1.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_lg: BoxShadow {
-                offset: point(px(0.0), px(10.0)),
-                blur_radius: px(15.0),
-                spread_radius: px(-3.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_xl: BoxShadow {
-                offset: point(px(0.0), px(20.0)),
-                blur_radius: px(25.0),
-                spread_radius: px(-5.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-
-            ring_offset: px(2.0),
-
-            transition_fast: Duration::from_millis(150),
-            transition_base: Duration::from_millis(200),
-            transition_slow: Duration::from_millis(300),
-
-            font_family: UI_FONT_FAMILY.into(),
-            font_mono: UI_MONO_FONT_FAMILY.into(),
-
-            ..Default::default()
-        }
-        .apply_standard()
+        })
     }
 
     pub fn ocean_breeze() -> Self {
-        Self {
+        Self::from_colors(ThemeColors {
             background: rgb(0x051018).into(), // Darker ocean depth
             foreground: rgb(0xe3f2fd).into(),
             card: rgb(0x0a1929).into(),
@@ -662,64 +537,11 @@ impl ThemeTokens {
             border: rgb(0x0f2638).into(),
             input: rgb(0x0f2638).into(),
             ring: rgb(0x22d3ee).into(),
-
-            radius_sm: px(4.0),
-            radius_md: px(6.0),
-            radius_lg: px(8.0),
-            radius_xl: px(12.0),
-
-            shadow_xs: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(2.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_sm: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(3.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.2),
-            },
-            shadow_md: BoxShadow {
-                offset: point(px(0.0), px(4.0)),
-                blur_radius: px(6.0),
-                spread_radius: px(-1.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_lg: BoxShadow {
-                offset: point(px(0.0), px(10.0)),
-                blur_radius: px(15.0),
-                spread_radius: px(-3.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_xl: BoxShadow {
-                offset: point(px(0.0), px(20.0)),
-                blur_radius: px(25.0),
-                spread_radius: px(-5.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-
-            ring_offset: px(2.0),
-
-            transition_fast: Duration::from_millis(150),
-            transition_base: Duration::from_millis(200),
-            transition_slow: Duration::from_millis(300),
-
-            font_family: UI_FONT_FAMILY.into(),
-            font_mono: UI_MONO_FONT_FAMILY.into(),
-
-            ..Default::default()
-        }
-        .apply_standard()
+        })
     }
 
     pub fn dracula() -> Self {
-        Self {
+        Self::from_colors(ThemeColors {
             background: rgb(0x1e1f29).into(), // Darker Dracula
             foreground: rgb(0xf8f8f2).into(),
             card: rgb(0x282a36).into(),
@@ -739,64 +561,11 @@ impl ThemeTokens {
             border: rgb(0x3a3c4e).into(),
             input: rgb(0x3a3c4e).into(),
             ring: rgb(0xc9a9ff).into(),
-
-            radius_sm: px(4.0),
-            radius_md: px(6.0),
-            radius_lg: px(8.0),
-            radius_xl: px(12.0),
-
-            shadow_xs: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(2.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_sm: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(3.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.2),
-            },
-            shadow_md: BoxShadow {
-                offset: point(px(0.0), px(4.0)),
-                blur_radius: px(6.0),
-                spread_radius: px(-1.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_lg: BoxShadow {
-                offset: point(px(0.0), px(10.0)),
-                blur_radius: px(15.0),
-                spread_radius: px(-3.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_xl: BoxShadow {
-                offset: point(px(0.0), px(20.0)),
-                blur_radius: px(25.0),
-                spread_radius: px(-5.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-
-            ring_offset: px(2.0),
-
-            transition_fast: Duration::from_millis(150),
-            transition_base: Duration::from_millis(200),
-            transition_slow: Duration::from_millis(300),
-
-            font_family: UI_FONT_FAMILY.into(),
-            font_mono: UI_MONO_FONT_FAMILY.into(),
-
-            ..Default::default()
-        }
-        .apply_standard()
+        })
     }
 
     pub fn nord() -> Self {
-        Self {
+        Self::from_colors(ThemeColors {
             background: rgb(0x242933).into(), // Darker Nord
             foreground: rgb(0xeceff4).into(),
             card: rgb(0x2e3440).into(),
@@ -816,64 +585,11 @@ impl ThemeTokens {
             border: rgb(0x3b4252).into(),
             input: rgb(0x3b4252).into(),
             ring: rgb(0x8fbcbb).into(),
-
-            radius_sm: px(4.0),
-            radius_md: px(6.0),
-            radius_lg: px(8.0),
-            radius_xl: px(12.0),
-
-            shadow_xs: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(2.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_sm: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(3.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.2),
-            },
-            shadow_md: BoxShadow {
-                offset: point(px(0.0), px(4.0)),
-                blur_radius: px(6.0),
-                spread_radius: px(-1.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_lg: BoxShadow {
-                offset: point(px(0.0), px(10.0)),
-                blur_radius: px(15.0),
-                spread_radius: px(-3.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_xl: BoxShadow {
-                offset: point(px(0.0), px(20.0)),
-                blur_radius: px(25.0),
-                spread_radius: px(-5.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-
-            ring_offset: px(2.0),
-
-            transition_fast: Duration::from_millis(150),
-            transition_base: Duration::from_millis(200),
-            transition_slow: Duration::from_millis(300),
-
-            font_family: UI_FONT_FAMILY.into(),
-            font_mono: UI_MONO_FONT_FAMILY.into(),
-
-            ..Default::default()
-        }
-        .apply_standard()
+        })
     }
 
     pub fn monokai_pro() -> Self {
-        Self {
+        Self::from_colors(ThemeColors {
             background: rgb(0x221f22).into(), // Darker Monokai
             foreground: rgb(0xfcfcfa).into(),
             card: rgb(0x2d2a2e).into(),
@@ -893,64 +609,11 @@ impl ThemeTokens {
             border: rgb(0x403e41).into(),
             input: rgb(0x403e41).into(),
             ring: rgb(0xffe66d).into(),
-
-            radius_sm: px(4.0),
-            radius_md: px(6.0),
-            radius_lg: px(8.0),
-            radius_xl: px(12.0),
-
-            shadow_xs: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(2.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_sm: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(3.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.2),
-            },
-            shadow_md: BoxShadow {
-                offset: point(px(0.0), px(4.0)),
-                blur_radius: px(6.0),
-                spread_radius: px(-1.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_lg: BoxShadow {
-                offset: point(px(0.0), px(10.0)),
-                blur_radius: px(15.0),
-                spread_radius: px(-3.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_xl: BoxShadow {
-                offset: point(px(0.0), px(20.0)),
-                blur_radius: px(25.0),
-                spread_radius: px(-5.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-
-            ring_offset: px(2.0),
-
-            transition_fast: Duration::from_millis(150),
-            transition_base: Duration::from_millis(200),
-            transition_slow: Duration::from_millis(300),
-
-            font_family: UI_FONT_FAMILY.into(),
-            font_mono: UI_MONO_FONT_FAMILY.into(),
-
-            ..Default::default()
-        }
-        .apply_standard()
+        })
     }
 
     pub fn tokyo_night() -> Self {
-        Self {
+        Self::from_colors(ThemeColors {
             background: rgb(0x16161e).into(), // Darker Tokyo Night
             foreground: rgb(0xc0caf5).into(),
             card: rgb(0x1a1b26).into(),
@@ -970,64 +633,11 @@ impl ThemeTokens {
             border: rgb(0x292e42).into(),
             input: rgb(0x292e42).into(),
             ring: rgb(0x7dcfff).into(),
-
-            radius_sm: px(4.0),
-            radius_md: px(6.0),
-            radius_lg: px(8.0),
-            radius_xl: px(12.0),
-
-            shadow_xs: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(2.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_sm: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(3.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.2),
-            },
-            shadow_md: BoxShadow {
-                offset: point(px(0.0), px(4.0)),
-                blur_radius: px(6.0),
-                spread_radius: px(-1.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_lg: BoxShadow {
-                offset: point(px(0.0), px(10.0)),
-                blur_radius: px(15.0),
-                spread_radius: px(-3.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_xl: BoxShadow {
-                offset: point(px(0.0), px(20.0)),
-                blur_radius: px(25.0),
-                spread_radius: px(-5.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-
-            ring_offset: px(2.0),
-
-            transition_fast: Duration::from_millis(150),
-            transition_base: Duration::from_millis(200),
-            transition_slow: Duration::from_millis(300),
-
-            font_family: UI_FONT_FAMILY.into(),
-            font_mono: UI_MONO_FONT_FAMILY.into(),
-
-            ..Default::default()
-        }
-        .apply_standard()
+        })
     }
 
     pub fn catppuccin_mocha() -> Self {
-        Self {
+        Self::from_colors(ThemeColors {
             background: rgb(0x181825).into(), // Darker Catppuccin
             foreground: rgb(0xcdd6f4).into(),
             card: rgb(0x1e1e2e).into(),
@@ -1047,64 +657,11 @@ impl ThemeTokens {
             border: rgb(0x313244).into(),
             input: rgb(0x313244).into(),
             ring: rgb(0x89b4fa).into(),
-
-            radius_sm: px(4.0),
-            radius_md: px(6.0),
-            radius_lg: px(8.0),
-            radius_xl: px(12.0),
-
-            shadow_xs: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(2.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_sm: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(3.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.2),
-            },
-            shadow_md: BoxShadow {
-                offset: point(px(0.0), px(4.0)),
-                blur_radius: px(6.0),
-                spread_radius: px(-1.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_lg: BoxShadow {
-                offset: point(px(0.0), px(10.0)),
-                blur_radius: px(15.0),
-                spread_radius: px(-3.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_xl: BoxShadow {
-                offset: point(px(0.0), px(20.0)),
-                blur_radius: px(25.0),
-                spread_radius: px(-5.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-
-            ring_offset: px(2.0),
-
-            transition_fast: Duration::from_millis(150),
-            transition_base: Duration::from_millis(200),
-            transition_slow: Duration::from_millis(300),
-
-            font_family: UI_FONT_FAMILY.into(),
-            font_mono: UI_MONO_FONT_FAMILY.into(),
-
-            ..Default::default()
-        }
-        .apply_standard()
+        })
     }
 
     pub fn rose_pine() -> Self {
-        Self {
+        Self::from_colors(ThemeColors {
             background: rgb(0x131019).into(), // Darker Rose Pine
             foreground: rgb(0xe0def4).into(),
             card: rgb(0x191724).into(),
@@ -1124,64 +681,11 @@ impl ThemeTokens {
             border: rgb(0x26233a).into(),
             input: rgb(0x26233a).into(),
             ring: rgb(0xc4a7e7).into(),
-
-            radius_sm: px(4.0),
-            radius_md: px(6.0),
-            radius_lg: px(8.0),
-            radius_xl: px(12.0),
-
-            shadow_xs: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(2.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_sm: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(3.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.2),
-            },
-            shadow_md: BoxShadow {
-                offset: point(px(0.0), px(4.0)),
-                blur_radius: px(6.0),
-                spread_radius: px(-1.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_lg: BoxShadow {
-                offset: point(px(0.0), px(10.0)),
-                blur_radius: px(15.0),
-                spread_radius: px(-3.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_xl: BoxShadow {
-                offset: point(px(0.0), px(20.0)),
-                blur_radius: px(25.0),
-                spread_radius: px(-5.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-
-            ring_offset: px(2.0),
-
-            transition_fast: Duration::from_millis(150),
-            transition_base: Duration::from_millis(200),
-            transition_slow: Duration::from_millis(300),
-
-            font_family: UI_FONT_FAMILY.into(),
-            font_mono: UI_MONO_FONT_FAMILY.into(),
-
-            ..Default::default()
-        }
-        .apply_standard()
+        })
     }
 
     pub fn coral_reef() -> Self {
-        Self {
+        Self::from_colors(ThemeColors {
             background: rgb(0xFFFBF8).into(), // Soft cream background
             foreground: rgb(0x2D3748).into(), // Dark slate text
             card: rgb(0xFFFFFF).into(),       // Pure white cards
@@ -1201,64 +705,13 @@ impl ThemeTokens {
             border: rgb(0xFFD4C2).into(), // Soft coral border
             input: rgb(0xFFE4D6).into(),
             ring: rgb(0xFF6B6B).into(), // Coral ring
-
-            radius_sm: px(6.0),
-            radius_md: px(8.0),
-            radius_lg: px(12.0),
-            radius_xl: px(12.0),
-
-            shadow_xs: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(2.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_sm: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(3.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.2),
-            },
-            shadow_md: BoxShadow {
-                offset: point(px(0.0), px(4.0)),
-                blur_radius: px(6.0),
-                spread_radius: px(-1.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_lg: BoxShadow {
-                offset: point(px(0.0), px(10.0)),
-                blur_radius: px(15.0),
-                spread_radius: px(-3.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_xl: BoxShadow {
-                offset: point(px(0.0), px(20.0)),
-                blur_radius: px(25.0),
-                spread_radius: px(-5.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-
-            ring_offset: px(2.0),
-
-            transition_fast: Duration::from_millis(150),
-            transition_base: Duration::from_millis(200),
-            transition_slow: Duration::from_millis(300),
-
-            font_family: UI_FONT_FAMILY.into(),
-            font_mono: UI_MONO_FONT_FAMILY.into(),
-
-            ..Default::default()
-        }
-        .apply_standard()
+        })
+        // Pastel themes use a rounder radius scale than the default 4/6/8/12.
+        .with_radius_scale(6.0, 8.0, 12.0, 12.0)
     }
 
     pub fn lavender_dreams() -> Self {
-        Self {
+        Self::from_colors(ThemeColors {
             background: rgb(0xF8F7FF).into(), // Soft lavender white
             foreground: rgb(0x2D2A3D).into(), // Deep purple-gray
             card: rgb(0xFFFFFF).into(),       // Pure white
@@ -1278,64 +731,13 @@ impl ThemeTokens {
             border: rgb(0xD6CEFF).into(), // Lavender border
             input: rgb(0xE8E3FF).into(),
             ring: rgb(0x9F7AEA).into(), // Lavender ring
-
-            radius_sm: px(6.0),
-            radius_md: px(8.0),
-            radius_lg: px(12.0),
-            radius_xl: px(12.0),
-
-            shadow_xs: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(2.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_sm: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(3.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.2),
-            },
-            shadow_md: BoxShadow {
-                offset: point(px(0.0), px(4.0)),
-                blur_radius: px(6.0),
-                spread_radius: px(-1.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_lg: BoxShadow {
-                offset: point(px(0.0), px(10.0)),
-                blur_radius: px(15.0),
-                spread_radius: px(-3.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_xl: BoxShadow {
-                offset: point(px(0.0), px(20.0)),
-                blur_radius: px(25.0),
-                spread_radius: px(-5.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-
-            ring_offset: px(2.0),
-
-            transition_fast: Duration::from_millis(150),
-            transition_base: Duration::from_millis(200),
-            transition_slow: Duration::from_millis(300),
-
-            font_family: UI_FONT_FAMILY.into(),
-            font_mono: UI_MONO_FONT_FAMILY.into(),
-
-            ..Default::default()
-        }
-        .apply_standard()
+        })
+        // Pastel themes use a rounder radius scale than the default 4/6/8/12.
+        .with_radius_scale(6.0, 8.0, 12.0, 12.0)
     }
 
     pub fn mint_fresh() -> Self {
-        Self {
+        Self::from_colors(ThemeColors {
             background: rgb(0xF7FDFB).into(), // Mint-tinted white
             foreground: rgb(0x1A4D3C).into(), // Forest green text
             card: rgb(0xFFFFFF).into(),       // Pure white
@@ -1355,64 +757,13 @@ impl ThemeTokens {
             border: rgb(0xB8EBD9).into(), // Mint border
             input: rgb(0xD4F4E8).into(),
             ring: rgb(0x38B2AC).into(), // Teal ring
-
-            radius_sm: px(6.0),
-            radius_md: px(8.0),
-            radius_lg: px(12.0),
-            radius_xl: px(12.0),
-
-            shadow_xs: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(2.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_sm: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(3.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.2),
-            },
-            shadow_md: BoxShadow {
-                offset: point(px(0.0), px(4.0)),
-                blur_radius: px(6.0),
-                spread_radius: px(-1.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_lg: BoxShadow {
-                offset: point(px(0.0), px(10.0)),
-                blur_radius: px(15.0),
-                spread_radius: px(-3.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_xl: BoxShadow {
-                offset: point(px(0.0), px(20.0)),
-                blur_radius: px(25.0),
-                spread_radius: px(-5.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-
-            ring_offset: px(2.0),
-
-            transition_fast: Duration::from_millis(150),
-            transition_base: Duration::from_millis(200),
-            transition_slow: Duration::from_millis(300),
-
-            font_family: UI_FONT_FAMILY.into(),
-            font_mono: UI_MONO_FONT_FAMILY.into(),
-
-            ..Default::default()
-        }
-        .apply_standard()
+        })
+        // Pastel themes use a rounder radius scale than the default 4/6/8/12.
+        .with_radius_scale(6.0, 8.0, 12.0, 12.0)
     }
 
     pub fn peachy_keen() -> Self {
-        Self {
+        Self::from_colors(ThemeColors {
             background: rgb(0xFFFAF5).into(), // Warm cream
             foreground: rgb(0x3D2817).into(), // Dark brown
             card: rgb(0xFFFFFF).into(),       // Pure white
@@ -1432,64 +783,13 @@ impl ThemeTokens {
             border: rgb(0xFFD9B3).into(), // Peach border
             input: rgb(0xFFE4CC).into(),
             ring: rgb(0xFF9966).into(), // Peach ring
-
-            radius_sm: px(6.0),
-            radius_md: px(8.0),
-            radius_lg: px(12.0),
-            radius_xl: px(12.0),
-
-            shadow_xs: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(2.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_sm: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(3.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.2),
-            },
-            shadow_md: BoxShadow {
-                offset: point(px(0.0), px(4.0)),
-                blur_radius: px(6.0),
-                spread_radius: px(-1.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_lg: BoxShadow {
-                offset: point(px(0.0), px(10.0)),
-                blur_radius: px(15.0),
-                spread_radius: px(-3.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_xl: BoxShadow {
-                offset: point(px(0.0), px(20.0)),
-                blur_radius: px(25.0),
-                spread_radius: px(-5.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-
-            ring_offset: px(2.0),
-
-            transition_fast: Duration::from_millis(150),
-            transition_base: Duration::from_millis(200),
-            transition_slow: Duration::from_millis(300),
-
-            font_family: UI_FONT_FAMILY.into(),
-            font_mono: UI_MONO_FONT_FAMILY.into(),
-
-            ..Default::default()
-        }
-        .apply_standard()
+        })
+        // Pastel themes use a rounder radius scale than the default 4/6/8/12.
+        .with_radius_scale(6.0, 8.0, 12.0, 12.0)
     }
 
     pub fn sky_blue() -> Self {
-        Self {
+        Self::from_colors(ThemeColors {
             background: rgb(0xF7FAFD).into(), // Sky-tinted white
             foreground: rgb(0x1E3A5F).into(), // Deep blue text
             card: rgb(0xFFFFFF).into(),       // Pure white
@@ -1509,64 +809,13 @@ impl ThemeTokens {
             border: rgb(0x90CAF9).into(), // Sky blue border
             input: rgb(0xBBDEFB).into(),
             ring: rgb(0x2196F3).into(), // Blue ring
-
-            radius_sm: px(6.0),
-            radius_md: px(8.0),
-            radius_lg: px(12.0),
-            radius_xl: px(12.0),
-
-            shadow_xs: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(2.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_sm: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(3.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.2),
-            },
-            shadow_md: BoxShadow {
-                offset: point(px(0.0), px(4.0)),
-                blur_radius: px(6.0),
-                spread_radius: px(-1.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_lg: BoxShadow {
-                offset: point(px(0.0), px(10.0)),
-                blur_radius: px(15.0),
-                spread_radius: px(-3.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_xl: BoxShadow {
-                offset: point(px(0.0), px(20.0)),
-                blur_radius: px(25.0),
-                spread_radius: px(-5.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-
-            ring_offset: px(2.0),
-
-            transition_fast: Duration::from_millis(150),
-            transition_base: Duration::from_millis(200),
-            transition_slow: Duration::from_millis(300),
-
-            font_family: UI_FONT_FAMILY.into(),
-            font_mono: UI_MONO_FONT_FAMILY.into(),
-
-            ..Default::default()
-        }
-        .apply_standard()
+        })
+        // Pastel themes use a rounder radius scale than the default 4/6/8/12.
+        .with_radius_scale(6.0, 8.0, 12.0, 12.0)
     }
 
     pub fn cherry_blossom() -> Self {
-        Self {
+        Self::from_colors(ThemeColors {
             background: rgb(0xFFF8FB).into(), // Soft pink-white
             foreground: rgb(0x4A1942).into(), // Deep magenta text
             card: rgb(0xFFFFFF).into(),       // Pure white
@@ -1586,60 +835,9 @@ impl ThemeTokens {
             border: rgb(0xFFB3D9).into(), // Pink border
             input: rgb(0xFFD6ED).into(),
             ring: rgb(0xE91E63).into(), // Pink ring
-
-            radius_sm: px(6.0),
-            radius_md: px(8.0),
-            radius_lg: px(12.0),
-            radius_xl: px(12.0),
-
-            shadow_xs: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(2.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_sm: BoxShadow {
-                offset: point(px(0.0), px(1.0)),
-                blur_radius: px(3.0),
-                spread_radius: px(0.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.2),
-            },
-            shadow_md: BoxShadow {
-                offset: point(px(0.0), px(4.0)),
-                blur_radius: px(6.0),
-                spread_radius: px(-1.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_lg: BoxShadow {
-                offset: point(px(0.0), px(10.0)),
-                blur_radius: px(15.0),
-                spread_radius: px(-3.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-            shadow_xl: BoxShadow {
-                offset: point(px(0.0), px(20.0)),
-                blur_radius: px(25.0),
-                spread_radius: px(-5.0),
-                inset: false,
-                color: hsla(0.0, 0.0, 0.0, 0.15),
-            },
-
-            ring_offset: px(2.0),
-
-            transition_fast: Duration::from_millis(150),
-            transition_base: Duration::from_millis(200),
-            transition_slow: Duration::from_millis(300),
-
-            font_family: UI_FONT_FAMILY.into(),
-            font_mono: UI_MONO_FONT_FAMILY.into(),
-
-            ..Default::default()
-        }
-        .apply_standard()
+        })
+        // Pastel themes use a rounder radius scale than the default 4/6/8/12.
+        .with_radius_scale(6.0, 8.0, 12.0, 12.0)
     }
 }
 
@@ -1818,8 +1016,109 @@ mod tests {
     // Precise imports instead of `super::*`: the parent module glob-imports
     // gpui, whose `test` attribute would clash with the built-in `#[test]`.
     use super::ThemeTokens;
-    use gpui::px;
+    use gpui::{hsla, px, rgb};
+    use std::hash::{DefaultHasher, Hash, Hasher};
     use std::time::Duration;
+
+    fn all_presets() -> Vec<(&'static str, ThemeTokens)> {
+        vec![
+            ("light", ThemeTokens::light()),
+            ("dark", ThemeTokens::dark()),
+            ("midnight_blue", ThemeTokens::midnight_blue()),
+            ("forest_grove", ThemeTokens::forest_grove()),
+            ("sunset_amber", ThemeTokens::sunset_amber()),
+            ("ocean_breeze", ThemeTokens::ocean_breeze()),
+            ("dracula", ThemeTokens::dracula()),
+            ("nord", ThemeTokens::nord()),
+            ("monokai_pro", ThemeTokens::monokai_pro()),
+            ("tokyo_night", ThemeTokens::tokyo_night()),
+            ("catppuccin_mocha", ThemeTokens::catppuccin_mocha()),
+            ("rose_pine", ThemeTokens::rose_pine()),
+            ("coral_reef", ThemeTokens::coral_reef()),
+            ("lavender_dreams", ThemeTokens::lavender_dreams()),
+            ("mint_fresh", ThemeTokens::mint_fresh()),
+            ("peachy_keen", ThemeTokens::peachy_keen()),
+            ("sky_blue", ThemeTokens::sky_blue()),
+            ("cherry_blossom", ThemeTokens::cherry_blossom()),
+        ]
+    }
+
+    /// Snapshot pin for every built-in preset: the hash of each preset's full
+    /// `Debug` dump, captured from the original hand-written implementations
+    /// before the `ThemeColors`/`from_colors` deduplication. Any unintended
+    /// value change (colors, radii, shadows, fonts, standard scales) flips
+    /// these hashes.
+    #[test]
+    fn builtin_presets_match_pre_dedup_snapshot() {
+        let expected: &[(&str, u64)] = &[
+            ("light", 10332611607488849183),
+            ("dark", 5292556231501101943),
+            ("midnight_blue", 1299918561640074158),
+            ("forest_grove", 4492600042825894696),
+            ("sunset_amber", 6052826615392090877),
+            ("ocean_breeze", 480155831503056798),
+            ("dracula", 3659614463361202870),
+            ("nord", 2668927535458295308),
+            ("monokai_pro", 2640563079791418118),
+            ("tokyo_night", 2524486969009423554),
+            ("catppuccin_mocha", 10629814852853691613),
+            ("rose_pine", 17883578870390264051),
+            ("coral_reef", 11386974270970871980),
+            ("lavender_dreams", 5558545154672473516),
+            ("mint_fresh", 2007125707747193118),
+            ("peachy_keen", 14576202147330036692),
+            ("sky_blue", 2603255951079263824),
+            ("cherry_blossom", 4200224002738398383),
+        ];
+
+        for ((name, tokens), (expected_name, expected_hash)) in
+            all_presets().into_iter().zip(expected)
+        {
+            assert_eq!(name, *expected_name);
+            let mut hasher = DefaultHasher::new();
+            format!("{:?}", tokens).hash(&mut hasher);
+            assert_eq!(hasher.finish(), *expected_hash, "preset {name} changed");
+        }
+    }
+
+    /// Human-readable pin of the distinguishing non-color layout values:
+    /// `light`/`dark` keep the compact 4/6/8 radius scale while the pastel
+    /// themes use 6/8/12, and each of the three shadow-alpha ramps appears
+    /// in at least one asserted preset.
+    #[test]
+    fn preset_layout_overrides_match_originals() {
+        let light = ThemeTokens::light();
+        assert_eq!(light.primary, rgb(0x000000).into());
+        assert_eq!(light.radius_sm, px(4.0));
+        assert_eq!(light.radius_md, px(6.0));
+        assert_eq!(light.radius_lg, px(8.0));
+        assert_eq!(light.radius_xl, px(12.0));
+        assert_eq!(light.shadow_xs.color, hsla(0.0, 0.0, 0.0, 0.05));
+        assert_eq!(light.shadow_sm.color, hsla(0.0, 0.0, 0.0, 0.1));
+        assert_eq!(light.shadow_xl.color, hsla(0.0, 0.0, 0.0, 0.1));
+        assert_eq!(light.shadow_xl.blur_radius, px(25.0));
+        assert_eq!(light.ring_offset, px(2.0));
+        assert_eq!(light.transition_slow, Duration::from_millis(300));
+
+        let dark = ThemeTokens::dark();
+        assert_eq!(dark.primary, rgb(0xffffff).into());
+        assert_eq!(dark.radius_lg, px(8.0));
+        assert_eq!(dark.shadow_xs.color, hsla(0.0, 0.0, 0.0, 0.5));
+        assert_eq!(dark.shadow_sm.color, hsla(0.0, 0.0, 0.0, 0.6));
+        assert_eq!(dark.shadow_md.color, hsla(0.0, 0.0, 0.0, 0.7));
+        assert_eq!(dark.shadow_lg.color, hsla(0.0, 0.0, 0.0, 0.8));
+        assert_eq!(dark.shadow_xl.color, hsla(0.0, 0.0, 0.0, 0.9));
+
+        let coral = ThemeTokens::coral_reef();
+        assert_eq!(coral.primary, rgb(0xFF6B6B).into());
+        assert_eq!(coral.radius_sm, px(6.0));
+        assert_eq!(coral.radius_md, px(8.0));
+        assert_eq!(coral.radius_lg, px(12.0));
+        assert_eq!(coral.radius_xl, px(12.0));
+        assert_eq!(coral.shadow_xs.color, hsla(0.0, 0.0, 0.0, 0.15));
+        assert_eq!(coral.shadow_sm.color, hsla(0.0, 0.0, 0.0, 0.2));
+        assert_eq!(coral.shadow_md.color, hsla(0.0, 0.0, 0.0, 0.15));
+    }
 
     #[test]
     fn standard_tokens_match_shared_scale() {
