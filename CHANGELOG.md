@@ -7,6 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Shared internal foundations for previously duplicated implementations:
+  `EditCore` (text editing state machines), `overlay_shell` (focus guard,
+  dismiss timing, backdrops, menu panels), `chart_common`/`table_common`,
+  `PlaybackCore`, slider view specs, and `VirtualListCore` for uniform and
+  variable virtual lists.
+- `init_command_palette` now binds up/down/enter/escape for the command
+  palette, so the footer shortcut hints work by default; the palette focuses
+  its search input on open and confirms the selection on `InputEvent::Enter`.
+- `VariableVirtualList::invalidate_extents` to re-snapshot item extents after
+  content changes; extent snapshots are now taken lazily on first layout/query
+  instead of at construction.
+- Behavior tests for `BottomSheet` (Escape close, focus capture/restore,
+  backdrop dismissal) and expanded real-renderer visual smoke coverage for
+  charts and sliders.
+
+### Changed
+
+- `Input` no longer shows a green "Valid input" footer on blur when no
+  validation rules or validating input type are configured (mirrors the
+  documented `Textarea` gating).
+- `MentionInput` cursor/selection updates are clamped like `Input`/`Textarea`,
+  removing an out-of-bounds panic path.
+- `BottomSheet` gains Escape-to-close and focus capture/restore, matching
+  `Sheet` accessibility behavior.
+- `confirm_dialog::Dialog` is renamed to `DialogFrame`; the old name remains
+  as a deprecated alias until 0.10.
+- `ScrollPhysics` implementation moved from the `motion` capability to
+  `capabilities::scroll::physics`; the `fc_ui::scroll_physics` public path is
+  unchanged.
+- Removed the unused public `InputState::tab_index` field and the sidebar
+  actions `FocusNext`, `FocusPrevious`, and `ActivateItem` (breaking).
+- `DatePickerState` fields are now private with getters (`selected_date()`,
+  `selected_range()`, `is_open()`, …) and its mutators trigger re-render via
+  `cx.notify()`; direct field access is no longer supported (breaking).
+- `VideoPlayer` rendering is decomposed into private helpers (~718-line render
+  reduced); `Input::render` is split into sync/shake/aria/element phases.
+- Theme presets are built from a shared `from_colors` base (~700 lines of
+  duplicated boilerplate removed; preset output verified byte-identical).
+- Deprecated, never-honored APIs are now flagged: `ToolbarButton::tooltip`/
+  `StatusItem::tooltip` (never rendered), chart `Axis`/`Legend` position and
+  label builders, `TooltipState`/`show_delay`/`hide_delay`, `LoadingState::Loaded`,
+  `VideoPlaybackState::Buffering`, `ImageViewerSize`, and the unused
+  `navigation::menu::ContextMenu` constructor.
+
+### Fixed
+
+- Overlay exit timers keep weak references so a removed dialog cannot run a
+  stale close callback against its replacement.
+- `BottomSheet` restores the previous focus when unmounted programmatically,
+  while preserving focus explicitly moved to another control by the host.
+- Command palette Escape closes the palette while its search input is focused.
+- The legacy `OTPInputState` name continues to support importing enum variants.
+- `LineChart` and `AreaChart` retain their left-aligned legends after the shared
+  legend extraction.
+- Removed dead code: `InputState.tab_index`, image-viewer placeholder fields,
+  sidebar unreachable focus highlight, command palette `recent_commands`,
+  OTP/`hotkey_input` dead branches, and the double `fs::metadata` stat in file
+  upload validation.
+
 ## [0.9.7] - 2026-11-02
 
 ### Added
