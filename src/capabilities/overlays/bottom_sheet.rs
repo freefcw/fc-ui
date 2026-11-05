@@ -1,11 +1,59 @@
 //! Bottom sheet component for slide-up panels.
+//!
+//! Accessibility alignment: `BottomSheet` captures focus while mounted,
+//! restores the previously focused element on close, and closes on `Escape`
+//! through the `BottomSheet` key context, matching the behavior of
+//! [`super::sheet::Sheet`]. The public element stays a stateless
+//! `RenderOnce`; the focus state lives in an internal keyed entity.
 
 use gpui::{prelude::FluentBuilder as _, *};
 use std::rc::Rc;
 
 use crate::capabilities::foundation::theme::use_theme;
 use crate::capabilities::motion::animations::presets;
+use crate::capabilities::overlays::overlay_shell::{dismissible_backdrop, OverlayFocusGuard};
 use crate::capabilities::primitives::text::{Text, TextVariant};
+
+const BOTTOM_SHEET_CONTEXT: &str = "BottomSheet";
+
+actions!(bottom_sheet, [BottomSheetClose]);
+
+pub fn init_bottom_sheet(cx: &mut App) {
+    if !crate::capabilities::foundation::initialization::begin(cx, "bottom_sheet") {
+        return;
+    }
+    cx.bind_keys([KeyBinding::new(
+        "escape",
+        BottomSheetClose,
+        Some(BOTTOM_SHEET_CONTEXT),
+    )]);
+}
+
+/// Focus state backing the stateless [`BottomSheet`] element: the panel's
+/// focus handle plus the shared capture/restore guard. Lives as long as the
+/// sheet is mounted (keyed element state).
+struct BottomSheetFocusState {
+    focus_handle: FocusHandle,
+    guard: OverlayFocusGuard,
+}
+
+/// Keep the focus listener alive through the frame that removes the sheet.
+/// GPUI dispatches focus-lost events before releasing unused keyed state.
+struct BottomSheetMountState {
+    focus_state: Entity<BottomSheetFocusState>,
+}
+
+fn close_bottom_sheet(
+    focus_state: &Entity<BottomSheetFocusState>,
+    on_close: &Option<Rc<dyn Fn(&mut Window, &mut App)>>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    focus_state.update(cx, |state, cx| state.guard.restore_focus(window, cx));
+    if let Some(handler) = on_close.as_ref() {
+        handler(window, cx);
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum BottomSheetSize {
@@ -129,13 +177,57 @@ impl Styled for BottomSheet {
 }
 
 impl RenderOnce for BottomSheet {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = use_theme(cx);
         let has_header =
             self.title.is_some() || self.description.is_some() || self.actions.is_some();
         let sheet_height = self.get_sheet_height();
         let on_close = self.on_close.clone();
+        let close_on_backdrop_click = self.close_on_backdrop_click;
         let user_style = self.style;
+
+        let mount_state = window.use_keyed_state(
+            ElementId::Name("bottom-sheet-focus".into()),
+            cx,
+            |window, cx| {
+                let focus_state = cx.new(|cx| BottomSheetFocusState {
+                    focus_handle: cx.focus_handle(),
+                    guard: OverlayFocusGuard::new(),
+                });
+                cx.observe(&focus_state, |_, _, cx| cx.notify()).detach();
+                cx.on_release_in(window, |mount: &mut BottomSheetMountState, window, cx| {
+                    mount.focus_state.update(cx, |state, cx| {
+                        // Also cover removal before the sheet had a focus
+                        // path, preserving any explicit host focus handoff.
+                        if state.focus_handle.contains_focused(window, cx)
+                            || window.focused(cx).is_none()
+                        {
+                            state.guard.restore_focus(window, cx);
+                        }
+                    });
+                })
+                .detach();
+                BottomSheetMountState { focus_state }
+            },
+        );
+        let focus_state = mount_state.read(cx).focus_state.clone();
+        let focus_handle = focus_state.read(cx).focus_handle.clone();
+
+        // Capture focus on the first frame; it is restored on close (and on
+        // window focus loss) by the guard.
+        focus_state.update(cx, |state, cx| {
+            state.guard.capture_focus(
+                window,
+                cx,
+                &state.focus_handle,
+                |state: &mut BottomSheetFocusState| &mut state.guard,
+            );
+        });
+
+        let backdrop_focus_state = focus_state.clone();
+        let backdrop_on_close = on_close.clone();
+        let escape_focus_state = focus_state;
+        let escape_on_close = on_close;
 
         deferred(
             div()
@@ -143,19 +235,28 @@ impl RenderOnce for BottomSheet {
                 .inset_0()
                 .flex()
                 .flex_col()
-                .bg(hsla(0.0, 0.0, 0.0, 0.6))
-                .when(self.close_on_backdrop_click, |this: Div| {
-                    let on_close = on_close.clone();
-                    this.on_mouse_down(MouseButton::Left, move |_, window, cx| {
-                        if let Some(handler) = on_close.as_ref() {
-                            handler(window, cx);
+                .child(dismissible_backdrop(
+                    hsla(0.0, 0.0, 0.0, 0.6),
+                    move |_, window, cx| {
+                        if close_on_backdrop_click {
+                            close_bottom_sheet(
+                                &backdrop_focus_state,
+                                &backdrop_on_close,
+                                window,
+                                cx,
+                            );
                         }
-                    })
-                })
+                    },
+                ))
                 .child(
                     div()
                         .id("bottom-sheet-panel")
                         .occlude()
+                        .track_focus(&focus_handle)
+                        .key_context(BOTTOM_SHEET_CONTEXT)
+                        .on_action(move |_: &BottomSheetClose, window, cx| {
+                            close_bottom_sheet(&escape_focus_state, &escape_on_close, window, cx);
+                        })
                         .absolute()
                         .bottom_0()
                         .left_0()
@@ -180,6 +281,7 @@ impl RenderOnce for BottomSheet {
                             div.style().refine(&user_style);
                             div
                         })
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .when(self.show_drag_handle, |this| {
                             this.child(
                                 div()
@@ -236,7 +338,6 @@ impl RenderOnce for BottomSheet {
                         .when_some(self.content, |this, content| {
                             this.child(div().flex_1().overflow_hidden().child(content))
                         })
-                        .on_mouse_down(MouseButton::Left, |_, _, _| {})
                         .with_animation(
                             "bottom-sheet-slide",
                             presets::slide_in_bottom(),

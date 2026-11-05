@@ -17,4 +17,5 @@ pub(crate) fn init(cx: &mut gpui::App) {
     dialog::init_dialog(cx);
     sheet::init_sheet(cx);
     alert_dialog::init_alert_dialog(cx);
+    bottom_sheet::init_bottom_sheet(cx);
 }
