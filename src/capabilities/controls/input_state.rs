@@ -579,6 +579,34 @@ impl InputState {
         self.set_value(value, window, cx);
     }
 
+    /// Whether automatic (blur/change-triggered) validation should run.
+    ///
+    /// Automatic validation only kicks in once the input has validation
+    /// semantics — explicit rules or a validating input type — so a plain
+    /// input never sprouts a "Valid input" footer just because focus left
+    /// the field. Explicit `validate()` calls (e.g. from `Form`) always run.
+    /// Mirrors `TextareaState::should_auto_validate`.
+    fn should_auto_validate(&self, enabled: bool) -> bool {
+        enabled
+            && (EditCore::has_validation_rules(&self.validation_rules)
+                || self.input_type_validates())
+    }
+
+    /// Whether the configured input type carries built-in validation
+    /// (email/number/url/tel/date/time/credit-card formats).
+    fn input_type_validates(&self) -> bool {
+        matches!(
+            self.input_type,
+            InputType::Email
+                | InputType::Number
+                | InputType::Url
+                | InputType::Tel
+                | InputType::Date
+                | InputType::Time
+                | InputType::CreditCard
+        )
+    }
+
     /// Validate the current input value
     pub fn validate(&mut self, cx: &mut Context<Self>) -> Result<(), ValidationError> {
         self.sync_raw_content();
@@ -1151,7 +1179,7 @@ impl InputState {
             }
         }
 
-        if self.validate_on_blur {
+        if self.should_auto_validate(self.validate_on_blur) {
             self.validate(cx).ok();
         }
 
@@ -1361,7 +1389,9 @@ impl InputState {
         }
         self.invalidate_layout_cache();
 
-        if (content_changed || had_marked_text) && self.validate_on_change {
+        if (content_changed || had_marked_text)
+            && self.should_auto_validate(self.validate_on_change)
+        {
             self.validate(cx).ok();
         }
 
@@ -1425,7 +1455,7 @@ impl EntityInputHandler for InputState {
         self.marked_range = None;
         self.invalidate_layout_cache();
         if had_marked_text {
-            if self.validate_on_change {
+            if self.should_auto_validate(self.validate_on_change) {
                 self.validate(cx).ok();
             }
             cx.emit(InputEvent::Change);
@@ -2481,6 +2511,91 @@ mod tests {
                 assert!(!state.is_composing());
                 assert_eq!(state.composition_char_count(), 0);
                 assert_eq!(state.content(), "hello你好");
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn blur_without_validation_semantics_does_not_report_success() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| cx.new(InputState::new));
+        let mut window = app.open_window(|_, _| TestView {
+            state: state.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.set_value("plain", window, cx);
+                state.on_blur(window, cx);
+                assert!(
+                    state.success_message.is_none(),
+                    "an input without rules must not sprout a green footer on blur"
+                );
+                assert!(state.validation_error.is_none());
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn blur_still_auto_validates_when_rules_exist() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| cx.new(|cx| InputState::new(cx).required(true)));
+        let mut window = app.open_window(|_, _| TestView {
+            state: state.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.set_value("", window, cx);
+                state.on_blur(window, cx);
+                assert!(
+                    state.validation_error.is_some(),
+                    "required inputs still auto-validate on blur"
+                );
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn blur_auto_validates_input_type_semantics() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| cx.new(|cx| InputState::new(cx).input_type(InputType::Email)));
+        let mut window = app.open_window(|_, _| TestView {
+            state: state.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.set_value("not-an-email", window, cx);
+                state.on_blur(window, cx);
+                assert!(
+                    state.validation_error.is_some(),
+                    "input types with built-in validation still auto-validate on blur"
+                );
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn change_without_validation_semantics_does_not_report_success() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| cx.new(InputState::new));
+        let mut window = app.open_window(|_, _| TestView {
+            state: state.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.validate_on_change = true;
+                state.replace_text_in_range(None, "typed", window, cx);
+                assert!(
+                    state.success_message.is_none(),
+                    "an input without rules must not report success after every keystroke"
+                );
             });
         });
     }
