@@ -102,6 +102,34 @@ impl StepItem {
     }
 }
 
+/// Effective display status of step `index`: an explicit `Error` wins, then
+/// the current-step marker, then completion, otherwise `Pending`.
+fn resolve_step_status(
+    step: &StepItem,
+    index: usize,
+    current_step: usize,
+    completed: &HashSet<usize>,
+) -> StepStatus {
+    if step.status == StepStatus::Error {
+        StepStatus::Error
+    } else if index == current_step {
+        StepStatus::Current
+    } else if completed.contains(&index) {
+        StepStatus::Completed
+    } else {
+        StepStatus::Pending
+    }
+}
+
+/// State snapshot taken once per render and shared by both orientation
+/// renderers.
+struct StepSnapshot {
+    steps: Vec<StepItem>,
+    current_step: usize,
+    completed_steps: HashSet<usize>,
+    accessible: Vec<bool>,
+}
+
 pub struct StepperState {
     steps: Vec<StepItem>,
     current_step: usize,
@@ -401,18 +429,84 @@ impl Stepper {
         }
     }
 
+    /// Mouse-down wiring shared by both orientations: jump to the step and
+    /// report the change through `on_step_change`.
+    fn step_click_listener(
+        &self,
+        window: &mut Window,
+        index: usize,
+    ) -> Box<dyn Fn(&MouseDownEvent, &mut Window, &mut App) + 'static> {
+        let on_change = self.on_step_change.clone();
+        let state = self.state.clone();
+        Box::new(
+            window.listener_for(&state, move |state, _: &MouseDownEvent, window, cx| {
+                if state.go_to(index, cx) {
+                    if let Some(ref handler) = on_change {
+                        handler(index, window, cx);
+                    }
+                }
+            }),
+        )
+    }
+
+    /// One step title, highlighted when it is the current step.
+    fn step_title(
+        &self,
+        status: StepStatus,
+        step: &StepItem,
+        theme: &crate::capabilities::foundation::theme::Theme,
+    ) -> Div {
+        div()
+            .text_size(self.size.title_size())
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(if status == StepStatus::Current {
+                theme.tokens.foreground
+            } else {
+                theme.tokens.muted_foreground
+            })
+            .child(step.title.clone())
+    }
+
+    /// Title plus optional description column. `centered` matches the
+    /// horizontal layout (labels centered under the indicator); the vertical
+    /// layout keeps them left-aligned.
+    fn step_labels(
+        &self,
+        status: StepStatus,
+        step: &StepItem,
+        theme: &crate::capabilities::foundation::theme::Theme,
+        centered: bool,
+    ) -> Div {
+        div()
+            .flex()
+            .flex_col()
+            .when(centered, |this| this.items_center())
+            .child(self.step_title(status, step, theme))
+            .when_some(step.description.clone(), |this, desc| {
+                this.child(
+                    div()
+                        .text_size(self.size.description_size())
+                        .text_color(theme.tokens.muted_foreground)
+                        .mt(px(2.0))
+                        .child(desc),
+                )
+            })
+    }
+
     fn render_horizontal(
         self,
         window: &mut Window,
         theme: crate::capabilities::foundation::theme::Theme,
-        steps: Vec<StepItem>,
-        current_step: usize,
-        completed_steps: HashSet<usize>,
-        accessible: Vec<bool>,
+        snapshot: StepSnapshot,
         user_style: StyleRefinement,
     ) -> Div {
-        let steps_len = steps.len();
-        let state = self.state.clone();
+        let steps_len = snapshot.steps.len();
+        let StepSnapshot {
+            steps,
+            current_step,
+            completed_steps,
+            accessible,
+        } = snapshot;
 
         div()
             .flex()
@@ -423,21 +517,10 @@ impl Stepper {
                 d
             })
             .children(steps.into_iter().enumerate().map(|(index, step)| {
-                let status = if step.status == StepStatus::Error {
-                    StepStatus::Error
-                } else if index == current_step {
-                    StepStatus::Current
-                } else if completed_steps.contains(&index) {
-                    StepStatus::Completed
-                } else {
-                    StepStatus::Pending
-                };
-
+                let status = resolve_step_status(&step, index, current_step, &completed_steps);
                 let is_accessible = accessible.get(index).copied().unwrap_or(false);
 
                 let is_last = index == steps_len - 1;
-                let on_change = self.on_step_change.clone();
-                let state_clone = state.clone();
                 let clickable = self.clickable && is_accessible;
 
                 div()
@@ -453,46 +536,12 @@ impl Stepper {
                             .when(clickable, |this| {
                                 this.cursor(CursorStyle::PointingHand).on_mouse_down(
                                     MouseButton::Left,
-                                    window.listener_for(
-                                        &state_clone,
-                                        move |state, _, window, cx| {
-                                            if state.go_to(index, cx) {
-                                                if let Some(ref handler) = on_change {
-                                                    handler(index, window, cx);
-                                                }
-                                            }
-                                        },
-                                    ),
+                                    self.step_click_listener(window, index),
                                 )
                             })
                             .when(!is_accessible, |this| this.opacity(0.5))
                             .child(self.render_step_indicator(index, status, &step, &theme))
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .items_center()
-                                    .gap(px(2.0))
-                                    .child(
-                                        div()
-                                            .text_size(self.size.title_size())
-                                            .font_weight(FontWeight::MEDIUM)
-                                            .text_color(if status == StepStatus::Current {
-                                                theme.tokens.foreground
-                                            } else {
-                                                theme.tokens.muted_foreground
-                                            })
-                                            .child(step.title.clone()),
-                                    )
-                                    .when_some(step.description.clone(), |this, desc| {
-                                        this.child(
-                                            div()
-                                                .text_size(self.size.description_size())
-                                                .text_color(theme.tokens.muted_foreground)
-                                                .child(desc),
-                                        )
-                                    }),
-                            ),
+                            .child(self.step_labels(status, &step, &theme, true)),
                     )
                     .when(self.show_connector && !is_last, |this| {
                         this.child(self.render_connector(completed_steps.contains(&index), &theme))
@@ -504,14 +553,17 @@ impl Stepper {
         self,
         window: &mut Window,
         theme: crate::capabilities::foundation::theme::Theme,
-        steps: Vec<StepItem>,
-        current_step: usize,
-        completed_steps: HashSet<usize>,
-        accessible: Vec<bool>,
+        snapshot: StepSnapshot,
         user_style: StyleRefinement,
     ) -> Div {
-        let steps_len = steps.len();
-        let state = self.state.clone();
+        let steps_len = snapshot.steps.len();
+        let indicator_size = self.size.indicator_size();
+        let StepSnapshot {
+            steps,
+            current_step,
+            completed_steps,
+            accessible,
+        } = snapshot;
 
         div()
             .flex()
@@ -522,23 +574,11 @@ impl Stepper {
                 d
             })
             .children(steps.into_iter().enumerate().map(|(index, step)| {
-                let status = if step.status == StepStatus::Error {
-                    StepStatus::Error
-                } else if index == current_step {
-                    StepStatus::Current
-                } else if completed_steps.contains(&index) {
-                    StepStatus::Completed
-                } else {
-                    StepStatus::Pending
-                };
-
+                let status = resolve_step_status(&step, index, current_step, &completed_steps);
                 let is_accessible = accessible.get(index).copied().unwrap_or(false);
 
                 let is_last = index == steps_len - 1;
-                let on_change = self.on_step_change.clone();
-                let state_clone = state.clone();
                 let clickable = self.clickable && is_accessible;
-                let indicator_size = self.size.indicator_size();
 
                 div()
                     .flex()
@@ -552,16 +592,7 @@ impl Stepper {
                                     .when(clickable, |this| {
                                         this.cursor(CursorStyle::PointingHand).on_mouse_down(
                                             MouseButton::Left,
-                                            window.listener_for(
-                                                &state_clone.clone(),
-                                                move |state, _, window, cx| {
-                                                    if state.go_to(index, cx) {
-                                                        if let Some(ref handler) = on_change {
-                                                            handler(index, window, cx);
-                                                        }
-                                                    }
-                                                },
-                                            ),
+                                            self.step_click_listener(window, index),
                                         )
                                     })
                                     .when(!is_accessible, |this| this.opacity(0.5))
@@ -583,26 +614,7 @@ impl Stepper {
                             .pt(px(4.0))
                             .pb(if is_last { px(0.0) } else { px(24.0) })
                             .min_h(indicator_size + px(8.0))
-                            .child(
-                                div()
-                                    .text_size(self.size.title_size())
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .text_color(if status == StepStatus::Current {
-                                        theme.tokens.foreground
-                                    } else {
-                                        theme.tokens.muted_foreground
-                                    })
-                                    .child(step.title.clone()),
-                            )
-                            .when_some(step.description.clone(), |this, desc| {
-                                this.child(
-                                    div()
-                                        .text_size(self.size.description_size())
-                                        .text_color(theme.tokens.muted_foreground)
-                                        .mt(px(2.0))
-                                        .child(desc),
-                                )
-                            }),
+                            .child(self.step_labels(status, &step, &theme, false)),
                     )
             }))
     }
@@ -618,33 +630,23 @@ impl RenderOnce for Stepper {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = use_theme(cx);
         let state = self.state.read(cx);
-        let steps = state.steps.clone();
-        let current_step = state.current_step;
-        let completed_steps = state.completed_steps.clone();
-        let accessible: Vec<bool> = (0..steps.len())
-            .map(|index| state.is_step_accessible(index))
-            .collect();
+        let snapshot = StepSnapshot {
+            steps: state.steps.clone(),
+            current_step: state.current_step,
+            completed_steps: state.completed_steps.clone(),
+            accessible: (0..state.steps.len())
+                .map(|index| state.is_step_accessible(index))
+                .collect(),
+        };
         let user_style = self.style.clone();
 
         match self.orientation {
-            StepperOrientation::Horizontal => self.render_horizontal(
-                window,
-                theme,
-                steps,
-                current_step,
-                completed_steps,
-                accessible,
-                user_style,
-            ),
-            StepperOrientation::Vertical => self.render_vertical(
-                window,
-                theme,
-                steps,
-                current_step,
-                completed_steps,
-                accessible,
-                user_style,
-            ),
+            StepperOrientation::Horizontal => {
+                self.render_horizontal(window, theme, snapshot, user_style)
+            }
+            StepperOrientation::Vertical => {
+                self.render_vertical(window, theme, snapshot, user_style)
+            }
         }
     }
 }

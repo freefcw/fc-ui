@@ -209,6 +209,13 @@ impl RenderOnce for Dropdown {
             )
             .when(is_open, |this| {
                 this.child(
+                    // Kept as a hand-rolled panel instead of
+                    // `overlay_shell::menu_panel`: the menu rows already inset
+                    // themselves with `mx(4)`, the minimum width is
+                    // configurable (default 180px), and the custom drop shadow
+                    // is lighter than the shell's `shadow_lg`, so adopting the
+                    // shared shell (fixed `min_w(200)`, `p(4)`) would change
+                    // pixels.
                     div()
                         .absolute()
                         .top_full()

@@ -12,6 +12,7 @@ pub mod dropdown;
 // Shared editing core for Input/Textarea/Mention state machines (single owner:
 // input_state.rs / textarea_state.rs / mention_input.rs delegate to it).
 pub(crate) mod edit_core;
+// Shared helpers for select/combobox navigation and test selectors.
 pub mod form;
 pub mod hotkey_input;
 pub mod inline_edit;
@@ -26,6 +27,7 @@ pub mod range_slider;
 pub mod rating;
 pub mod search_input;
 pub mod select;
+pub(crate) mod shared;
 pub mod slider;
 pub mod sortable_list;
 pub mod stepper;

@@ -9,6 +9,8 @@
 //! - Clear button to reset selection
 //! - Full Styled trait support for customization
 
+use crate::capabilities::controls::shared::cycle_highlight;
+use crate::capabilities::controls::shared::with_test_selector;
 use crate::capabilities::foundation::theme::use_theme;
 use crate::capabilities::primitives::icon::Icon;
 use gpui::{prelude::*, *};
@@ -23,16 +25,6 @@ actions!(
         ComboboxClear
     ]
 );
-
-#[cfg(test)]
-fn with_test_selector<E: InteractiveElement>(element: E, selector: &'static str) -> E {
-    element.debug_selector(move || selector.into())
-}
-
-#[cfg(not(test))]
-fn with_test_selector<E>(element: E, _selector: &'static str) -> E {
-    element
-}
 
 type FilterFn<T> = Box<dyn Fn(&T, &str) -> bool>;
 type ItemRenderer<T> = Box<dyn Fn(&T) -> SharedString>;
@@ -345,12 +337,8 @@ impl<T: Clone + 'static> Combobox<T> {
                 state.is_open = true;
                 state.focused_index = Some(0);
             } else {
-                let current = state.focused_index.unwrap_or(0);
-                state.focused_index = Some(if current == 0 {
-                    filtered_count - 1
-                } else {
-                    current - 1
-                });
+                state.focused_index =
+                    Some(cycle_highlight(filtered_count, state.focused_index, true));
             }
         });
     }
@@ -367,12 +355,8 @@ impl<T: Clone + 'static> Combobox<T> {
                 state.is_open = true;
                 state.focused_index = Some(0);
             } else {
-                let current = state.focused_index.unwrap_or(0);
-                state.focused_index = Some(if current >= filtered_count - 1 {
-                    0
-                } else {
-                    current + 1
-                });
+                state.focused_index =
+                    Some(cycle_highlight(filtered_count, state.focused_index, false));
             }
         });
     }

@@ -1,5 +1,7 @@
 //! Select component - Dropdown select with keyboard navigation.
 
+use crate::capabilities::controls::shared::cycle_highlight;
+use crate::capabilities::controls::shared::with_test_selector;
 use crate::capabilities::foundation::theme::use_theme;
 use crate::capabilities::primitives::icon::Icon;
 use crate::capabilities::primitives::icon_source::IconSource;
@@ -7,16 +9,6 @@ use crate::capabilities::scroll::scrollable::scrollable_vertical;
 use gpui::{prelude::*, *};
 
 actions!(select, [SelectUp, SelectDown, SelectConfirm, SelectCancel]);
-
-#[cfg(test)]
-fn with_test_selector<E: InteractiveElement>(element: E, selector: &'static str) -> E {
-    element.debug_selector(move || selector.into())
-}
-
-#[cfg(not(test))]
-fn with_test_selector<E>(element: E, _selector: &'static str) -> E {
-    element
-}
 
 #[derive(Clone, Debug)]
 pub enum SelectEvent {
@@ -429,11 +421,7 @@ impl<T: Clone + 'static> Select<T> {
             .highlighted_index
             .and_then(|idx| filtered.iter().position(|(orig_idx, _)| *orig_idx == idx));
 
-        let new_pos = match current_pos {
-            Some(0) => filtered.len() - 1,
-            Some(pos) => pos - 1,
-            None => filtered.len() - 1,
-        };
+        let new_pos = cycle_highlight(filtered.len(), current_pos, true);
 
         self.highlighted_index = Some(filtered[new_pos].0);
         cx.notify();
@@ -453,11 +441,7 @@ impl<T: Clone + 'static> Select<T> {
             .highlighted_index
             .and_then(|idx| filtered.iter().position(|(orig_idx, _)| *orig_idx == idx));
 
-        let new_pos = match current_pos {
-            Some(pos) if pos < filtered.len() - 1 => pos + 1,
-            Some(_) => 0,
-            None => 0,
-        };
+        let new_pos = cycle_highlight(filtered.len(), current_pos, false);
 
         self.highlighted_index = Some(filtered[new_pos].0);
         cx.notify();

@@ -52,12 +52,21 @@ pub enum OTPInputSize {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum OTPInputState {
+pub enum OtpFieldStatus {
     #[default]
     Default,
     Error,
     Success,
 }
+
+/// Legacy name for [`OtpFieldStatus`], re-exported to preserve variant imports.
+pub use OtpFieldStatus as OTPInputState;
+
+/// Fewest digits an OTP input renders (and focuses).
+const OTP_MIN_DIGITS: usize = 4;
+/// Most digits an OTP input renders (focus-handle capacity created at
+/// construction).
+const OTP_MAX_DIGITS: usize = 8;
 
 pub struct OTPState {
     focus_handles: Vec<FocusHandle>,
@@ -66,7 +75,7 @@ pub struct OTPState {
     digit_count: usize,
     masked: bool,
     disabled: bool,
-    state: OTPInputState,
+    status: OtpFieldStatus,
     event_subscription: Option<Subscription>,
 }
 
@@ -74,7 +83,7 @@ impl EventEmitter<OTPInputEvent> for OTPState {}
 
 impl OTPState {
     pub fn new(cx: &mut Context<Self>, digit_count: usize) -> Self {
-        let digit_count = digit_count.clamp(4, 8);
+        let digit_count = digit_count.clamp(OTP_MIN_DIGITS, OTP_MAX_DIGITS);
         let focus_handles: Vec<FocusHandle> = (0..digit_count).map(|_| cx.focus_handle()).collect();
 
         Self {
@@ -84,7 +93,7 @@ impl OTPState {
             digit_count,
             masked: false,
             disabled: false,
-            state: OTPInputState::Default,
+            status: OtpFieldStatus::Default,
             event_subscription: None,
         }
     }
@@ -100,7 +109,9 @@ impl OTPState {
     /// cannot create a state the renderer cannot focus safely.
     #[deprecated(note = "pass digit_count to OTPState::new(cx, count) instead")]
     pub fn digit_count(mut self, count: usize) -> Self {
-        let count = count.clamp(4, 8).min(self.focus_handles.len());
+        let count = count
+            .clamp(OTP_MIN_DIGITS, OTP_MAX_DIGITS)
+            .min(self.focus_handles.len());
         self.digit_count = count;
         self.digits.resize(count, None);
         self.focused_index = self.focused_index.min(count.saturating_sub(1));
@@ -145,18 +156,30 @@ impl OTPState {
         cx.notify();
     }
 
-    pub fn set_state(&mut self, state: OTPInputState, cx: &mut Context<Self>) {
-        self.state = state;
+    /// Set the validation status of the whole input.
+    pub fn set_status(&mut self, status: OtpFieldStatus, cx: &mut Context<Self>) {
+        self.status = status;
         cx.notify();
     }
 
+    /// Deprecated alias for [`OTPState::set_status`].
+    #[deprecated(note = "renamed to `set_status`")]
+    pub fn set_state(&mut self, state: OTPInputState, cx: &mut Context<Self>) {
+        self.set_status(state, cx);
+    }
+
+    /// The current validation status of the whole input.
+    pub fn status(&self) -> OtpFieldStatus {
+        self.status
+    }
+
     pub fn set_error(&mut self, cx: &mut Context<Self>) {
-        self.state = OTPInputState::Error;
+        self.status = OtpFieldStatus::Error;
         cx.notify();
     }
 
     pub fn set_success(&mut self, cx: &mut Context<Self>) {
-        self.state = OTPInputState::Success;
+        self.status = OtpFieldStatus::Success;
         cx.notify();
     }
 
@@ -450,8 +473,7 @@ impl RenderOnce for OTPInput {
             .min(otp_state.focus_handles.len())
             .min(otp_state.digits.len());
         let digits = otp_state.digits.clone();
-        let _focused_index = otp_state.focused_index;
-        let state = otp_state.state;
+        let status = otp_state.status;
         let masked = self.masked || otp_state.masked;
         let disabled = self.disabled || otp_state.disabled;
         let focus_handles = otp_state.focus_handles.to_vec();
@@ -463,10 +485,10 @@ impl RenderOnce for OTPInput {
 
         self.install_event_subscription(cx);
 
-        let (border_color, focus_border_color) = match state {
-            OTPInputState::Default => (theme.tokens.border, theme.tokens.ring),
-            OTPInputState::Error => (theme.tokens.destructive, theme.tokens.destructive),
-            OTPInputState::Success => (theme.tokens.primary, theme.tokens.primary),
+        let (border_color, focus_border_color) = match status {
+            OtpFieldStatus::Default => (theme.tokens.border, theme.tokens.ring),
+            OtpFieldStatus::Error => (theme.tokens.destructive, theme.tokens.destructive),
+            OtpFieldStatus::Success => (theme.tokens.primary, theme.tokens.primary),
         };
 
         let user_style = self.style;

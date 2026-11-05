@@ -39,6 +39,26 @@ fn scroll_event_rename_keeps_the_legacy_alias_public() {
     }
 }
 
+#[test]
+fn otp_input_legacy_name_preserves_variant_imports() {
+    use fc_ui::components::otp_input::{
+        OTPInputState::{Default, Error, Success},
+        OtpFieldStatus,
+    };
+    use fc_ui::prelude::OTPInputState::Error as PreludeError;
+
+    let statuses: [OtpFieldStatus; 3] = [Default, Error, Success];
+    assert_eq!(
+        statuses,
+        [
+            OtpFieldStatus::Default,
+            OtpFieldStatus::Error,
+            OtpFieldStatus::Success,
+        ]
+    );
+    assert_eq!(PreludeError, Error);
+}
+
 #[cfg(feature = "http")]
 #[test]
 fn explicit_http_initialization_api_is_public() {

@@ -116,6 +116,42 @@ impl Default for TimeValue {
     }
 }
 
+/// One spinner column of the picker popup. Replaces string dispatch so the
+/// increment/decrement matches are exhaustive.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SpinnerField {
+    Hour,
+    Minute,
+    Second,
+}
+
+impl SpinnerField {
+    /// Stable element-id prefix for the spinner's up/down buttons.
+    fn id(self) -> &'static str {
+        match self {
+            SpinnerField::Hour => "hour",
+            SpinnerField::Minute => "minute",
+            SpinnerField::Second => "second",
+        }
+    }
+
+    fn increment(self, state: &mut TimePickerState, cx: &mut Context<TimePickerState>) {
+        match self {
+            SpinnerField::Hour => state.increment_hour(cx),
+            SpinnerField::Minute => state.increment_minute(cx),
+            SpinnerField::Second => state.increment_second(cx),
+        }
+    }
+
+    fn decrement(self, state: &mut TimePickerState, cx: &mut Context<TimePickerState>) {
+        match self {
+            SpinnerField::Hour => state.decrement_hour(cx),
+            SpinnerField::Minute => state.decrement_minute(cx),
+            SpinnerField::Second => state.decrement_second(cx),
+        }
+    }
+}
+
 pub struct TimePickerState {
     value: TimeValue,
     has_value: bool,
@@ -417,6 +453,10 @@ impl RenderOnce for TimePicker {
             )
             .when(is_open && !self.disabled, |this| {
                 this.child(
+                    // Kept as a hand-rolled panel instead of
+                    // `overlay_shell::menu_panel`: the spinner popup uses 16px
+                    // padding and a lighter custom drop shadow, so the shared
+                    // shell (4px padding, `shadow_lg`) would change pixels.
                     div()
                         .absolute()
                         .top_full()
@@ -443,10 +483,9 @@ impl RenderOnce for TimePicker {
                                 .items_center()
                                 .gap(px(8.0))
                                 .child(Self::render_spinner(
-                                    "hour",
+                                    SpinnerField::Hour,
                                     value.hour,
                                     state.clone(),
-                                    "hour",
                                     &theme,
                                     on_change.clone(),
                                 ))
@@ -458,10 +497,9 @@ impl RenderOnce for TimePicker {
                                         .child(":"),
                                 )
                                 .child(Self::render_spinner(
-                                    "minute",
+                                    SpinnerField::Minute,
                                     value.minute,
                                     state.clone(),
-                                    "minute",
                                     &theme,
                                     on_change.clone(),
                                 ))
@@ -477,10 +515,9 @@ impl RenderOnce for TimePicker {
                                         )
                                         .child(
                                             Self::render_spinner(
-                                                "second",
+                                                SpinnerField::Second,
                                                 value.second.unwrap_or(0),
                                                 state_for_seconds.clone(),
-                                                "second",
                                                 &theme,
                                                 on_change,
                                             ),
@@ -564,19 +601,18 @@ impl RenderOnce for TimePicker {
 
 impl TimePicker {
     fn render_spinner(
-        id: &str,
+        field: SpinnerField,
         value: u8,
         state: Entity<TimePickerState>,
-        field: &str,
         theme: &crate::capabilities::foundation::theme::Theme,
         on_change: Option<Rc<dyn Fn(&TimeValue, &mut Window, &mut App)>>,
     ) -> impl IntoElement {
-        let field_up = field.to_string();
-        let field_down = field.to_string();
         let state_up = state.clone();
-        let state_down = state.clone();
+        let state_down = state;
         let on_change_up = on_change.clone();
         let on_change_down = on_change;
+        let field_up = field;
+        let field_down = field;
 
         div()
             .flex()
@@ -585,7 +621,7 @@ impl TimePicker {
             .gap(px(4.0))
             .child(
                 div()
-                    .id(SharedString::from(format!("{}-up", id)))
+                    .id(SharedString::from(format!("{}-up", field.id())))
                     .w(px(40.0))
                     .h(px(28.0))
                     .flex()
@@ -597,12 +633,7 @@ impl TimePicker {
                     .text_color(theme.tokens.muted_foreground)
                     .on_click(move |_, window, cx| {
                         state_up.update(cx, |s, cx| {
-                            match field_up.as_str() {
-                                "hour" => s.increment_hour(cx),
-                                "minute" => s.increment_minute(cx),
-                                "second" => s.increment_second(cx),
-                                _ => {}
-                            }
+                            field_up.increment(s, cx);
                             if let Some(ref handler) = on_change_up {
                                 handler(&s.value, window, cx);
                             }
@@ -627,7 +658,7 @@ impl TimePicker {
             )
             .child(
                 div()
-                    .id(SharedString::from(format!("{}-down", id)))
+                    .id(SharedString::from(format!("{}-down", field.id())))
                     .w(px(40.0))
                     .h(px(28.0))
                     .flex()
@@ -639,12 +670,7 @@ impl TimePicker {
                     .text_color(theme.tokens.muted_foreground)
                     .on_click(move |_, window, cx| {
                         state_down.update(cx, |s, cx| {
-                            match field_down.as_str() {
-                                "hour" => s.decrement_hour(cx),
-                                "minute" => s.decrement_minute(cx),
-                                "second" => s.decrement_second(cx),
-                                _ => {}
-                            }
+                            field_down.decrement(s, cx);
                             if let Some(ref handler) = on_change_down {
                                 handler(&s.value, window, cx);
                             }

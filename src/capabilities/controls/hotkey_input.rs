@@ -88,7 +88,6 @@ impl HotkeyValue {
             "end" => "End".to_string(),
             "pageup" => "PgUp".to_string(),
             "pagedown" => "PgDn".to_string(),
-            k if k.starts_with('f') && k.len() <= 3 => k.to_uppercase(),
             k => k.to_uppercase(),
         }
     }
