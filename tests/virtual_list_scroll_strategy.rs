@@ -50,7 +50,7 @@ struct VariableTestView {
 
 impl Render for VariableTestView {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        let mut list = vlist_variable(
+        let list = vlist_variable(
             "variable-strategy-test",
             self.item_count,
             FixedExtents,
@@ -230,7 +230,7 @@ fn uniform_scroll_to_updates_handle_immediately_after_layout(cx: &mut TestAppCon
 #[gpui::test]
 fn variable_scroll_to_updates_handle_immediately_after_layout(cx: &mut TestAppContext) {
     let handle = draw_variable_without_request(cx);
-    let mut list = vlist_variable("variable-immediate-test", 20, FixedExtents, |_, _, _| {
+    let list = vlist_variable("variable-immediate-test", 20, FixedExtents, |_, _, _| {
         Vec::<gpui::Div>::new()
     })
     .track_scroll(&handle);
@@ -373,7 +373,7 @@ fn variable_scroll_to_on_empty_list_is_a_noop(cx: &mut TestAppContext) {
     assert_eq!(handle.offset().y, px(0.));
 
     // Immediate path after a layout: still a no-op.
-    let mut list = vlist_variable(
+    let list = vlist_variable(
         "variable-empty-immediate-test",
         0,
         FixedExtents,

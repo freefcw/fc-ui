@@ -11,6 +11,8 @@ static INFINITE_SCROLL_COUNTER: AtomicUsize = AtomicUsize::new(0);
 pub enum LoadingState {
     Idle,
     Loading,
+    /// Never constructed by the crate; kept only for source compatibility.
+    #[deprecated(note = "never constructed; removal in 0.10")]
     Loaded,
     Error(SharedString),
     EndReached,
@@ -19,6 +21,9 @@ pub enum LoadingState {
 pub struct InfiniteScrollState {
     loading_state: LoadingState,
     page: usize,
+    /// Optimistic availability of further pages. Read only through
+    /// [`Self::has_more`], the single source of truth that also honors
+    /// [`LoadingState::EndReached`].
     has_more: bool,
     scroll_handle: ScrollHandle,
 }
@@ -68,6 +73,13 @@ impl InfiniteScrollState {
 
     pub fn scroll_handle(&self) -> &ScrollHandle {
         &self.scroll_handle
+    }
+
+    /// Single source of truth for "can more pages be fetched": the optimistic
+    /// flag, gated by the terminal [`LoadingState::EndReached`] state so the
+    /// two can never disagree on internal decision paths.
+    fn has_more(&self) -> bool {
+        self.has_more && self.loading_state != LoadingState::EndReached
     }
 }
 
@@ -167,7 +179,7 @@ impl RenderOnce for InfiniteScroll {
             container = container.on_scroll_wheel(move |_event, window, cx| {
                 let (should_load, page) = {
                     let s = state_c.read(cx);
-                    if s.loading_state != LoadingState::Idle || !s.has_more {
+                    if s.loading_state != LoadingState::Idle || !s.has_more() {
                         return;
                     }
                     let handle = &s.scroll_handle;
