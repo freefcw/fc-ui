@@ -66,6 +66,9 @@ pub use crate::components::hotkey_input::{
 pub use crate::components::icon::{icon, icon_button, Icon, IconSize, IconVariant};
 pub use crate::components::icon_button::IconButton;
 pub use crate::components::icon_source::IconSource;
+// `ImageViewerSize` is deprecated (unused, removal in 0.10); `expect` keeps
+// this re-export warning-free and surfaces a reminder once the type is gone.
+#[expect(deprecated)]
 pub use crate::components::image_viewer::{
     init_image_viewer, ImageItem, ImageViewer, ImageViewerSize, ImageViewerState,
 };

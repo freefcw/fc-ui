@@ -45,7 +45,11 @@ impl ImageItem {
     }
 }
 
+// The `Default` derive references the `#[default]` variant, which trips the
+// deprecation below; the type itself has no in-crate users.
+#[allow(deprecated)]
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
+#[deprecated(note = "unused; removal in 0.10")]
 pub enum ImageViewerSize {
     Auto,
     #[default]
@@ -64,12 +68,7 @@ pub struct ImageViewerState {
     images: Vec<ImageItem>,
     current_index: usize,
     zoom: f32,
-    pan_offset: Point<Pixels>,
-    _is_panning: bool,
-    _last_mouse_pos: Point<Pixels>,
-    _loading: bool,
     show_thumbnails: bool,
-    _fit_mode: ImageViewerSize,
 }
 
 impl ImageViewerState {
@@ -78,12 +77,7 @@ impl ImageViewerState {
             images,
             current_index: 0,
             zoom: 1.0,
-            pan_offset: point(px(0.0), px(0.0)),
-            _is_panning: false,
-            _last_mouse_pos: point(px(0.0), px(0.0)),
-            _loading: false,
             show_thumbnails: true,
-            _fit_mode: ImageViewerSize::default(),
         }
     }
 
@@ -130,7 +124,6 @@ impl ImageViewerState {
 
     pub fn reset_zoom(&mut self, cx: &mut Context<Self>) {
         self.zoom = 1.0;
-        self.pan_offset = point(px(0.0), px(0.0));
         cx.notify();
     }
 
@@ -146,7 +139,6 @@ impl ImageViewerState {
 
     fn reset_view(&mut self) {
         self.zoom = 1.0;
-        self.pan_offset = point(px(0.0), px(0.0));
     }
 
     pub fn current_image(&self) -> Option<&ImageItem> {
@@ -269,7 +261,6 @@ impl Render for ImageViewer {
         let has_prev = state.has_prev();
         let has_next = state.has_next();
         let images = state.images.clone();
-        let _pan_offset = state.pan_offset;
         let show_thumbs = self.show_thumbnails && state.show_thumbnails && image_count > 1;
 
         let viewer_entity = cx.entity().clone();

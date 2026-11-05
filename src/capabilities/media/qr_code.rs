@@ -62,6 +62,12 @@ impl Styled for QRCodeComponent {
     }
 }
 
+/// Module count of the smallest QR version (21×21). When encoding fails,
+/// `generate_modules` silently degrades to this all-light grid so the
+/// component always renders a scannable-looking blank code instead of
+/// panicking; callers cannot distinguish failure from an empty payload.
+const MIN_QR_MODULES: usize = 21;
+
 fn generate_modules(data: &str, ec_level: EcLevel) -> Vec<Vec<bool>> {
     match QrCode::with_error_correction_level(data, ec_level) {
         Ok(code) => {
@@ -78,7 +84,7 @@ fn generate_modules(data: &str, ec_level: EcLevel) -> Vec<Vec<bool>> {
             }
             grid
         }
-        Err(_) => vec![vec![false; 21]; 21],
+        Err(_) => vec![vec![false; MIN_QR_MODULES]; MIN_QR_MODULES],
     }
 }
 

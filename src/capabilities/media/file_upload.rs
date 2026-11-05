@@ -15,7 +15,20 @@ pub struct SelectedFile {
 }
 
 impl SelectedFile {
+    /// Build from an already-fetched [`std::fs::Metadata`] so callers that
+    /// validated the file with a `stat` (see [`validate_file`]) do not pay for
+    /// a second one.
+    pub fn from_metadata(path: PathBuf, metadata: &std::fs::Metadata) -> Self {
+        Self::from_path_and_size(path, metadata.len())
+    }
+
+    /// Build by stat-ing `path`; a missing file degrades to a size of zero.
     pub fn new(path: PathBuf) -> Self {
+        let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        Self::from_path_and_size(path, size)
+    }
+
+    fn from_path_and_size(path: PathBuf, size: u64) -> Self {
         let name = path
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
@@ -44,8 +57,6 @@ impl SelectedFile {
             "zip" => Some("application/zip".to_string()),
             _ => None,
         };
-
-        let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
 
         Self {
             name,
@@ -329,10 +340,10 @@ fn validate_file(
         }
     }
 
+    // One stat covers both the size limit and the resulting `SelectedFile`.
+    let metadata = std::fs::metadata(&path);
+    let file_size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
     if let Some(max_size) = max_file_size {
-        let file_size = std::fs::metadata(&path)
-            .map(|metadata| metadata.len())
-            .unwrap_or(0);
         if file_size > max_size {
             let max_mb = max_size as f64 / (1024.0 * 1024.0);
             return Err(FileUploadError {
@@ -342,12 +353,14 @@ fn validate_file(
         }
     }
 
-    Ok(SelectedFile::new(path))
+    Ok(match metadata {
+        Ok(metadata) => SelectedFile::from_metadata(path, &metadata),
+        Err(_) => SelectedFile::from_path_and_size(path, 0),
+    })
 }
 
 #[derive(IntoElement)]
 pub struct FileUpload {
-    _id: ElementId,
     base: Stateful<Div>,
     state: Entity<FileUploadState>,
     size: FileUploadSize,
@@ -366,9 +379,7 @@ pub struct FileUpload {
 
 impl FileUpload {
     pub fn new(id: impl Into<ElementId>, state: Entity<FileUploadState>) -> Self {
-        let id = id.into();
         Self {
-            _id: id.clone(),
             base: div().id(id),
             state,
             size: FileUploadSize::Md,
@@ -700,158 +711,179 @@ impl RenderOnce for FileUpload {
                     }),
             )
             .when(!errors.is_empty(), |this| {
-                this.child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(8.0))
-                        .children(errors.iter().map(|error| {
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(px(8.0))
-                                .px(px(12.0))
-                                .py(px(8.0))
-                                .rounded(theme.tokens.radius_md)
-                                .bg(theme.tokens.destructive.opacity(0.1))
-                                .border_1()
-                                .border_color(theme.tokens.destructive.opacity(0.3))
-                                .child(
-                                    Icon::new("circle-alert")
-                                        .size(px(16.0))
-                                        .color(theme.tokens.destructive),
-                                )
-                                .child(
-                                    div()
-                                        .flex()
-                                        .flex_col()
-                                        .gap(px(2.0))
-                                        .child(
-                                            div()
-                                                .text_size(px(13.0))
-                                                .font_weight(FontWeight::MEDIUM)
-                                                .text_color(theme.tokens.destructive)
-                                                .child(error.file_name.clone()),
-                                        )
-                                        .child(
-                                            div()
-                                                .text_size(px(12.0))
-                                                .text_color(theme.tokens.destructive.opacity(0.8))
-                                                .child(error.message.clone()),
-                                        ),
-                                )
-                        })),
-                )
+                this.child(Self::render_error_list(&errors, &theme))
             })
             .when(show_file_list && has_files, |this| {
-                let selection_handler = selection_handler.clone();
-
-                this.child(div().flex().flex_col().gap(px(8.0)).children(
-                    files.iter().enumerate().map(|(index, file)| {
-                        let selection_handler = selection_handler.clone();
-                        let file_name = file.name.clone();
-                        let file_size = file.formatted_size();
-                        let is_image = file.is_image;
-                        let file_path = file.path.clone();
-
-                        div()
-                            .id(("file-item", index))
-                            .flex()
-                            .items_center()
-                            .gap(px(12.0))
-                            .px(px(12.0))
-                            .py(px(8.0))
-                            .rounded(theme.tokens.radius_md)
-                            .bg(theme.tokens.card)
-                            .border_1()
-                            .border_color(theme.tokens.border)
-                            .when(show_previews && is_image, |this| {
-                                this.child(
-                                    div()
-                                        .w(px(48.0))
-                                        .h(px(48.0))
-                                        .rounded(theme.tokens.radius_sm)
-                                        .bg(theme.tokens.muted)
-                                        .flex()
-                                        .items_center()
-                                        .justify_center()
-                                        .overflow_hidden()
-                                        .child(
-                                            img(file_path.to_string_lossy().to_string())
-                                                .w(px(48.0))
-                                                .h(px(48.0))
-                                                .object_fit(ObjectFit::Cover),
-                                        ),
-                                )
-                            })
-                            .when(!show_previews || !is_image, |this| {
-                                this.child(
-                                    div()
-                                        .w(px(40.0))
-                                        .h(px(40.0))
-                                        .rounded(theme.tokens.radius_sm)
-                                        .bg(theme.tokens.muted)
-                                        .flex()
-                                        .items_center()
-                                        .justify_center()
-                                        .child(
-                                            Icon::new(if is_image { "image" } else { "file" })
-                                                .size(px(20.0))
-                                                .color(theme.tokens.muted_foreground),
-                                        ),
-                                )
-                            })
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .flex()
-                                    .flex_col()
-                                    .gap(px(2.0))
-                                    .overflow_hidden()
-                                    .child(
-                                        div()
-                                            .text_size(px(13.0))
-                                            .font_weight(FontWeight::MEDIUM)
-                                            .text_color(theme.tokens.foreground)
-                                            .overflow_hidden()
-                                            .text_ellipsis()
-                                            .whitespace_nowrap()
-                                            .child(file_name),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_size(px(12.0))
-                                            .text_color(theme.tokens.muted_foreground)
-                                            .child(file_size),
-                                    ),
-                            )
-                            .when(!disabled, |this| {
-                                this.child(
-                                    div()
-                                        .id(("remove-btn", index))
-                                        .w(px(28.0))
-                                        .h(px(28.0))
-                                        .rounded(theme.tokens.radius_sm)
-                                        .flex()
-                                        .items_center()
-                                        .justify_center()
-                                        .cursor(CursorStyle::PointingHand)
-                                        .hover(|style| {
-                                            style.bg(theme.tokens.destructive.opacity(0.1))
-                                        })
-                                        .child(
-                                            Icon::new("x")
-                                                .size(px(16.0))
-                                                .color(theme.tokens.muted_foreground),
-                                        )
-                                        .on_click(move |_, window, cx| {
-                                            selection_handler.remove_file(index, window, cx);
-                                        }),
-                                )
-                            })
-                    }),
+                this.child(Self::render_file_list(
+                    &selection_handler,
+                    &files,
+                    &theme,
+                    disabled,
+                    show_previews,
                 ))
             })
+    }
+}
+
+impl FileUpload {
+    fn render_error_list(
+        errors: &[FileUploadError],
+        theme: &crate::capabilities::foundation::theme::Theme,
+    ) -> impl IntoElement {
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(8.0))
+            .children(errors.iter().map(|error| {
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.0))
+                    .px(px(12.0))
+                    .py(px(8.0))
+                    .rounded(theme.tokens.radius_md)
+                    .bg(theme.tokens.destructive.opacity(0.1))
+                    .border_1()
+                    .border_color(theme.tokens.destructive.opacity(0.3))
+                    .child(
+                        Icon::new("circle-alert")
+                            .size(px(16.0))
+                            .color(theme.tokens.destructive),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(2.0))
+                            .child(
+                                div()
+                                    .text_size(px(13.0))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(theme.tokens.destructive)
+                                    .child(error.file_name.clone()),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(12.0))
+                                    .text_color(theme.tokens.destructive.opacity(0.8))
+                                    .child(error.message.clone()),
+                            ),
+                    )
+            }))
+    }
+
+    fn render_file_list(
+        selection_handler: &FileSelectionHandler,
+        files: &[SelectedFile],
+        theme: &crate::capabilities::foundation::theme::Theme,
+        disabled: bool,
+        show_previews: bool,
+    ) -> impl IntoElement {
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(8.0))
+            .children(files.iter().enumerate().map(|(index, file)| {
+                let selection_handler = selection_handler.clone();
+                let file_name = file.name.clone();
+                let file_size = file.formatted_size();
+                let is_image = file.is_image;
+                let file_path = file.path.clone();
+
+                div()
+                    .id(("file-item", index))
+                    .flex()
+                    .items_center()
+                    .gap(px(12.0))
+                    .px(px(12.0))
+                    .py(px(8.0))
+                    .rounded(theme.tokens.radius_md)
+                    .bg(theme.tokens.card)
+                    .border_1()
+                    .border_color(theme.tokens.border)
+                    .when(show_previews && is_image, |this| {
+                        this.child(
+                            div()
+                                .w(px(48.0))
+                                .h(px(48.0))
+                                .rounded(theme.tokens.radius_sm)
+                                .bg(theme.tokens.muted)
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .overflow_hidden()
+                                .child(
+                                    img(file_path.to_string_lossy().to_string())
+                                        .w(px(48.0))
+                                        .h(px(48.0))
+                                        .object_fit(ObjectFit::Cover),
+                                ),
+                        )
+                    })
+                    .when(!show_previews || !is_image, |this| {
+                        this.child(
+                            div()
+                                .w(px(40.0))
+                                .h(px(40.0))
+                                .rounded(theme.tokens.radius_sm)
+                                .bg(theme.tokens.muted)
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .child(
+                                    Icon::new(if is_image { "image" } else { "file" })
+                                        .size(px(20.0))
+                                        .color(theme.tokens.muted_foreground),
+                                ),
+                        )
+                    })
+                    .child(
+                        div()
+                            .flex_1()
+                            .flex()
+                            .flex_col()
+                            .gap(px(2.0))
+                            .overflow_hidden()
+                            .child(
+                                div()
+                                    .text_size(px(13.0))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(theme.tokens.foreground)
+                                    .overflow_hidden()
+                                    .text_ellipsis()
+                                    .whitespace_nowrap()
+                                    .child(file_name),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(12.0))
+                                    .text_color(theme.tokens.muted_foreground)
+                                    .child(file_size),
+                            ),
+                    )
+                    .when(!disabled, |this| {
+                        this.child(
+                            div()
+                                .id(("remove-btn", index))
+                                .w(px(28.0))
+                                .h(px(28.0))
+                                .rounded(theme.tokens.radius_sm)
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .cursor(CursorStyle::PointingHand)
+                                .hover(|style| style.bg(theme.tokens.destructive.opacity(0.1)))
+                                .child(
+                                    Icon::new("x")
+                                        .size(px(16.0))
+                                        .color(theme.tokens.muted_foreground),
+                                )
+                                .on_click(move |_, window, cx| {
+                                    selection_handler.remove_file(index, window, cx);
+                                }),
+                        )
+                    })
+            }))
     }
 }
 

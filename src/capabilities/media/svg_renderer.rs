@@ -329,6 +329,112 @@ fn transform_point(
     )
 }
 
+/// How a subpath walk builds and flushes its [`PathBuilder`].
+#[derive(Clone, Copy)]
+enum SubpathStyle {
+    /// Stroke each subpath exactly as drawn: builders carry the stroke width
+    /// and subpaths are not auto-closed when flushed.
+    Stroke { width: f32, color: Hsla },
+    /// Fill each subpath: every subpath is closed before building so the fill
+    /// loops back to its start.
+    Fill { color: Hsla },
+}
+
+fn subpath_builder(style: SubpathStyle) -> PathBuilder {
+    match style {
+        SubpathStyle::Stroke { width, .. } => PathBuilder::stroke(px(width)),
+        SubpathStyle::Fill { .. } => PathBuilder::fill(),
+    }
+}
+
+/// Walk `commands` once, flushing every subpath (`MoveTo` through the next
+/// flush) to `window`. Horizontal/vertical-only commands carry the current
+/// point, and `Close` rewinds it to the subpath start per the SVG spec.
+fn paint_command_subpaths(
+    commands: &[SvgCommand],
+    view_box: &Bounds<f32>,
+    bounds: &Bounds<Pixels>,
+    window: &mut Window,
+    style: SubpathStyle,
+) {
+    let (color, close_on_flush) = match style {
+        SubpathStyle::Stroke { color, .. } => (color, false),
+        SubpathStyle::Fill { color } => (color, true),
+    };
+
+    let flush = |mut builder: PathBuilder, window: &mut Window| {
+        if close_on_flush {
+            builder.close();
+        }
+        if let Ok(path) = builder.build() {
+            window.paint_path(path, color);
+        }
+    };
+
+    let mut builder = subpath_builder(style);
+    let mut started = false;
+    let mut subpath_start = (0.0_f32, 0.0_f32);
+    let mut current_x = 0.0_f32;
+    let mut current_y = 0.0_f32;
+
+    for cmd in commands {
+        match cmd {
+            SvgCommand::MoveTo(x, y) => {
+                if started {
+                    flush(builder, window);
+                    builder = subpath_builder(style);
+                }
+                let pt = transform_point(*x, *y, view_box, bounds);
+                builder.move_to(pt);
+                current_x = *x;
+                current_y = *y;
+                subpath_start = (*x, *y);
+                started = true;
+            }
+            SvgCommand::LineTo(x, y) => {
+                let pt = transform_point(*x, *y, view_box, bounds);
+                builder.line_to(pt);
+                current_x = *x;
+                current_y = *y;
+            }
+            SvgCommand::HLineTo(x) => {
+                let pt = transform_point(*x, current_y, view_box, bounds);
+                builder.line_to(pt);
+                current_x = *x;
+            }
+            SvgCommand::VLineTo(y) => {
+                let pt = transform_point(current_x, *y, view_box, bounds);
+                builder.line_to(pt);
+                current_y = *y;
+            }
+            SvgCommand::CurveTo(x1, y1, x2, y2, x, y) => {
+                let cp1 = transform_point(*x1, *y1, view_box, bounds);
+                let cp2 = transform_point(*x2, *y2, view_box, bounds);
+                let end = transform_point(*x, *y, view_box, bounds);
+                builder.cubic_bezier_to(end, cp1, cp2);
+                current_x = *x;
+                current_y = *y;
+            }
+            SvgCommand::QuadTo(cx1, cy1, x, y) => {
+                let cp = transform_point(*cx1, *cy1, view_box, bounds);
+                let end = transform_point(*x, *y, view_box, bounds);
+                builder.curve_to(end, cp);
+                current_x = *x;
+                current_y = *y;
+            }
+            SvgCommand::Close => {
+                builder.close();
+                current_x = subpath_start.0;
+                current_y = subpath_start.1;
+            }
+        }
+    }
+
+    if started {
+        flush(builder, window);
+    }
+}
+
 impl RenderOnce for SVGRenderer {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = use_theme(cx);
@@ -355,156 +461,28 @@ impl RenderOnce for SVGRenderer {
                             return;
                         }
 
-                        let mut current_x = 0.0_f32;
-                        let mut current_y = 0.0_f32;
-
                         if let Some(stroke_color) = data.stroke_color {
-                            let mut builder = PathBuilder::stroke(px(data.stroke_width));
-                            let mut started = false;
-                            let mut subpath_start = (0.0_f32, 0.0_f32);
-
-                            for cmd in &data.commands {
-                                match cmd {
-                                    SvgCommand::MoveTo(x, y) => {
-                                        let pt = transform_point(*x, *y, &data.view_box, &bounds);
-                                        if started {
-                                            if let Ok(path) = builder.build() {
-                                                window.paint_path(path, stroke_color);
-                                            }
-                                            builder = PathBuilder::stroke(px(data.stroke_width));
-                                        }
-                                        builder.move_to(pt);
-                                        current_x = *x;
-                                        current_y = *y;
-                                        subpath_start = (*x, *y);
-                                        started = true;
-                                    }
-                                    SvgCommand::LineTo(x, y) => {
-                                        let pt = transform_point(*x, *y, &data.view_box, &bounds);
-                                        builder.line_to(pt);
-                                        current_x = *x;
-                                        current_y = *y;
-                                    }
-                                    SvgCommand::HLineTo(x) => {
-                                        let pt =
-                                            transform_point(*x, current_y, &data.view_box, &bounds);
-                                        builder.line_to(pt);
-                                        current_x = *x;
-                                    }
-                                    SvgCommand::VLineTo(y) => {
-                                        let pt =
-                                            transform_point(current_x, *y, &data.view_box, &bounds);
-                                        builder.line_to(pt);
-                                        current_y = *y;
-                                    }
-                                    SvgCommand::CurveTo(x1, y1, x2, y2, x, y) => {
-                                        let cp1 =
-                                            transform_point(*x1, *y1, &data.view_box, &bounds);
-                                        let cp2 =
-                                            transform_point(*x2, *y2, &data.view_box, &bounds);
-                                        let end = transform_point(*x, *y, &data.view_box, &bounds);
-                                        builder.cubic_bezier_to(end, cp1, cp2);
-                                        current_x = *x;
-                                        current_y = *y;
-                                    }
-                                    SvgCommand::QuadTo(cx1, cy1, x, y) => {
-                                        let cp =
-                                            transform_point(*cx1, *cy1, &data.view_box, &bounds);
-                                        let end = transform_point(*x, *y, &data.view_box, &bounds);
-                                        builder.curve_to(end, cp);
-                                        current_x = *x;
-                                        current_y = *y;
-                                    }
-                                    SvgCommand::Close => {
-                                        builder.close();
-                                        current_x = subpath_start.0;
-                                        current_y = subpath_start.1;
-                                    }
-                                }
-                            }
-
-                            if started {
-                                if let Ok(path) = builder.build() {
-                                    window.paint_path(path, stroke_color);
-                                }
-                            }
+                            paint_command_subpaths(
+                                &data.commands,
+                                &data.view_box,
+                                &bounds,
+                                window,
+                                SubpathStyle::Stroke {
+                                    width: data.stroke_width,
+                                    color: stroke_color,
+                                },
+                            );
                         }
 
-                        {
-                            let mut builder = PathBuilder::fill();
-                            let mut started = false;
-                            let mut subpath_start = (0.0_f32, 0.0_f32);
-                            current_x = 0.0;
-                            current_y = 0.0;
-
-                            for cmd in &data.commands {
-                                match cmd {
-                                    SvgCommand::MoveTo(x, y) => {
-                                        if started {
-                                            builder.close();
-                                            if let Ok(path) = builder.build() {
-                                                window.paint_path(path, data.fill_color);
-                                            }
-                                            builder = PathBuilder::fill();
-                                        }
-                                        let pt = transform_point(*x, *y, &data.view_box, &bounds);
-                                        builder.move_to(pt);
-                                        current_x = *x;
-                                        current_y = *y;
-                                        subpath_start = (*x, *y);
-                                        started = true;
-                                    }
-                                    SvgCommand::LineTo(x, y) => {
-                                        let pt = transform_point(*x, *y, &data.view_box, &bounds);
-                                        builder.line_to(pt);
-                                        current_x = *x;
-                                        current_y = *y;
-                                    }
-                                    SvgCommand::HLineTo(x) => {
-                                        let pt =
-                                            transform_point(*x, current_y, &data.view_box, &bounds);
-                                        builder.line_to(pt);
-                                        current_x = *x;
-                                    }
-                                    SvgCommand::VLineTo(y) => {
-                                        let pt =
-                                            transform_point(current_x, *y, &data.view_box, &bounds);
-                                        builder.line_to(pt);
-                                        current_y = *y;
-                                    }
-                                    SvgCommand::CurveTo(x1, y1, x2, y2, x, y) => {
-                                        let cp1 =
-                                            transform_point(*x1, *y1, &data.view_box, &bounds);
-                                        let cp2 =
-                                            transform_point(*x2, *y2, &data.view_box, &bounds);
-                                        let end = transform_point(*x, *y, &data.view_box, &bounds);
-                                        builder.cubic_bezier_to(end, cp1, cp2);
-                                        current_x = *x;
-                                        current_y = *y;
-                                    }
-                                    SvgCommand::QuadTo(cx1, cy1, x, y) => {
-                                        let cp =
-                                            transform_point(*cx1, *cy1, &data.view_box, &bounds);
-                                        let end = transform_point(*x, *y, &data.view_box, &bounds);
-                                        builder.curve_to(end, cp);
-                                        current_x = *x;
-                                        current_y = *y;
-                                    }
-                                    SvgCommand::Close => {
-                                        builder.close();
-                                        current_x = subpath_start.0;
-                                        current_y = subpath_start.1;
-                                    }
-                                }
-                            }
-
-                            if started {
-                                builder.close();
-                                if let Ok(path) = builder.build() {
-                                    window.paint_path(path, data.fill_color);
-                                }
-                            }
-                        }
+                        paint_command_subpaths(
+                            &data.commands,
+                            &data.view_box,
+                            &bounds,
+                            window,
+                            SubpathStyle::Fill {
+                                color: data.fill_color,
+                            },
+                        );
                     },
                 )
                 .size_full(),
