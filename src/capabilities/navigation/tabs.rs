@@ -414,58 +414,44 @@ impl<T: Clone + PartialEq + 'static> RenderOnce for Tabs<T> {
         let on_change = self.on_change;
         let on_close = self.on_close;
 
+        // Shared body of the tab-move actions: resolve the target index, then
+        // report it through `on_change` when it actually moves.
+        let move_to = {
+            let on_change = on_change.clone();
+            move |target: Option<usize>, window: &mut Window, cx: &mut App| {
+                if let (Some(target), Some(on_change)) = (
+                    target.filter(|target| *target != selected),
+                    on_change.as_ref(),
+                ) {
+                    on_change(&target, window, cx);
+                }
+            }
+        };
+
         root.key_context("Tabs")
             .on_action({
-                let on_change = on_change.clone();
+                let move_to = move_to.clone();
                 let disabled = disabled_flags.clone();
                 move |_: &TabNext, window, cx| {
-                    if let Some(next) = step_tab(&disabled, selected, true) {
-                        if next != selected {
-                            if let Some(on_change) = on_change.clone() {
-                                on_change(&next, window, cx);
-                            }
-                        }
-                    }
+                    move_to(step_tab(&disabled, selected, true), window, cx)
                 }
             })
             .on_action({
-                let on_change = on_change.clone();
+                let move_to = move_to.clone();
                 let disabled = disabled_flags.clone();
                 move |_: &TabPrevious, window, cx| {
-                    if let Some(prev) = step_tab(&disabled, selected, false) {
-                        if prev != selected {
-                            if let Some(on_change) = on_change.clone() {
-                                on_change(&prev, window, cx);
-                            }
-                        }
-                    }
+                    move_to(step_tab(&disabled, selected, false), window, cx)
                 }
             })
             .on_action({
-                let on_change = on_change.clone();
+                let move_to = move_to.clone();
                 let disabled = disabled_flags.clone();
-                move |_: &TabFirst, window, cx| {
-                    if let Some(first) = edge_tab(&disabled, false) {
-                        if first != selected {
-                            if let Some(on_change) = on_change.clone() {
-                                on_change(&first, window, cx);
-                            }
-                        }
-                    }
-                }
+                move |_: &TabFirst, window, cx| move_to(edge_tab(&disabled, false), window, cx)
             })
             .on_action({
-                let on_change = on_change.clone();
+                let move_to = move_to;
                 let disabled = disabled_flags.clone();
-                move |_: &TabLast, window, cx| {
-                    if let Some(last) = edge_tab(&disabled, true) {
-                        if last != selected {
-                            if let Some(on_change) = on_change.clone() {
-                                on_change(&last, window, cx);
-                            }
-                        }
-                    }
-                }
+                move |_: &TabLast, window, cx| move_to(edge_tab(&disabled, true), window, cx)
             })
             .on_action({
                 let on_close = on_close.clone();

@@ -206,7 +206,6 @@ impl Render for ToolbarDemo {
                         let formatting_group = ToolbarGroup::new()
                             .button(
                                 ToolbarButton::new("bold", IconSource::Named("bold".into()))
-                                    .tooltip("Bold")
                                     .variant(ToolbarButtonVariant::Toggle)
                                     .pressed(self.bold_active)
                                     .on_click({
@@ -220,7 +219,6 @@ impl Render for ToolbarDemo {
                             )
                             .button(
                                 ToolbarButton::new("italic", IconSource::Named("italic".into()))
-                                    .tooltip("Italic")
                                     .variant(ToolbarButtonVariant::Toggle)
                                     .pressed(self.italic_active)
                                     .on_click({
@@ -234,7 +232,6 @@ impl Render for ToolbarDemo {
                             )
                             .button(
                                 ToolbarButton::new("underline", IconSource::Named("underline".into()))
-                                    .tooltip("Underline")
                                     .variant(ToolbarButtonVariant::Toggle)
                                     .pressed(self.underline_active)
                                     .on_click({
@@ -250,7 +247,6 @@ impl Render for ToolbarDemo {
                         let alignment_group = ToolbarGroup::new()
                             .button(
                                 ToolbarButton::new("align_left", IconSource::Named("align-left".into()))
-                                    .tooltip("Align Left")
                                     .variant(ToolbarButtonVariant::Toggle)
                                     .pressed(self.align_left)
                                     .on_click({
@@ -264,7 +260,6 @@ impl Render for ToolbarDemo {
                             )
                             .button(
                                 ToolbarButton::new("align_center", IconSource::Named("align-center".into()))
-                                    .tooltip("Align Center")
                                     .variant(ToolbarButtonVariant::Toggle)
                                     .pressed(self.align_center)
                                     .on_click({
@@ -278,7 +273,6 @@ impl Render for ToolbarDemo {
                             )
                             .button(
                                 ToolbarButton::new("align_right", IconSource::Named("align-right".into()))
-                                    .tooltip("Align Right")
                                     .variant(ToolbarButtonVariant::Toggle)
                                     .pressed(self.align_right)
                                     .on_click({
@@ -294,7 +288,6 @@ impl Render for ToolbarDemo {
                         let list_group = ToolbarGroup::new()
                             .button(
                                 ToolbarButton::new("bullet_list", IconSource::Named("list".into()))
-                                    .tooltip("Bullet List")
                                     .on_click({
                                         let entity = cx.entity().clone();
                                         move |_, cx| {
@@ -306,7 +299,6 @@ impl Render for ToolbarDemo {
                             )
                             .button(
                                 ToolbarButton::new("numbered_list", IconSource::Named("list-ordered".into()))
-                                    .tooltip("Numbered List")
                                     .on_click({
                                         let entity = cx.entity().clone();
                                         move |_, cx| {
@@ -329,7 +321,6 @@ impl Render for ToolbarDemo {
                         let file_group = ToolbarGroup::new()
                             .button(
                                 ToolbarButton::new("new", IconSource::Named("file-plus".into()))
-                                    .tooltip("New File")
                                     .on_click({
                                         let entity = cx.entity().clone();
                                         move |_, cx| {
@@ -341,7 +332,6 @@ impl Render for ToolbarDemo {
                             )
                             .button(
                                 ToolbarButton::new("open", IconSource::Named("folder-open".into()))
-                                    .tooltip("Open File")
                                     .on_click({
                                         let entity = cx.entity().clone();
                                         move |_, cx| {
@@ -353,7 +343,6 @@ impl Render for ToolbarDemo {
                             )
                             .button(
                                 ToolbarButton::new("save", IconSource::Named("save".into()))
-                                    .tooltip("Save")
                                     .on_click({
                                         let entity = cx.entity().clone();
                                         move |_, cx| {
@@ -367,7 +356,6 @@ impl Render for ToolbarDemo {
                         let edit_group = ToolbarGroup::new()
                             .button(
                                 ToolbarButton::new("undo", IconSource::Named("undo".into()))
-                                    .tooltip("Undo")
                                     .on_click({
                                         let entity = cx.entity().clone();
                                         move |_, cx| {
@@ -379,7 +367,6 @@ impl Render for ToolbarDemo {
                             )
                             .button(
                                 ToolbarButton::new("redo", IconSource::Named("redo".into()))
-                                    .tooltip("Redo")
                                     .on_click({
                                         let entity = cx.entity().clone();
                                         move |_, cx| {
@@ -396,7 +383,6 @@ impl Render for ToolbarDemo {
                         let settings_group = ToolbarGroup::new()
                             .button(
                                 ToolbarButton::new("settings", IconSource::Named("settings".into()))
-                                    .tooltip("Settings")
                                     .variant(ToolbarButtonVariant::Dropdown)
                                     .on_click({
                                         let entity = cx.entity().clone();
@@ -421,7 +407,6 @@ impl Render for ToolbarDemo {
                         let group = ToolbarGroup::new()
                             .button(
                                 ToolbarButton::new("active", IconSource::Named("check".into()))
-                                    .tooltip("Active Button")
                                     .on_click({
                                         let entity = cx.entity().clone();
                                         move |_, cx| {
@@ -434,13 +419,11 @@ impl Render for ToolbarDemo {
                             .separator()
                             .button(
                                 ToolbarButton::new("disabled", IconSource::Named("x".into()))
-                                    .tooltip("Disabled Button")
                                     .disabled(true)
                             )
                             .separator()
                             .button(
                                 ToolbarButton::new("another", IconSource::Named("star".into()))
-                                    .tooltip("Another Button")
                                     .on_click({
                                         let entity = cx.entity().clone();
                                         move |_, cx| {

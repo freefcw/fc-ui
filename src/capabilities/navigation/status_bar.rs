@@ -98,6 +98,9 @@ impl StatusItem {
         self
     }
 
+    #[deprecated(
+        note = "never rendered; status bar items do not display tooltips today; removal in 0.10"
+    )]
     pub fn tooltip(mut self, tooltip: impl Into<SharedString>) -> Self {
         self.tooltip = Some(tooltip.into());
         self

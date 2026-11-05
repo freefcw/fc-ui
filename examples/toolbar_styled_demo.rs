@@ -115,26 +115,21 @@ impl Render for ToolbarStyledDemo {
                                 ToolbarGroup::new()
                                     .button(
                                         ToolbarButton::new("save", "save")
-                                            .tooltip("Save")
                                     )
                                     .button(
                                         ToolbarButton::new("copy", "copy")
-                                            .tooltip("Copy")
                                     )
                                     .button(
                                         ToolbarButton::new("paste", "clipboard")
-                                            .tooltip("Paste")
                                     )
                             )
                             .group(
                                 ToolbarGroup::new()
                                     .button(
                                         ToolbarButton::new("undo", "undo")
-                                            .tooltip("Undo")
                                     )
                                     .button(
                                         ToolbarButton::new("redo", "redo")
-                                            .tooltip("Redo")
                                     )
                             )
                     }))
@@ -162,14 +157,14 @@ impl Render for ToolbarStyledDemo {
                             .size(ToolbarSize::Md)
                             .group(
                                 ToolbarGroup::new()
-                                    .button(ToolbarButton::new("file", "file").tooltip("File"))
-                                    .button(ToolbarButton::new("folder", "folder").tooltip("Folder"))
-                                    .button(ToolbarButton::new("search", "search").tooltip("Search"))
+                                    .button(ToolbarButton::new("file", "file"))
+                                    .button(ToolbarButton::new("folder", "folder"))
+                                    .button(ToolbarButton::new("search", "search"))
                             )
                             .group(
                                 ToolbarGroup::new()
-                                    .button(ToolbarButton::new("settings", "settings").tooltip("Settings"))
-                                    .button(ToolbarButton::new("user", "user").tooltip("User"))
+                                    .button(ToolbarButton::new("settings", "settings"))
+                                    .button(ToolbarButton::new("user", "user"))
                             )
                             .bg(rgb(0x1e3a8a))  // Deep blue background
                     }))
@@ -200,15 +195,15 @@ impl Render for ToolbarStyledDemo {
                                     .size(ToolbarSize::Lg)
                                     .group(
                                         ToolbarGroup::new()
-                                            .button(ToolbarButton::new("bold", "bold").tooltip("Bold"))
-                                            .button(ToolbarButton::new("italic", "italic").tooltip("Italic"))
-                                            .button(ToolbarButton::new("underline", "underline").tooltip("Underline"))
+                                            .button(ToolbarButton::new("bold", "bold"))
+                                            .button(ToolbarButton::new("italic", "italic"))
+                                            .button(ToolbarButton::new("underline", "underline"))
                                     )
                                     .group(
                                         ToolbarGroup::new()
-                                            .button(ToolbarButton::new("align-left", "align-left").tooltip("Align Left"))
-                                            .button(ToolbarButton::new("align-center", "align-center").tooltip("Align Center"))
-                                            .button(ToolbarButton::new("align-right", "align-right").tooltip("Align Right"))
+                                            .button(ToolbarButton::new("align-left", "align-left"))
+                                            .button(ToolbarButton::new("align-center", "align-center"))
+                                            .button(ToolbarButton::new("align-right", "align-right"))
                                     )
                                     .px(px(24.0))  // Extra horizontal padding
                                     .py(px(12.0))  // Extra vertical padding
@@ -243,9 +238,9 @@ impl Render for ToolbarStyledDemo {
                                     .size(ToolbarSize::Md)
                                     .group(
                                         ToolbarGroup::new()
-                                            .button(ToolbarButton::new("image", "image").tooltip("Image"))
-                                            .button(ToolbarButton::new("video", "video").tooltip("Video"))
-                                            .button(ToolbarButton::new("music", "music").tooltip("Music"))
+                                            .button(ToolbarButton::new("image", "image"))
+                                            .button(ToolbarButton::new("video", "video"))
+                                            .button(ToolbarButton::new("music", "music"))
                                     )
                                     .border_2()  // 2px border
                                     .border_color(rgb(0x8b5cf6))  // Purple border
@@ -280,14 +275,14 @@ impl Render for ToolbarStyledDemo {
                                     .size(ToolbarSize::Md)
                                     .group(
                                         ToolbarGroup::new()
-                                            .button(ToolbarButton::new("download", "download").tooltip("Download"))
-                                            .button(ToolbarButton::new("upload", "upload").tooltip("Upload"))
-                                            .button(ToolbarButton::new("share", "share-2").tooltip("Share"))
+                                            .button(ToolbarButton::new("download", "download"))
+                                            .button(ToolbarButton::new("upload", "upload"))
+                                            .button(ToolbarButton::new("share", "share-2"))
                                     )
                                     .group(
                                         ToolbarGroup::new()
-                                            .button(ToolbarButton::new("heart", "heart").tooltip("Like"))
-                                            .button(ToolbarButton::new("star", "star").tooltip("Favorite"))
+                                            .button(ToolbarButton::new("heart", "heart"))
+                                            .button(ToolbarButton::new("star", "star"))
                                     )
                                     .shadow_lg()  // Large shadow
                                     .rounded(px(8.0))
@@ -321,8 +316,8 @@ impl Render for ToolbarStyledDemo {
                                     .size(ToolbarSize::Sm)
                                     .group(
                                         ToolbarGroup::new()
-                                            .button(ToolbarButton::new("zoom-in", "zoom-in").tooltip("Zoom In"))
-                                            .button(ToolbarButton::new("zoom-out", "zoom-out").tooltip("Zoom Out"))
+                                            .button(ToolbarButton::new("zoom-in", "zoom-in"))
+                                            .button(ToolbarButton::new("zoom-out", "zoom-out"))
                                     )
                                     .w(px(300.0))  // Fixed width
                                     .bg(theme.tokens.accent)
@@ -356,14 +351,14 @@ impl Render for ToolbarStyledDemo {
                                     .size(ToolbarSize::Lg)
                                     .group(
                                         ToolbarGroup::new()
-                                            .button(ToolbarButton::new("play", "play").tooltip("Play"))
-                                            .button(ToolbarButton::new("pause", "pause").tooltip("Pause"))
-                                            .button(ToolbarButton::new("stop", "square").tooltip("Stop"))
+                                            .button(ToolbarButton::new("play", "play"))
+                                            .button(ToolbarButton::new("pause", "pause"))
+                                            .button(ToolbarButton::new("stop", "square"))
                                     )
                                     .group(
                                         ToolbarGroup::new()
-                                            .button(ToolbarButton::new("skip-back", "skip-back").tooltip("Previous"))
-                                            .button(ToolbarButton::new("skip-forward", "skip-forward").tooltip("Next"))
+                                            .button(ToolbarButton::new("skip-back", "skip-back"))
+                                            .button(ToolbarButton::new("skip-forward", "skip-forward"))
                                     )
                                     .px(px(32.0))  // Extra padding
                                     .py(px(16.0))
@@ -403,9 +398,9 @@ impl Render for ToolbarStyledDemo {
                                     .size(ToolbarSize::Sm)
                                     .group(
                                         ToolbarGroup::new()
-                                            .button(ToolbarButton::new("menu", "menu").tooltip("Menu"))
-                                            .button(ToolbarButton::new("home", "home").tooltip("Home"))
-                                            .button(ToolbarButton::new("bell", "bell").tooltip("Notifications"))
+                                            .button(ToolbarButton::new("menu", "menu"))
+                                            .button(ToolbarButton::new("home", "home"))
+                                            .button(ToolbarButton::new("bell", "bell"))
                                     )
                                     .p_2()  // Minimal padding
                                     .rounded(px(999.0))  // Pill shape

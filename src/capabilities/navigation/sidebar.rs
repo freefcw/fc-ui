@@ -6,10 +6,11 @@ use crate::capabilities::primitives::icon_source::IconSource;
 use gpui::{prelude::FluentBuilder as _, prelude::*, *};
 use std::sync::Arc;
 
-actions!(
-    sidebar,
-    [ToggleSidebar, FocusNext, FocusPrevious, ActivateItem]
-);
+// `ToggleSidebar` is deliberately unbound here: apps own the shortcut and
+// bind it themselves (see init_contract_tests). Focus traversal actions were
+// removed with the never-reachable `focused_index` state they were meant to
+// drive.
+actions!(sidebar, [ToggleSidebar]);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SidebarVariant {
@@ -82,7 +83,6 @@ pub struct Sidebar<T: Clone + PartialEq + 'static> {
     on_select: Option<Arc<dyn Fn(&T, &mut Window, &mut App) + Send + Sync + 'static>>,
     on_toggle: Option<Arc<dyn Fn(bool, &mut Window, &mut App) + Send + Sync + 'static>>,
     focus_handle: FocusHandle,
-    focused_index: Option<usize>,
     style: StyleRefinement,
 }
 
@@ -100,7 +100,6 @@ impl<T: Clone + PartialEq + 'static> Sidebar<T> {
             on_select: None,
             on_toggle: None,
             focus_handle: cx.focus_handle(),
-            focused_index: None,
             style: StyleRefinement::default(),
         }
     }
@@ -191,11 +190,10 @@ impl<T: Clone + PartialEq + 'static> RenderOnce for Sidebar<T> {
         let show_toggle_button = self.show_toggle_button;
         let is_expanded = self.is_expanded;
         let selected_id = self.selected_id.clone();
-        let focused_index = self.focused_index;
 
         // Render all items before moving self
         let mut item_elements = Vec::new();
-        for (index, item) in self.items.iter().enumerate() {
+        for item in self.items.iter() {
             if item.separator {
                 item_elements.push(
                     div()
@@ -207,17 +205,9 @@ impl<T: Clone + PartialEq + 'static> RenderOnce for Sidebar<T> {
                 );
             } else {
                 let is_selected = matches!(selected_id.as_ref(), Some(id) if id == &item.id);
-                let is_focused = Some(index) == focused_index;
 
-                let item_element = self.render_sidebar_item(
-                    item,
-                    index,
-                    is_selected,
-                    is_focused,
-                    is_expanded,
-                    &theme,
-                    cx,
-                );
+                let item_element =
+                    self.render_sidebar_item(item, is_selected, is_expanded, &theme, cx);
                 item_elements.push(item_element);
             }
         }
@@ -314,9 +304,7 @@ impl<T: Clone + PartialEq + 'static> Sidebar<T> {
     fn render_sidebar_item(
         &self,
         item: &SidebarItem<T>,
-        _index: usize,
         is_selected: bool,
-        is_focused: bool,
         sidebar_expanded: bool,
         theme: &crate::capabilities::foundation::theme::Theme,
         _cx: &mut App,
@@ -340,10 +328,6 @@ impl<T: Clone + PartialEq + 'static> Sidebar<T> {
             item_container = item_container
                 .bg(theme.tokens.primary.opacity(0.1))
                 .text_color(theme.tokens.primary);
-        } else if is_focused {
-            item_container = item_container
-                .bg(theme.tokens.accent.opacity(0.1))
-                .text_color(theme.tokens.accent_foreground);
         } else {
             item_container = item_container
                 .text_color(theme.tokens.foreground)

@@ -6,6 +6,7 @@ pub mod drawer_navigation;
 pub mod file_tree;
 pub mod floating_action_button;
 pub mod keyboard_shortcuts;
+pub mod list;
 pub mod menu;
 pub mod navigation_menu;
 pub mod pagination;

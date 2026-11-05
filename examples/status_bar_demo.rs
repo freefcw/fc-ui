@@ -337,7 +337,6 @@ impl Render for StatusBarDemo {
                                     format!("{}", self.notifications)
                                 )
                                 .badge_variant(BadgeVariant::Default)
-                                .tooltip("Notifications")
                                 .on_click({
                                     let entity = entity.clone();
                                     move |_window, app_cx| {
@@ -356,7 +355,6 @@ impl Render for StatusBarDemo {
                                     format!("{}", self.warnings)
                                 )
                                 .badge_variant(BadgeVariant::Warning)
-                                .tooltip("Warnings")
                                 .on_click({
                                     let entity = entity.clone();
                                     move |_window, app_cx| {
@@ -375,7 +373,6 @@ impl Render for StatusBarDemo {
                                     format!("{}", self.errors)
                                 )
                                 .badge_variant(BadgeVariant::Destructive)
-                                .tooltip("Errors")
                                 .on_click({
                                     let entity = entity.clone();
                                     move |_window, app_cx| {
@@ -389,7 +386,6 @@ impl Render for StatusBarDemo {
                                     .disabled(true)
                             },
                             StatusItem::text(&self.encoding)
-                                .tooltip("File Encoding")
                                 .on_click({
                                     let entity = entity.clone();
                                     move |_window, app_cx| {
@@ -400,7 +396,6 @@ impl Render for StatusBarDemo {
                                 }),
                             if self.git_enabled {
                                 StatusItem::icon_text(IconSource::Named("git-branch".into()), "main")
-                                    .tooltip("Git Branch")
                                     .on_click({
                                         let entity = entity.clone();
                                         move |_window, app_cx| {

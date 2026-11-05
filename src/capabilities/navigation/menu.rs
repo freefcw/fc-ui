@@ -405,6 +405,16 @@ pub fn init_menu_bar(cx: &mut App) {
     cx.bind_keys([KeyBinding::new("escape", DismissMenu, Some("MenuBar"))]);
 }
 
+/// Legacy navigation-scoped context menu, retained only for source
+/// compatibility.
+///
+/// It is superseded by the overlays-based `ContextMenu`
+/// (`crate::overlays::context_menu`), which is the implementation the
+/// prelude, facades, and demos actually use; unlike this struct, the overlays
+/// version participates in focus management and dismissal handling.
+///
+/// The deprecation lives on `ContextMenu::new` rather than on the struct
+/// itself so the prelude's re-export stays warning-free.
 #[derive(IntoElement)]
 pub struct ContextMenu {
     items: Vec<MenuItem>,
@@ -412,6 +422,7 @@ pub struct ContextMenu {
 }
 
 impl ContextMenu {
+    #[deprecated(note = "superseded by overlays::context_menu::ContextMenu; removal in 0.10")]
     pub fn new(items: Vec<MenuItem>, position: Point<Pixels>) -> Self {
         Self { items, position }
     }

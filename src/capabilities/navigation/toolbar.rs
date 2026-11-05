@@ -42,6 +42,11 @@ impl ToolbarSize {
 pub struct ToolbarButton {
     pub id: SharedString,
     pub icon: IconSource,
+    /// Never rendered: tooltips require the overlays capability, which sits
+    /// outside navigation's dependency boundary.
+    #[deprecated(
+        note = "never rendered; tooltips require overlays support outside navigation's dependency boundary; removal in 0.10"
+    )]
     pub tooltip: Option<SharedString>,
     pub variant: ToolbarButtonVariant,
     pub pressed: bool,
@@ -51,6 +56,7 @@ pub struct ToolbarButton {
 
 impl ToolbarButton {
     pub fn new(id: impl Into<SharedString>, icon: impl Into<IconSource>) -> Self {
+        #[allow(deprecated)]
         Self {
             id: id.into(),
             icon: icon.into(),
@@ -62,8 +68,14 @@ impl ToolbarButton {
         }
     }
 
+    #[deprecated(
+        note = "never rendered; tooltips require overlays support outside navigation's dependency boundary; removal in 0.10"
+    )]
     pub fn tooltip(mut self, tooltip: impl Into<SharedString>) -> Self {
-        self.tooltip = Some(tooltip.into());
+        #[allow(deprecated)]
+        {
+            self.tooltip = Some(tooltip.into());
+        }
         self
     }
 
