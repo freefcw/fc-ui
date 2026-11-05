@@ -9,6 +9,9 @@ pub mod copy_button;
 pub mod date_picker;
 pub mod drag_drop;
 pub mod dropdown;
+// Shared editing core for Input/Textarea/Mention state machines (single owner:
+// input_state.rs / textarea_state.rs / mention_input.rs delegate to it).
+pub(crate) mod edit_core;
 pub mod form;
 pub mod hotkey_input;
 pub mod inline_edit;

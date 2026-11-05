@@ -7,6 +7,10 @@ use crate::capabilities::foundation::theme::use_theme;
 use gpui::{prelude::*, *};
 use std::ops::Range;
 
+use crate::capabilities::controls::edit_core::{
+    self, attach_action_handlers, impl_shared_edit_builders, DeletionPlan, EditCore, HasCaretBlink,
+    Motion,
+};
 use crate::capabilities::controls::text_util;
 use crate::capabilities::controls::validation;
 pub use crate::capabilities::controls::validation::{ValidationError, ValidationRules};
@@ -115,6 +119,16 @@ pub enum TextareaEvent {
 
 impl EventEmitter<TextareaEvent> for TextareaState {}
 
+impl HasCaretBlink for TextareaState {
+    fn caret_blink(&mut self) -> &mut edit_core::CaretBlink {
+        &mut self.blink
+    }
+}
+
+// Placeholder / disabled / validation builders shared verbatim with
+// InputState; defined once in the editing core.
+impl_shared_edit_builders!(TextareaState);
+
 /// Multi-line text input state with cursor management
 pub struct TextareaState {
     focus_handle: FocusHandle,
@@ -132,8 +146,7 @@ pub struct TextareaState {
     last_line_height: Pixels,
     is_selecting: bool,
     was_focused: bool,
-    cursor_visible: bool,
-    _blink_task: Option<Task<()>>,
+    blink: edit_core::CaretBlink,
     event_subscription: Option<Subscription>,
 
     // Validation (shared machinery with `InputState`)
@@ -171,8 +184,7 @@ impl TextareaState {
             last_line_height: px(20.0),
             is_selecting: false,
             was_focused: false,
-            cursor_visible: true,
-            _blink_task: None,
+            blink: edit_core::CaretBlink::new(),
             event_subscription: None,
             validation_rules: ValidationRules::default(),
             validation_error: None,
@@ -186,12 +198,6 @@ impl TextareaState {
         self.event_subscription = subscription;
     }
 
-    /// Set the placeholder text.
-    pub fn placeholder(mut self, placeholder: impl Into<SharedString>) -> Self {
-        self.placeholder = placeholder.into();
-        self
-    }
-
     /// Set the initial value.
     ///
     /// Equivalent to assigning `content` directly, but leaves the caret at
@@ -203,12 +209,6 @@ impl TextareaState {
         self.content = value.into();
         let len = self.content.len();
         self.selected_range = len..len;
-        self
-    }
-
-    /// Set whether user interaction is disabled.
-    pub fn disabled(mut self, disabled: bool) -> Self {
-        self.disabled = disabled;
         self
     }
 
@@ -264,30 +264,6 @@ impl TextareaState {
             .unwrap_or(0)
     }
 
-    /// Set validation rules
-    pub fn validation_rules(mut self, rules: ValidationRules) -> Self {
-        self.validation_rules = rules;
-        self
-    }
-
-    /// Set minimum length
-    pub fn min_length(mut self, min: usize) -> Self {
-        self.validation_rules.min_length = Some(min);
-        self
-    }
-
-    /// Set maximum length
-    pub fn max_length(mut self, max: usize) -> Self {
-        self.validation_rules.max_length = Some(max);
-        self
-    }
-
-    /// Mark field as required
-    pub fn required(mut self, required: bool) -> Self {
-        self.validation_rules.required = required;
-        self
-    }
-
     fn truncate_to_max_length(&self, value: SharedString) -> SharedString {
         self.validation_rules
             .max_length
@@ -301,13 +277,7 @@ impl TextareaState {
     /// textarea never sprouts a "Valid input" footer just because focus left
     /// the field. Explicit `validate()` calls (e.g. from `Form`) always run.
     fn should_auto_validate(&self, enabled: bool) -> bool {
-        let rules = &self.validation_rules;
-        enabled
-            && (rules.required
-                || rules.min_length.is_some()
-                || rules.max_length.is_some()
-                || rules.pattern.is_some()
-                || rules.custom_validator.is_some())
+        enabled && EditCore::has_validation_rules(&self.validation_rules)
     }
 
     /// Validate the current value against the configured rules.
@@ -338,15 +308,11 @@ impl TextareaState {
         result: Result<(), ValidationError>,
         cx: &mut Context<Self>,
     ) -> Result<(), ValidationError> {
-        match &result {
-            Ok(()) => {
-                self.validation_error = None;
-                self.success_message = Some("Valid input".into());
-            }
-            Err(error) => {
-                self.validation_error = Some(error.clone());
-            }
-        }
+        EditCore::apply_validation_outcome(
+            &mut self.validation_error,
+            &mut self.success_message,
+            &result,
+        );
         cx.emit(TextareaEvent::Validate(result.clone()));
         cx.notify();
         result
@@ -551,62 +517,39 @@ impl TextareaState {
     // ── Cursor / Selection ──────────────────────────────────────────
 
     fn cursor_offset(&self) -> usize {
-        text_util::cursor_offset(&self.selected_range, self.selection_reversed)
+        EditCore::cursor_offset(&self.selected_range, self.selection_reversed)
     }
 
     fn move_to(&mut self, offset: usize, cx: &mut Context<Self>) {
-        let offset = self.clamp_offset(offset);
-        self.selected_range = offset..offset;
-        self.selection_reversed = false;
-        self.reset_blink(cx);
+        (self.selected_range, self.selection_reversed) = EditCore::move_to(&self.content, offset);
+        self.blink.reset(cx);
         cx.notify();
     }
 
     fn select_to(&mut self, offset: usize, cx: &mut Context<Self>) {
-        let offset = self.clamp_offset(offset);
-        (self.selected_range, self.selection_reversed) = text_util::extend_selection(
+        (self.selected_range, self.selection_reversed) = EditCore::select_to(
+            &self.content,
             self.selected_range.clone(),
             self.selection_reversed,
             offset,
         );
-        self.reset_blink(cx);
+        self.blink.reset(cx);
         cx.notify();
     }
 
-    fn clamp_offset(&self, offset: usize) -> usize {
-        text_util::clamp_offset(&self.content, offset)
-    }
-
-    // ── Grapheme boundaries ─────────────────────────────────────────
-
-    fn previous_boundary(&self, offset: usize) -> usize {
-        text_util::previous_grapheme_boundary(&self.content, offset)
-    }
-
-    fn next_boundary(&self, offset: usize) -> usize {
-        text_util::next_grapheme_boundary(&self.content, offset)
-    }
-
-    fn previous_word_boundary(&self, offset: usize) -> usize {
-        text_util::previous_word_boundary(&self.content, offset)
-    }
-
-    fn next_word_boundary(&self, offset: usize) -> usize {
-        text_util::next_word_boundary(&self.content, offset)
-    }
-
-    // ── UTF-16 conversion (for EntityInputHandler) ──────────────────
-
-    fn offset_to_utf16(&self, offset: usize) -> usize {
-        crate::capabilities::controls::text_util::offset_to_utf16(&self.content, offset)
-    }
-
-    fn range_to_utf16(&self, range: &Range<usize>) -> Range<usize> {
-        crate::capabilities::controls::text_util::range_to_utf16(&self.content, range)
-    }
-
-    fn range_from_utf16(&self, range_utf16: &Range<usize>) -> Range<usize> {
-        crate::capabilities::controls::text_util::range_from_utf16(&self.content, range_utf16)
+    /// Apply a shared editing motion, then restart the caret blink and
+    /// notify — the tail every motion action shares.
+    fn apply_motion(&mut self, motion: Motion, cx: &mut Context<Self>) {
+        let (range, reversed) = EditCore::apply_motion(
+            &self.content,
+            &self.selected_range,
+            self.selection_reversed,
+            motion,
+        );
+        self.selected_range = range;
+        self.selection_reversed = reversed;
+        self.blink.reset(cx);
+        cx.notify();
     }
 
     // ── Layout cache ────────────────────────────────────────────────
@@ -618,25 +561,7 @@ impl TextareaState {
     }
 
     // ── Blink ───────────────────────────────────────────────────────
-
-    fn start_blink(&mut self, cx: &mut Context<Self>) {
-        self._blink_task = None;
-        self.cursor_visible = true;
-        self._blink_task = Some(edit::spawn_caret_blink(cx, |this, cx| {
-            this.cursor_visible = !this.cursor_visible;
-            cx.notify();
-        }));
-    }
-
-    fn stop_blink(&mut self) {
-        self._blink_task = None;
-        self.cursor_visible = true;
-    }
-
-    fn reset_blink(&mut self, cx: &mut Context<Self>) {
-        self.stop_blink();
-        self.start_blink(cx);
-    }
+    // The blink runtime lives in the shared editing core (`self.blink`).
 
     fn sync_focus_state(&mut self, is_focused: bool, _window: &mut Window, cx: &mut Context<Self>) {
         if self.was_focused == is_focused {
@@ -645,10 +570,10 @@ impl TextareaState {
 
         self.was_focused = is_focused;
         if is_focused {
-            self.start_blink(cx);
+            self.blink.start(cx);
             cx.emit(TextareaEvent::Focus);
         } else {
-            self.stop_blink();
+            self.blink.stop();
             self.is_selecting = false;
             if self.should_auto_validate(self.validate_on_blur) {
                 self.validate(cx).ok();
@@ -669,11 +594,11 @@ impl TextareaState {
         self.is_selecting = true;
         let idx = self.index_for_mouse_position(event.position);
         if event.click_count == 2 {
-            let start = self.previous_word_boundary(idx);
-            let end = self.next_word_boundary(idx);
+            let start = EditCore::previous_word_boundary(&self.content, idx);
+            let end = EditCore::next_word_boundary(&self.content, idx);
             self.selected_range = start..end;
             self.selection_reversed = false;
-            self.reset_blink(cx);
+            self.blink.reset(cx);
             cx.notify();
         } else if event.modifiers.shift {
             self.select_to(idx, cx);
@@ -741,33 +666,49 @@ impl TextareaState {
     // ── Action handlers ─────────────────────────────────────────────
 
     pub fn backspace(&mut self, _: &Backspace, window: &mut Window, cx: &mut Context<Self>) {
-        if self.selected_range.is_empty() {
-            self.select_to(self.previous_boundary(self.cursor_offset()), cx);
+        match EditCore::deletion_plan(
+            &self.content,
+            &self.selected_range,
+            self.selection_reversed,
+            false,
+        ) {
+            DeletionPlan::Nothing => return,
+            DeletionPlan::Extend(range, reversed) => {
+                self.selected_range = range;
+                self.selection_reversed = reversed;
+                self.blink.reset(cx);
+                cx.notify();
+            }
+            DeletionPlan::Selection => {}
         }
         self.replace_text_in_range(None, "", window, cx);
     }
 
     pub fn delete(&mut self, _: &Delete, window: &mut Window, cx: &mut Context<Self>) {
-        if self.selected_range.is_empty() {
-            self.select_to(self.next_boundary(self.cursor_offset()), cx);
+        match EditCore::deletion_plan(
+            &self.content,
+            &self.selected_range,
+            self.selection_reversed,
+            true,
+        ) {
+            DeletionPlan::Nothing => return,
+            DeletionPlan::Extend(range, reversed) => {
+                self.selected_range = range;
+                self.selection_reversed = reversed;
+                self.blink.reset(cx);
+                cx.notify();
+            }
+            DeletionPlan::Selection => {}
         }
         self.replace_text_in_range(None, "", window, cx);
     }
 
     pub fn left(&mut self, _: &Left, _: &mut Window, cx: &mut Context<Self>) {
-        if self.selected_range.is_empty() {
-            self.move_to(self.previous_boundary(self.cursor_offset()), cx);
-        } else {
-            self.move_to(self.selected_range.start, cx);
-        }
+        self.apply_motion(Motion::Left, cx);
     }
 
     pub fn right(&mut self, _: &Right, _: &mut Window, cx: &mut Context<Self>) {
-        if self.selected_range.is_empty() {
-            self.move_to(self.next_boundary(self.cursor_offset()), cx);
-        } else {
-            self.move_to(self.selected_range.end, cx);
-        }
+        self.apply_motion(Motion::Right, cx);
     }
 
     pub fn up(&mut self, _: &Up, _: &mut Window, cx: &mut Context<Self>) {
@@ -797,11 +738,11 @@ impl TextareaState {
     }
 
     pub fn select_left(&mut self, _: &SelectLeft, _: &mut Window, cx: &mut Context<Self>) {
-        self.select_to(self.previous_boundary(self.cursor_offset()), cx);
+        self.apply_motion(Motion::SelectLeft, cx);
     }
 
     pub fn select_right(&mut self, _: &SelectRight, _: &mut Window, cx: &mut Context<Self>) {
-        self.select_to(self.next_boundary(self.cursor_offset()), cx);
+        self.apply_motion(Motion::SelectRight, cx);
     }
 
     pub fn select_up(&mut self, _: &SelectUp, _: &mut Window, cx: &mut Context<Self>) {
@@ -823,10 +764,7 @@ impl TextareaState {
     }
 
     pub fn select_all(&mut self, _: &SelectAll, _: &mut Window, cx: &mut Context<Self>) {
-        self.selected_range = 0..self.content.len();
-        self.selection_reversed = false;
-        self.reset_blink(cx);
-        cx.notify();
+        self.apply_motion(Motion::SelectAll, cx);
     }
 
     pub fn home(&mut self, _: &Home, _: &mut Window, cx: &mut Context<Self>) {
@@ -840,25 +778,15 @@ impl TextareaState {
     }
 
     pub fn word_left(&mut self, _: &WordLeft, _: &mut Window, cx: &mut Context<Self>) {
-        let offset = self.previous_word_boundary(self.cursor_offset());
-        if self.selected_range.is_empty() {
-            self.move_to(offset, cx);
-        } else {
-            self.move_to(self.selected_range.start.min(offset), cx);
-        }
+        self.apply_motion(Motion::WordLeft, cx);
     }
 
     pub fn word_right(&mut self, _: &WordRight, _: &mut Window, cx: &mut Context<Self>) {
-        let offset = self.next_word_boundary(self.cursor_offset());
-        if self.selected_range.is_empty() {
-            self.move_to(offset, cx);
-        } else {
-            self.move_to(self.selected_range.end.max(offset), cx);
-        }
+        self.apply_motion(Motion::WordRight, cx);
     }
 
     pub fn select_word_left(&mut self, _: &SelectWordLeft, _: &mut Window, cx: &mut Context<Self>) {
-        self.select_to(self.previous_word_boundary(self.cursor_offset()), cx);
+        self.apply_motion(Motion::SelectWordLeft, cx);
     }
 
     pub fn select_word_right(
@@ -867,7 +795,7 @@ impl TextareaState {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.select_to(self.next_word_boundary(self.cursor_offset()), cx);
+        self.apply_motion(Motion::SelectWordRight, cx);
     }
 
     pub fn enter(&mut self, _: &Enter, window: &mut Window, cx: &mut Context<Self>) {
@@ -890,17 +818,19 @@ impl TextareaState {
 
     pub fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
         if !self.selected_range.is_empty() {
-            cx.write_to_clipboard(ClipboardItem::new_string(
-                self.content[self.selected_range.clone()].to_string(),
-            ));
+            cx.write_to_clipboard(ClipboardItem::new_string(EditCore::selected_text(
+                &self.content,
+                &self.selected_range,
+            )));
         }
     }
 
     pub fn cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
         if !self.selected_range.is_empty() {
-            cx.write_to_clipboard(ClipboardItem::new_string(
-                self.content[self.selected_range.clone()].to_string(),
-            ));
+            cx.write_to_clipboard(ClipboardItem::new_string(EditCore::selected_text(
+                &self.content,
+                &self.selected_range,
+            )));
             self.replace_text_in_range(None, "", window, cx);
         }
     }
@@ -927,9 +857,7 @@ impl EntityInputHandler for TextareaState {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<String> {
-        let range = self.range_from_utf16(&range_utf16);
-        actual_range.replace(self.range_to_utf16(&range));
-        Some(self.content[range].to_string())
+        EditCore::text_for_range(&self.content, &range_utf16, actual_range)
     }
 
     fn selected_text_range(
@@ -938,10 +866,7 @@ impl EntityInputHandler for TextareaState {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<UTF16Selection> {
-        Some(UTF16Selection {
-            range: self.range_to_utf16(&self.selected_range),
-            reversed: self.selection_reversed,
-        })
+        EditCore::selected_text_range(&self.content, &self.selected_range, self.selection_reversed)
     }
 
     fn marked_text_range(
@@ -949,9 +874,7 @@ impl EntityInputHandler for TextareaState {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<Range<usize>> {
-        self.marked_range
-            .as_ref()
-            .map(|range| self.range_to_utf16(range))
+        EditCore::marked_text_range(&self.content, self.marked_range.as_ref())
     }
 
     fn unmark_text(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -972,7 +895,7 @@ impl EntityInputHandler for TextareaState {
         let had_marked_text = self.marked_range.is_some();
         let range = range_utf16
             .as_ref()
-            .map(|r| self.range_from_utf16(r))
+            .map(|r| EditCore::range_from_utf16(&self.content, r))
             .or(self.marked_range.clone())
             .unwrap_or(self.selected_range.clone());
 
@@ -985,16 +908,15 @@ impl EntityInputHandler for TextareaState {
             new_text.to_owned()
         };
 
-        let next_content: SharedString =
-            (self.content[0..range.start].to_owned() + &new_text + &self.content[range.end..])
-                .into();
+        let (next_content, caret) = EditCore::replace_range(&self.content, &range, &new_text);
+        let next_content: SharedString = next_content.into();
         let content_changed = self.content != next_content;
         self.content = next_content;
-        self.selected_range = range.start + new_text.len()..range.start + new_text.len();
+        self.selected_range = caret..caret;
         self.marked_range.take();
         self.selection_reversed = false;
         if self.focus_handle.is_focused(window) {
-            self.reset_blink(cx);
+            self.blink.reset(cx);
         }
         self.invalidate_layout_cache();
         if (content_changed || had_marked_text)
@@ -1018,13 +940,12 @@ impl EntityInputHandler for TextareaState {
     ) {
         let range = range_utf16
             .as_ref()
-            .map(|r| self.range_from_utf16(r))
+            .map(|r| EditCore::range_from_utf16(&self.content, r))
             .or(self.marked_range.clone())
             .unwrap_or(self.selected_range.clone());
 
-        self.content =
-            (self.content[0..range.start].to_owned() + new_text + &self.content[range.end..])
-                .into();
+        let (next_content, _) = EditCore::replace_range(&self.content, &range, new_text);
+        self.content = next_content.into();
         if !new_text.is_empty() {
             self.marked_range = Some(range.start..range.start + new_text.len());
         } else {
@@ -1038,7 +959,7 @@ impl EntityInputHandler for TextareaState {
 
         self.selection_reversed = false;
         if self.focus_handle.is_focused(window) {
-            self.reset_blink(cx);
+            self.blink.reset(cx);
         }
         self.invalidate_layout_cache();
         cx.notify();
@@ -1055,7 +976,7 @@ impl EntityInputHandler for TextareaState {
             return None;
         }
 
-        let range = self.range_from_utf16(&range_utf16);
+        let range = EditCore::range_from_utf16(&self.content, &range_utf16);
         let line_height = bounds.size.height / self.visual_line_count() as f32;
         let visual_lines = self.visual_lines(line_height);
 
@@ -1096,7 +1017,7 @@ impl EntityInputHandler for TextareaState {
         }
 
         let byte_offset = self.index_for_mouse_position(point);
-        Some(self.offset_to_utf16(byte_offset))
+        Some(EditCore::offset_to_utf16(&self.content, byte_offset))
     }
 }
 
@@ -1434,7 +1355,7 @@ impl Element for TextareaTextElement {
         // Paint cursor
         let is_focused = focus_handle.is_focused(window);
         if is_focused {
-            let cursor_visible = self.state.read(cx).cursor_visible;
+            let cursor_visible = self.state.read(cx).blink.visible;
             if cursor_visible {
                 if let Some(cursor) = prepaint.cursor.take() {
                     window.paint_quad(cursor);
@@ -1509,34 +1430,39 @@ pub fn wire_actions(state: &Entity<TextareaState>, window: &mut Window, cx: &App
         .track_scroll(&scroll_handle)
         .overflow_y_scroll()
         .when(!disabled, |this| {
-            this.on_mouse_down(MouseButton::Left, move |_event, window, _cx| {
+            let this = this.on_mouse_down(MouseButton::Left, move |_event, window, _cx| {
                 window.focus(&focus_handle_for_mouse);
-            })
-            .on_action(window.listener_for(state, TextareaState::backspace))
-            .on_action(window.listener_for(state, TextareaState::delete))
-            .on_action(window.listener_for(state, TextareaState::left))
-            .on_action(window.listener_for(state, TextareaState::right))
-            .on_action(window.listener_for(state, TextareaState::up))
-            .on_action(window.listener_for(state, TextareaState::down))
-            .on_action(window.listener_for(state, TextareaState::select_left))
-            .on_action(window.listener_for(state, TextareaState::select_right))
-            .on_action(window.listener_for(state, TextareaState::select_up))
-            .on_action(window.listener_for(state, TextareaState::select_down))
-            .on_action(window.listener_for(state, TextareaState::select_all))
-            .on_action(window.listener_for(state, TextareaState::home))
-            .on_action(window.listener_for(state, TextareaState::end))
-            .on_action(window.listener_for(state, TextareaState::copy))
-            .on_action(window.listener_for(state, TextareaState::cut))
-            .on_action(window.listener_for(state, TextareaState::paste))
-            .on_action(window.listener_for(state, TextareaState::enter))
-            .on_action(window.listener_for(state, TextareaState::shift_enter))
-            .on_action(window.listener_for(state, TextareaState::tab))
-            .on_action(window.listener_for(state, TextareaState::shift_tab))
-            .on_action(window.listener_for(state, TextareaState::escape))
-            .on_action(window.listener_for(state, TextareaState::word_left))
-            .on_action(window.listener_for(state, TextareaState::word_right))
-            .on_action(window.listener_for(state, TextareaState::select_word_left))
-            .on_action(window.listener_for(state, TextareaState::select_word_right))
+            });
+            attach_action_handlers!(
+                this,
+                window,
+                state,
+                TextareaState::backspace,
+                TextareaState::delete,
+                TextareaState::left,
+                TextareaState::right,
+                TextareaState::up,
+                TextareaState::down,
+                TextareaState::select_left,
+                TextareaState::select_right,
+                TextareaState::select_up,
+                TextareaState::select_down,
+                TextareaState::select_all,
+                TextareaState::home,
+                TextareaState::end,
+                TextareaState::copy,
+                TextareaState::cut,
+                TextareaState::paste,
+                TextareaState::enter,
+                TextareaState::shift_enter,
+                TextareaState::tab,
+                TextareaState::shift_tab,
+                TextareaState::escape,
+                TextareaState::word_left,
+                TextareaState::word_right,
+                TextareaState::select_word_left,
+                TextareaState::select_word_right,
+            )
         })
 }
 

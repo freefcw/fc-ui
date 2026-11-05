@@ -16,6 +16,10 @@ use gpui::{prelude::*, *};
 use std::ops::Range;
 use std::sync::LazyLock;
 
+use crate::capabilities::controls::edit_core::{
+    self, attach_action_handlers, impl_shared_edit_builders, DeletionPlan, EditCore, HasCaretBlink,
+    Motion,
+};
 use crate::capabilities::controls::input_format::DisplayMapping;
 use crate::capabilities::controls::text_util;
 use crate::capabilities::controls::validation;
@@ -114,7 +118,7 @@ pub enum InputEvent {
     ShiftTab,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum DeletionDirection {
     Backward,
     Forward,
@@ -129,9 +133,13 @@ pub struct InputState {
     /// public for compatibility, this lets us distinguish an external write
     /// from a formatter change without reverse-running the formatter.
     last_synced_display: String,
+    #[doc(hidden)]
     pub content: SharedString,
+    #[doc(hidden)]
     pub placeholder: SharedString,
+    #[doc(hidden)]
     pub disabled: bool,
+    #[doc(hidden)]
     pub masked: bool,
     selected_range: Range<usize>,
     selection_reversed: bool,
@@ -144,24 +152,36 @@ pub struct InputState {
     last_click_position: Option<Point<Pixels>>,
 
     // Cursor blink state
-    cursor_visible: bool,
-    _blink_task: Option<Task<()>>,
+    blink: edit_core::CaretBlink,
 
     // Enhanced features
+    #[doc(hidden)]
     pub input_type: InputType,
+    #[doc(hidden)]
     pub validation_rules: ValidationRules,
+    #[doc(hidden)]
     pub validation_error: Option<ValidationError>,
+    #[doc(hidden)]
     pub input_mask: InputMask,
+    #[doc(hidden)]
     pub aria_label: Option<SharedString>,
+    #[doc(hidden)]
     pub aria_description: Option<SharedString>,
+    #[doc(hidden)]
     pub autocomplete: Option<SharedString>,
+    #[doc(hidden)]
     pub helper_text: Option<SharedString>,
+    #[doc(hidden)]
     pub success_message: Option<SharedString>,
-    pub tab_index: Option<i32>,
+    #[doc(hidden)]
     pub select_on_focus: bool,
+    #[doc(hidden)]
     pub validate_on_blur: bool,
+    #[doc(hidden)]
     pub validate_on_change: bool,
+    #[doc(hidden)]
     pub trim_on_blur: bool,
+    #[doc(hidden)]
     pub shake_triggered: bool,
     pub(crate) shake_count: u32,
     cursor_position_override: Option<usize>,
@@ -178,6 +198,16 @@ pub struct InputState {
 }
 
 impl EventEmitter<InputEvent> for InputState {}
+
+impl HasCaretBlink for InputState {
+    fn caret_blink(&mut self) -> &mut edit_core::CaretBlink {
+        &mut self.blink
+    }
+}
+
+// Placeholder / disabled / validation builders shared verbatim with
+// TextareaState; defined once in the editing core.
+impl_shared_edit_builders!(InputState);
 
 impl InputState {
     pub fn new(cx: &mut Context<Self>) -> Self {
@@ -198,8 +228,7 @@ impl InputState {
             was_focused: false,
             last_click_time: None,
             last_click_position: None,
-            cursor_visible: true,
-            _blink_task: None,
+            blink: edit_core::CaretBlink::new(),
 
             input_type: InputType::Text,
             validation_rules: ValidationRules::default(),
@@ -210,7 +239,6 @@ impl InputState {
             autocomplete: None,
             helper_text: None,
             success_message: None,
-            tab_index: None,
             select_on_focus: false,
             validate_on_blur: true,
             validate_on_change: false,
@@ -267,35 +295,6 @@ impl InputState {
         self
     }
 
-    /// Set validation rules
-    pub fn validation_rules(mut self, rules: ValidationRules) -> Self {
-        self.validation_rules = rules;
-        self
-    }
-
-    /// Set minimum length
-    pub fn min_length(mut self, min: usize) -> Self {
-        self.validation_rules.min_length = Some(min);
-        self
-    }
-
-    /// Set maximum length
-    pub fn max_length(mut self, max: usize) -> Self {
-        self.validation_rules.max_length = Some(max);
-        self
-    }
-
-    /// Mark field as required
-    pub fn required(mut self, required: bool) -> Self {
-        self.validation_rules.required = required;
-        self
-    }
-
-    pub fn placeholder(mut self, placeholder: impl Into<SharedString>) -> Self {
-        self.placeholder = placeholder.into();
-        self
-    }
-
     /// Set the initial value.
     ///
     /// Equivalent to assigning `content` directly, but leaves the caret at
@@ -307,12 +306,6 @@ impl InputState {
         self.content = value.into();
         let len = self.content.len();
         self.selected_range = len..len;
-        self
-    }
-
-    /// Set whether user interaction is disabled.
-    pub fn disabled(mut self, disabled: bool) -> Self {
-        self.disabled = disabled;
         self
     }
 
@@ -342,6 +335,97 @@ impl InputState {
 
     pub fn content(&self) -> &str {
         &self.content
+    }
+
+    // Read accessors for the public fields, added ahead of the 0.10 field
+    // privatization (the fields carry `#[doc(hidden)]` as the transitional
+    // signal). Getters whose natural name collides with an existing builder
+    // method (`placeholder`, `disabled`, `input_type`, `validation_rules`,
+    // `select_on_focus`, `trim_on_blur`) use the prefixed spellings below.
+
+    /// The placeholder text.
+    pub fn placeholder_text(&self) -> &str {
+        &self.placeholder
+    }
+
+    /// Whether user interaction is disabled.
+    pub fn is_disabled(&self) -> bool {
+        self.disabled
+    }
+
+    /// The configured input type.
+    pub fn current_input_type(&self) -> InputType {
+        self.input_type
+    }
+
+    /// The active validation rules.
+    pub fn current_validation_rules(&self) -> &ValidationRules {
+        &self.validation_rules
+    }
+
+    /// The active input mask.
+    pub fn input_mask(&self) -> InputMask {
+        self.input_mask
+    }
+
+    /// The most recent validation error, if validation failed.
+    pub fn validation_error(&self) -> Option<&ValidationError> {
+        self.validation_error.as_ref()
+    }
+
+    /// The ARIA label announced to assistive technology.
+    pub fn aria_label(&self) -> Option<&str> {
+        self.aria_label.as_deref()
+    }
+
+    /// The ARIA description announced to assistive technology.
+    pub fn aria_description(&self) -> Option<&str> {
+        self.aria_description.as_deref()
+    }
+
+    /// The autocomplete attribute value.
+    pub fn autocomplete(&self) -> Option<&str> {
+        self.autocomplete.as_deref()
+    }
+
+    /// The helper text displayed below the input.
+    pub fn helper_text(&self) -> Option<&str> {
+        self.helper_text.as_deref()
+    }
+
+    /// The success message shown after a passing validation.
+    pub fn success_message(&self) -> Option<&str> {
+        self.success_message.as_deref()
+    }
+
+    /// Whether the whole value is selected when the input gains focus.
+    pub fn is_select_on_focus(&self) -> bool {
+        self.select_on_focus
+    }
+
+    /// Whether validation runs automatically on blur.
+    pub fn validate_on_blur(&self) -> bool {
+        self.validate_on_blur
+    }
+
+    /// Whether validation runs automatically after every change.
+    pub fn validate_on_change(&self) -> bool {
+        self.validate_on_change
+    }
+
+    /// Whether surrounding whitespace is trimmed on blur.
+    pub fn is_trim_on_blur(&self) -> bool {
+        self.trim_on_blur
+    }
+
+    /// Whether an error-shake animation has been requested.
+    pub fn shake_triggered(&self) -> bool {
+        self.shake_triggered
+    }
+
+    /// Whether the value is masked for display.
+    pub fn masked(&self) -> bool {
+        self.masked
     }
 
     /// Whether an IME composition is currently in progress.
@@ -393,7 +477,7 @@ impl InputState {
             self.selected_range = 0..0;
             self.set_display_content(String::new());
         }
-        let full_range_utf16 = 0..self.offset_to_utf16(self.content.len());
+        let full_range_utf16 = 0..EditCore::offset_to_utf16(&self.content, self.content.len());
         self.replace_text_in_range(Some(full_range_utf16), &value, window, cx);
     }
 
@@ -556,15 +640,11 @@ impl InputState {
         result: Result<(), ValidationError>,
         cx: &mut Context<Self>,
     ) -> Result<(), ValidationError> {
-        match &result {
-            Ok(()) => {
-                self.validation_error = None;
-                self.success_message = Some("Valid input".into());
-            }
-            Err(error) => {
-                self.validation_error = Some(error.clone());
-            }
-        }
+        EditCore::apply_validation_outcome(
+            &mut self.validation_error,
+            &mut self.success_message,
+            &result,
+        );
         cx.emit(InputEvent::Validate(result.clone()));
         cx.notify();
         result
@@ -842,41 +922,23 @@ impl InputState {
     }
 
     pub fn left(&mut self, _: &Left, _: &mut Window, cx: &mut Context<Self>) {
-        if self.selected_range.is_empty() {
-            self.move_to(self.previous_boundary(self.cursor_offset()), cx);
-        } else {
-            self.move_to(self.selected_range.start, cx)
-        }
+        self.apply_motion(Motion::Left, cx);
     }
 
     pub fn right(&mut self, _: &Right, _: &mut Window, cx: &mut Context<Self>) {
-        if self.selected_range.is_empty() {
-            self.move_to(self.next_boundary(self.selected_range.end), cx);
-        } else {
-            self.move_to(self.selected_range.end, cx)
-        }
+        self.apply_motion(Motion::Right, cx);
     }
 
     pub fn word_left(&mut self, _: &WordLeft, _: &mut Window, cx: &mut Context<Self>) {
-        let offset = self.previous_word_boundary(self.cursor_offset());
-        if self.selected_range.is_empty() {
-            self.move_to(offset, cx);
-        } else {
-            self.move_to(self.selected_range.start.min(offset), cx);
-        }
+        self.apply_motion(Motion::WordLeft, cx);
     }
 
     pub fn word_right(&mut self, _: &WordRight, _: &mut Window, cx: &mut Context<Self>) {
-        let offset = self.next_word_boundary(self.cursor_offset());
-        if self.selected_range.is_empty() {
-            self.move_to(offset, cx);
-        } else {
-            self.move_to(self.selected_range.end.max(offset), cx);
-        }
+        self.apply_motion(Motion::WordRight, cx);
     }
 
     pub fn select_word_left(&mut self, _: &SelectWordLeft, _: &mut Window, cx: &mut Context<Self>) {
-        self.select_to(self.previous_word_boundary(self.cursor_offset()), cx);
+        self.apply_motion(Motion::SelectWordLeft, cx);
     }
 
     pub fn select_word_right(
@@ -885,66 +947,77 @@ impl InputState {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.select_to(self.next_word_boundary(self.cursor_offset()), cx);
+        self.apply_motion(Motion::SelectWordRight, cx);
     }
 
     pub fn select_left(&mut self, _: &SelectLeft, _: &mut Window, cx: &mut Context<Self>) {
-        self.select_to(self.previous_boundary(self.cursor_offset()), cx);
+        self.apply_motion(Motion::SelectLeft, cx);
     }
 
     pub fn select_right(&mut self, _: &SelectRight, _: &mut Window, cx: &mut Context<Self>) {
-        self.select_to(self.next_boundary(self.cursor_offset()), cx);
+        self.apply_motion(Motion::SelectRight, cx);
     }
 
     pub fn select_all(&mut self, _: &SelectAll, _: &mut Window, cx: &mut Context<Self>) {
-        self.selected_range = 0..self.content.len();
-        self.selection_reversed = false;
-        self.reset_blink(cx);
-        cx.notify()
+        self.apply_motion(Motion::SelectAll, cx);
     }
 
     pub fn home(&mut self, _: &Home, _: &mut Window, cx: &mut Context<Self>) {
-        self.move_to(0, cx);
+        self.apply_motion(Motion::Home, cx);
     }
 
     pub fn end(&mut self, _: &End, _: &mut Window, cx: &mut Context<Self>) {
-        self.move_to(self.content.len(), cx);
+        self.apply_motion(Motion::End, cx);
     }
 
     pub fn backspace(&mut self, _: &Backspace, window: &mut Window, cx: &mut Context<Self>) {
-        if self.selected_range.is_empty() {
-            let cursor = self.cursor_offset();
-            let previous = self.previous_boundary(cursor);
-            if previous == cursor {
-                return;
-            }
-            self.select_to(previous, cx)
-        }
-        self.replace_text_in_range_with_direction(
-            Some(DeletionDirection::Backward),
-            None,
-            "",
-            window,
-            cx,
-        )
+        self.delete_with_direction(DeletionDirection::Backward, window, cx);
     }
 
     pub fn delete(&mut self, _: &Delete, window: &mut Window, cx: &mut Context<Self>) {
-        if self.selected_range.is_empty() {
-            let cursor = self.cursor_offset();
-            let next = self.next_boundary(cursor);
-            if next == cursor {
-                return;
+        self.delete_with_direction(DeletionDirection::Forward, window, cx);
+    }
+
+    /// Shared body of the backspace/delete actions: extend an empty
+    /// selection over the neighboring grapheme (guarded against the text
+    /// edge), then replace it with the empty string.
+    fn delete_with_direction(
+        &mut self,
+        direction: DeletionDirection,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match EditCore::deletion_plan(
+            &self.content,
+            &self.selected_range,
+            self.selection_reversed,
+            direction == DeletionDirection::Forward,
+        ) {
+            DeletionPlan::Nothing => return,
+            DeletionPlan::Extend(range, reversed) => {
+                self.selected_range = range;
+                self.selection_reversed = reversed;
+                self.blink.reset(cx);
+                cx.notify();
             }
-            self.select_to(next, cx)
+            DeletionPlan::Selection => {}
         }
-        self.replace_text_in_range_with_direction(
-            Some(DeletionDirection::Forward),
-            None,
-            "",
-            window,
-            cx,
-        )
+        self.replace_text_in_range_with_direction(Some(direction), None, "", window, cx)
+    }
+
+    /// Apply a shared editing motion, then restart the caret blink and
+    /// notify — the tail every motion action shares.
+    fn apply_motion(&mut self, motion: Motion, cx: &mut Context<Self>) {
+        let (range, reversed) = EditCore::apply_motion(
+            &self.content,
+            &self.selected_range,
+            self.selection_reversed,
+            motion,
+        );
+        self.selected_range = range;
+        self.selection_reversed = reversed;
+        self.blink.reset(cx);
+        cx.notify();
     }
 
     pub fn tab(&mut self, _: &Tab, window: &mut Window, cx: &mut Context<Self>) {
@@ -983,10 +1056,7 @@ impl InputState {
         self.last_click_position = Some(event.position);
 
         if is_double_click && !self.content.is_empty() {
-            self.selected_range = 0..self.content.len();
-            self.selection_reversed = false;
-            self.reset_blink(cx);
-            cx.notify();
+            self.apply_motion(Motion::SelectAll, cx);
             return;
         }
 
@@ -1020,17 +1090,19 @@ impl InputState {
 
     pub fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
         if !self.selected_range.is_empty() {
-            cx.write_to_clipboard(ClipboardItem::new_string(
-                self.content[self.selected_range.clone()].to_string(),
-            ));
+            cx.write_to_clipboard(ClipboardItem::new_string(EditCore::selected_text(
+                &self.content,
+                &self.selected_range,
+            )));
         }
     }
 
     pub fn cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
         if !self.selected_range.is_empty() {
-            cx.write_to_clipboard(ClipboardItem::new_string(
-                self.content[self.selected_range.clone()].to_string(),
-            ));
+            cx.write_to_clipboard(ClipboardItem::new_string(EditCore::selected_text(
+                &self.content,
+                &self.selected_range,
+            )));
             self.replace_text_in_range(None, "", window, cx)
         }
     }
@@ -1052,11 +1124,11 @@ impl InputState {
 
     /// Called when the input gains focus
     pub fn on_focus(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        self.start_blink(cx);
+        self.blink.start(cx);
         if self.select_on_focus && !self.content.is_empty() {
             self.selected_range = 0..self.content.len();
         } else if let Some(position) = self.cursor_position_override.take() {
-            let position = self.clamp_offset(position);
+            let position = EditCore::clamp_offset(&self.content, position);
             self.selected_range = position..position;
         } else if !self.content.is_empty() {
             let len = self.content.len();
@@ -1069,7 +1141,7 @@ impl InputState {
 
     /// Called when the input loses focus
     pub fn on_blur(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.stop_blink();
+        self.blink.stop();
         self.cursor_position_override.take();
         if self.trim_on_blur {
             self.sync_raw_content();
@@ -1104,15 +1176,13 @@ impl InputState {
     }
 
     fn move_to(&mut self, offset: usize, cx: &mut Context<Self>) {
-        let offset = self.clamp_offset(offset);
-        self.selected_range = offset..offset;
-        self.selection_reversed = false;
-        self.reset_blink(cx);
+        (self.selected_range, self.selection_reversed) = EditCore::move_to(&self.content, offset);
+        self.blink.reset(cx);
         cx.notify()
     }
 
     fn cursor_offset(&self) -> usize {
-        text_util::cursor_offset(&self.selected_range, self.selection_reversed)
+        EditCore::cursor_offset(&self.selected_range, self.selection_reversed)
     }
 
     fn index_for_mouse_position(&mut self, position: Point<Pixels>) -> usize {
@@ -1141,26 +1211,14 @@ impl InputState {
     }
 
     fn select_to(&mut self, offset: usize, cx: &mut Context<Self>) {
-        let offset = self.clamp_offset(offset);
-        (self.selected_range, self.selection_reversed) = text_util::extend_selection(
+        (self.selected_range, self.selection_reversed) = EditCore::select_to(
+            &self.content,
             self.selected_range.clone(),
             self.selection_reversed,
             offset,
         );
-        self.reset_blink(cx);
+        self.blink.reset(cx);
         cx.notify()
-    }
-
-    fn offset_to_utf16(&self, offset: usize) -> usize {
-        crate::capabilities::controls::text_util::offset_to_utf16(&self.content, offset)
-    }
-
-    fn range_to_utf16(&self, range: &Range<usize>) -> Range<usize> {
-        crate::capabilities::controls::text_util::range_to_utf16(&self.content, range)
-    }
-
-    fn range_from_utf16(&self, range_utf16: &Range<usize>) -> Range<usize> {
-        crate::capabilities::controls::text_util::range_from_utf16(&self.content, range_utf16)
     }
 
     pub(crate) fn invalidate_layout_cache(&mut self) {
@@ -1225,45 +1283,6 @@ impl InputState {
         }
     }
 
-    fn clamp_offset(&self, offset: usize) -> usize {
-        text_util::clamp_offset(&self.content, offset)
-    }
-
-    fn previous_boundary(&self, offset: usize) -> usize {
-        text_util::previous_grapheme_boundary(&self.content, offset)
-    }
-
-    fn next_boundary(&self, offset: usize) -> usize {
-        text_util::next_grapheme_boundary(&self.content, offset)
-    }
-
-    fn previous_word_boundary(&self, offset: usize) -> usize {
-        text_util::previous_word_boundary(&self.content, offset)
-    }
-
-    fn next_word_boundary(&self, offset: usize) -> usize {
-        text_util::next_word_boundary(&self.content, offset)
-    }
-
-    fn start_blink(&mut self, cx: &mut Context<Self>) {
-        self._blink_task = None;
-        self.cursor_visible = true;
-        self._blink_task = Some(edit::spawn_caret_blink(cx, |this, cx| {
-            this.cursor_visible = !this.cursor_visible;
-            cx.notify();
-        }));
-    }
-
-    fn stop_blink(&mut self) {
-        self._blink_task = None;
-        self.cursor_visible = true;
-    }
-
-    fn reset_blink(&mut self, cx: &mut Context<Self>) {
-        self.stop_blink();
-        self.start_blink(cx);
-    }
-
     fn replace_text_in_range_with_direction(
         &mut self,
         deletion_direction: Option<DeletionDirection>,
@@ -1276,7 +1295,7 @@ impl InputState {
         let had_marked_text = self.marked_range.is_some();
         let display_range = range_utf16
             .as_ref()
-            .map(|range_utf16| self.range_from_utf16(range_utf16))
+            .map(|range_utf16| EditCore::range_from_utf16(&self.content, range_utf16))
             .or(self.marked_range.clone())
             .unwrap_or(self.selected_range.clone());
         let mut range =
@@ -1338,7 +1357,7 @@ impl InputState {
         self.marked_range.take();
         self.selection_reversed = false;
         if self.focus_handle.is_focused(window) {
-            self.reset_blink(cx);
+            self.blink.reset(cx);
         }
         self.invalidate_layout_cache();
 
@@ -1365,9 +1384,7 @@ impl EntityInputHandler for InputState {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<String> {
-        let range = self.range_from_utf16(&range_utf16);
-        actual_range.replace(self.range_to_utf16(&range));
-        Some(self.content[range].to_string())
+        EditCore::text_for_range(&self.content, &range_utf16, actual_range)
     }
 
     fn selected_text_range(
@@ -1376,10 +1393,7 @@ impl EntityInputHandler for InputState {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<UTF16Selection> {
-        Some(UTF16Selection {
-            range: self.range_to_utf16(&self.selected_range),
-            reversed: self.selection_reversed,
-        })
+        EditCore::selected_text_range(&self.content, &self.selected_range, self.selection_reversed)
     }
 
     fn marked_text_range(
@@ -1387,9 +1401,7 @@ impl EntityInputHandler for InputState {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<Range<usize>> {
-        self.marked_range
-            .as_ref()
-            .map(|range| self.range_to_utf16(range))
+        EditCore::marked_text_range(&self.content, self.marked_range.as_ref())
     }
 
     fn unmark_text(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -1441,7 +1453,7 @@ impl EntityInputHandler for InputState {
         self.sync_raw_content();
         let display_range = range_utf16
             .as_ref()
-            .map(|range_utf16| self.range_from_utf16(range_utf16))
+            .map(|range_utf16| EditCore::range_from_utf16(&self.content, range_utf16))
             .or(self.marked_range.clone())
             .unwrap_or(self.selected_range.clone());
         let range =
@@ -1470,7 +1482,7 @@ impl EntityInputHandler for InputState {
 
         self.selection_reversed = false;
         if self.focus_handle.is_focused(window) {
-            self.reset_blink(cx);
+            self.blink.reset(cx);
         }
         self.invalidate_layout_cache();
         cx.notify();
@@ -1493,7 +1505,7 @@ impl EntityInputHandler for InputState {
         }
 
         let last_layout = self.last_layout.as_ref()?;
-        let range = self.range_from_utf16(&range_utf16);
+        let range = EditCore::range_from_utf16(&self.content, &range_utf16);
         let display_start = self.source_to_display_index(range.start)?;
         let display_end = self.source_to_display_index(range.end)?;
         Some(Bounds::from_corners(
@@ -1527,7 +1539,7 @@ impl EntityInputHandler for InputState {
         let last_layout = self.last_layout.as_ref()?;
         let display_index = last_layout.index_for_x(point.x - line_point.x)?;
         let utf8_index = self.display_to_source_index(display_index)?;
-        Some(self.offset_to_utf16(utf8_index))
+        Some(EditCore::offset_to_utf16(&self.content, utf8_index))
     }
 }
 
@@ -1743,7 +1755,7 @@ impl gpui::Element for InputTextElement {
 
         let is_focused = focus_handle.is_focused(window);
         if is_focused {
-            let cursor_visible = self.input.read(cx).cursor_visible;
+            let cursor_visible = self.input.read(cx).blink.visible;
             if cursor_visible {
                 if let Some(cursor) = prepaint.cursor.take() {
                     window.paint_quad(cursor);
@@ -1852,26 +1864,31 @@ pub fn wire_actions(state: &Entity<InputState>, window: &mut Window, cx: &App) -
         .key_context("Input")
         .track_focus(&focus_handle.tab_index(0).tab_stop(true))
         .when(!disabled, |this| {
-            this.on_action(window.listener_for(state, InputState::backspace))
-                .on_action(window.listener_for(state, InputState::delete))
-                .on_action(window.listener_for(state, InputState::left))
-                .on_action(window.listener_for(state, InputState::right))
-                .on_action(window.listener_for(state, InputState::select_left))
-                .on_action(window.listener_for(state, InputState::select_right))
-                .on_action(window.listener_for(state, InputState::select_all))
-                .on_action(window.listener_for(state, InputState::home))
-                .on_action(window.listener_for(state, InputState::end))
-                .on_action(window.listener_for(state, InputState::copy))
-                .on_action(window.listener_for(state, InputState::cut))
-                .on_action(window.listener_for(state, InputState::paste))
-                .on_action(window.listener_for(state, InputState::enter))
-                .on_action(window.listener_for(state, InputState::tab))
-                .on_action(window.listener_for(state, InputState::shift_tab))
-                .on_action(window.listener_for(state, InputState::escape))
-                .on_action(window.listener_for(state, InputState::word_left))
-                .on_action(window.listener_for(state, InputState::word_right))
-                .on_action(window.listener_for(state, InputState::select_word_left))
-                .on_action(window.listener_for(state, InputState::select_word_right))
+            attach_action_handlers!(
+                this,
+                window,
+                state,
+                InputState::backspace,
+                InputState::delete,
+                InputState::left,
+                InputState::right,
+                InputState::select_left,
+                InputState::select_right,
+                InputState::select_all,
+                InputState::home,
+                InputState::end,
+                InputState::copy,
+                InputState::cut,
+                InputState::paste,
+                InputState::enter,
+                InputState::tab,
+                InputState::shift_tab,
+                InputState::escape,
+                InputState::word_left,
+                InputState::word_right,
+                InputState::select_word_left,
+                InputState::select_word_right,
+            )
         })
 }
 

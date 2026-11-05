@@ -575,14 +575,25 @@ impl Styled for Input {
     }
 }
 
-impl RenderOnce for Input {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let theme = use_theme(cx);
-        let height = self.height();
-        let padding_x = self.padding_x();
-        let font_size = self.font_size();
-        let gap = self.element_gap();
+/// ARIA attributes derived from the input state during render.
+struct InputAria {
+    role: Role,
+    label: Option<SharedString>,
+    description: Option<SharedString>,
+    placeholder: SharedString,
+    value: SharedString,
+    required: bool,
+    invalid: bool,
+}
 
+impl Input {
+    /// Push builder-owned configuration into the state before assembly.
+    ///
+    /// GPUI's `RenderOnce` runs every frame, so every branch here must be
+    /// idempotent: placeholder/type/mask writes only fire when they change,
+    /// controlled values only when they differ, and the initial value only
+    /// on the first render.
+    fn sync_state_from_builder(&self, window: &mut Window, cx: &mut App) {
         self.state.update(cx, |state, cx| {
             state.disabled = self.disabled;
             if let Some(placeholder) = self.placeholder.clone() {
@@ -645,7 +656,56 @@ impl RenderOnce for Input {
                 state.apply_initial_value(value, window, cx);
             }
         });
+    }
 
+    /// Consume a pending shake trigger and return its animation frame id.
+    ///
+    /// GPUI's `RenderOnce` offers no post-render hook, so the flag raised by
+    /// `InputState::trigger_shake` is swapped for a fresh animation id here.
+    /// Isolating the `state.update` in a named helper keeps this render-time
+    /// mutation explicit instead of hiding it inside element assembly.
+    fn take_shake_frame(state: &Entity<InputState>, cx: &mut App) -> u32 {
+        if state.read(cx).shake_triggered {
+            state.update(cx, |state, _cx| {
+                state.shake_triggered = false;
+                state.shake_count = state.shake_count.wrapping_add(1);
+            });
+        }
+        state.read(cx).shake_count
+    }
+
+    /// Snapshot of the ARIA attributes derived from the state.
+    fn aria_snapshot(state: &InputState, has_error: bool) -> InputAria {
+        let value: SharedString = if state.masked {
+            "•".repeat(state.content.chars().count()).into()
+        } else {
+            state.content.clone()
+        };
+        InputAria {
+            role: if state.input_type == InputType::Password {
+                Role::PasswordInput
+            } else {
+                Role::TextInput
+            },
+            label: state.aria_label.clone(),
+            description: state.aria_description.clone(),
+            placeholder: state.placeholder.clone(),
+            value,
+            required: state.validation_rules.required,
+            invalid: has_error,
+        }
+    }
+}
+
+impl RenderOnce for Input {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let theme = use_theme(cx);
+        let height = self.height();
+        let padding_x = self.padding_x();
+        let font_size = self.font_size();
+        let gap = self.element_gap();
+
+        self.sync_state_from_builder(window, cx);
         self.install_event_subscription(cx);
 
         // A failed validation (e.g. on blur) shows the destructive border just
@@ -674,30 +734,9 @@ impl RenderOnce for Input {
         let max_length = input_state.validation_rules.max_length;
         let is_focused = input_state.focus_handle(cx).is_focused(window);
         let is_masked = input_state.masked;
-        let aria_role = if input_state.input_type == InputType::Password {
-            Role::PasswordInput
-        } else {
-            Role::TextInput
-        };
-        let aria_label = input_state.aria_label.clone();
-        let aria_description = input_state.aria_description.clone();
-        let aria_placeholder = input_state.placeholder.clone();
-        let aria_value: SharedString = if is_masked {
-            "•".repeat(input_state.content.chars().count()).into()
-        } else {
-            input_state.content.clone()
-        };
-        let aria_required = input_state.validation_rules.required;
-        let aria_invalid = has_error;
-        let shake_triggered = input_state.shake_triggered;
+        let aria = Self::aria_snapshot(input_state, has_error);
 
-        if shake_triggered {
-            self.state.update(cx, |state, _cx| {
-                state.shake_triggered = false;
-                state.shake_count = state.shake_count.wrapping_add(1);
-            });
-        }
-        let shake_count = self.state.read(cx).shake_count;
+        let shake_count = Self::take_shake_frame(&self.state, cx);
 
         let shadow_xs = BoxShadow {
             offset: theme.tokens.shadow_xs.offset,
@@ -707,8 +746,7 @@ impl RenderOnce for Input {
             color: theme.tokens.shadow_xs.color,
         };
         let focus_ring = theme.tokens.focus_ring_light();
-        let error_ring_focused = theme.tokens.error_ring();
-        let error_ring_unfocused = theme.tokens.error_ring();
+        let error_ring = theme.tokens.error_ring();
         let ring_color = theme.tokens.ring;
         let destructive_color = theme.tokens.destructive;
 
@@ -719,16 +757,16 @@ impl RenderOnce for Input {
             .gap(px(4.0))
             .child({
                 let input_container = wire_actions(&self.state, window, cx)
-                    .role(aria_role)
-                    .when_some(aria_label, |this, label| this.aria_label(label))
-                    .when_some(aria_description, |this, description| {
+                    .role(aria.role)
+                    .when_some(aria.label, |this, label| this.aria_label(label))
+                    .when_some(aria.description, |this, description| {
                         this.aria_description(description)
                     })
-                    .aria_value(aria_value)
-                    .aria_placeholder(aria_placeholder)
+                    .aria_value(aria.value)
+                    .aria_placeholder(aria.placeholder)
                     .aria_disabled(self.disabled)
-                    .aria_required(aria_required)
-                    .when(aria_invalid, |this| {
+                    .aria_required(aria.required)
+                    .when(aria.invalid, |this| {
                         this.aria_invalid(gpui::accesskit::Invalid::True)
                     })
                     .child(
@@ -759,14 +797,14 @@ impl RenderOnce for Input {
                             .when(is_focused && !self.disabled, |h| {
                                 if has_error {
                                     h.border_color(destructive_color)
-                                        .shadow(smallvec::smallvec![error_ring_focused])
+                                        .shadow(smallvec::smallvec![error_ring.clone()])
                                 } else {
                                     h.border_color(ring_color)
                                         .shadow(smallvec::smallvec![focus_ring])
                                 }
                             })
                             .when(has_error && !is_focused, |h| {
-                                h.shadow(smallvec::smallvec![error_ring_unfocused])
+                                h.shadow(smallvec::smallvec![error_ring.clone()])
                             })
                             .children(self.prefix)
                             .child(div().flex_1().overflow_hidden().child(self.state.clone()))

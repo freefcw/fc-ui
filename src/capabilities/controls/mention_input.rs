@@ -1,3 +1,4 @@
+use crate::capabilities::controls::edit_core::{DeletionPlan, EditCore, Motion};
 use crate::capabilities::controls::text_util;
 use crate::capabilities::foundation::theme::use_theme;
 use crate::capabilities::primitives::avatar::{Avatar, AvatarSize};
@@ -205,49 +206,35 @@ impl MentionInputState {
     }
 
     fn cursor_offset(&self) -> usize {
-        if self.selection_reversed {
-            self.selected_range.start
-        } else {
-            self.selected_range.end
-        }
+        EditCore::cursor_offset(&self.selected_range, self.selection_reversed)
     }
 
     fn move_to(&mut self, offset: usize, cx: &mut Context<Self>) {
-        self.selected_range = offset..offset;
+        (self.selected_range, self.selection_reversed) = EditCore::move_to(&self.content, offset);
         cx.notify()
     }
 
     fn select_to(&mut self, offset: usize, cx: &mut Context<Self>) {
-        if self.selection_reversed {
-            self.selected_range.start = offset
-        } else {
-            self.selected_range.end = offset
-        };
-        if self.selected_range.end < self.selected_range.start {
-            self.selection_reversed = !self.selection_reversed;
-            self.selected_range = self.selected_range.end..self.selected_range.start;
-        }
+        (self.selected_range, self.selection_reversed) = EditCore::select_to(
+            &self.content,
+            self.selected_range.clone(),
+            self.selection_reversed,
+            offset,
+        );
         cx.notify()
     }
 
-    fn previous_boundary(&self, offset: usize) -> usize {
-        text_util::previous_grapheme_boundary(&self.content, offset)
-    }
-
-    fn next_boundary(&self, offset: usize) -> usize {
-        text_util::next_grapheme_boundary(&self.content, offset)
-    }
-
-    fn offset_to_utf16(&self, offset: usize) -> usize {
-        crate::capabilities::controls::text_util::offset_to_utf16(&self.content, offset)
-    }
-
-    fn range_to_utf16(&self, range: &Range<usize>) -> Range<usize> {
-        crate::capabilities::controls::text_util::range_to_utf16(&self.content, range)
-    }
-
-    fn range_from_utf16(&self, range_utf16: &Range<usize>) -> Range<usize> {
-        crate::capabilities::controls::text_util::range_from_utf16(&self.content, range_utf16)
+    /// Apply a shared editing motion and notify.
+    fn apply_motion(&mut self, motion: Motion, cx: &mut Context<Self>) {
+        let (range, reversed) = EditCore::apply_motion(
+            &self.content,
+            &self.selected_range,
+            self.selection_reversed,
+            motion,
+        );
+        self.selected_range = range;
+        self.selection_reversed = reversed;
+        cx.notify();
     }
 
     fn invalidate_layout_cache(&mut self) {
@@ -384,8 +371,19 @@ impl MentionInputState {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.selected_range.is_empty() {
-            self.select_to(self.previous_boundary(self.cursor_offset()), cx)
+        match EditCore::deletion_plan(
+            &self.content,
+            &self.selected_range,
+            self.selection_reversed,
+            false,
+        ) {
+            DeletionPlan::Nothing => return,
+            DeletionPlan::Extend(range, reversed) => {
+                self.selected_range = range;
+                self.selection_reversed = reversed;
+                cx.notify();
+            }
+            DeletionPlan::Selection => {}
         }
         self.replace_text_in_range(None, "", window, cx);
         self.check_for_trigger(cx);
@@ -397,8 +395,19 @@ impl MentionInputState {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.selected_range.is_empty() {
-            self.select_to(self.next_boundary(self.cursor_offset()), cx)
+        match EditCore::deletion_plan(
+            &self.content,
+            &self.selected_range,
+            self.selection_reversed,
+            true,
+        ) {
+            DeletionPlan::Nothing => return,
+            DeletionPlan::Extend(range, reversed) => {
+                self.selected_range = range;
+                self.selection_reversed = reversed;
+                cx.notify();
+            }
+            DeletionPlan::Selection => {}
         }
         self.replace_text_in_range(None, "", window, cx);
         self.check_for_trigger(cx);
@@ -408,30 +417,22 @@ impl MentionInputState {
         if self.dropdown_open {
             return;
         }
-        if self.selected_range.is_empty() {
-            self.move_to(self.previous_boundary(self.cursor_offset()), cx);
-        } else {
-            self.move_to(self.selected_range.start, cx)
-        }
+        self.apply_motion(Motion::Left, cx);
     }
 
     pub fn mention_right(&mut self, _: &MentionRight, _: &mut Window, cx: &mut Context<Self>) {
         if self.dropdown_open {
             return;
         }
-        if self.selected_range.is_empty() {
-            self.move_to(self.next_boundary(self.selected_range.end), cx);
-        } else {
-            self.move_to(self.selected_range.end, cx)
-        }
+        self.apply_motion(Motion::Right, cx);
     }
 
     pub fn mention_home(&mut self, _: &MentionHome, _: &mut Window, cx: &mut Context<Self>) {
-        self.move_to(0, cx);
+        self.apply_motion(Motion::Home, cx);
     }
 
     pub fn mention_end(&mut self, _: &MentionEnd, _: &mut Window, cx: &mut Context<Self>) {
-        self.move_to(self.content.len(), cx);
+        self.apply_motion(Motion::End, cx);
     }
 
     pub fn mention_select_all(
@@ -440,23 +441,24 @@ impl MentionInputState {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.move_to(0, cx);
-        self.select_to(self.content.len(), cx)
+        self.apply_motion(Motion::SelectAll, cx);
     }
 
     pub fn mention_copy(&mut self, _: &MentionCopy, _: &mut Window, cx: &mut Context<Self>) {
         if !self.selected_range.is_empty() {
-            cx.write_to_clipboard(ClipboardItem::new_string(
-                self.content[self.selected_range.clone()].to_string(),
-            ));
+            cx.write_to_clipboard(ClipboardItem::new_string(EditCore::selected_text(
+                &self.content,
+                &self.selected_range,
+            )));
         }
     }
 
     pub fn mention_cut(&mut self, _: &MentionCut, window: &mut Window, cx: &mut Context<Self>) {
         if !self.selected_range.is_empty() {
-            cx.write_to_clipboard(ClipboardItem::new_string(
-                self.content[self.selected_range.clone()].to_string(),
-            ));
+            cx.write_to_clipboard(ClipboardItem::new_string(EditCore::selected_text(
+                &self.content,
+                &self.selected_range,
+            )));
             self.replace_text_in_range(None, "", window, cx);
             self.check_for_trigger(cx);
         }
@@ -515,9 +517,7 @@ impl EntityInputHandler for MentionInputState {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<String> {
-        let range = self.range_from_utf16(&range_utf16);
-        actual_range.replace(self.range_to_utf16(&range));
-        Some(self.content[range].to_string())
+        EditCore::text_for_range(&self.content, &range_utf16, actual_range)
     }
 
     fn selected_text_range(
@@ -526,10 +526,7 @@ impl EntityInputHandler for MentionInputState {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<UTF16Selection> {
-        Some(UTF16Selection {
-            range: self.range_to_utf16(&self.selected_range),
-            reversed: self.selection_reversed,
-        })
+        EditCore::selected_text_range(&self.content, &self.selected_range, self.selection_reversed)
     }
 
     fn marked_text_range(
@@ -537,9 +534,7 @@ impl EntityInputHandler for MentionInputState {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<Range<usize>> {
-        self.marked_range
-            .as_ref()
-            .map(|range| self.range_to_utf16(range))
+        EditCore::marked_text_range(&self.content, self.marked_range.as_ref())
     }
 
     fn unmark_text(&mut self, _window: &mut Window, _cx: &mut Context<Self>) {
@@ -556,20 +551,16 @@ impl EntityInputHandler for MentionInputState {
     ) {
         let range = range_utf16
             .as_ref()
-            .map(|range_utf16| self.range_from_utf16(range_utf16))
+            .map(|range_utf16| EditCore::range_from_utf16(&self.content, range_utf16))
             .or(self.marked_range.clone())
             .unwrap_or(self.selected_range.clone());
 
         let old_len = range.end - range.start;
         self.adjust_mentions_after_edit(range.start, old_len, new_text.len());
 
-        self.content = format!(
-            "{}{}{}",
-            &self.content[0..range.start],
-            new_text,
-            &self.content[range.end..]
-        );
-        self.selected_range = range.start + new_text.len()..range.start + new_text.len();
+        let (next_content, caret) = EditCore::replace_range(&self.content, &range, new_text);
+        self.content = next_content;
+        self.selected_range = caret..caret;
         self.marked_range.take();
 
         self.invalidate_layout_cache();
@@ -588,19 +579,15 @@ impl EntityInputHandler for MentionInputState {
     ) {
         let range = range_utf16
             .as_ref()
-            .map(|range_utf16| self.range_from_utf16(range_utf16))
+            .map(|range_utf16| EditCore::range_from_utf16(&self.content, range_utf16))
             .or(self.marked_range.clone())
             .unwrap_or(self.selected_range.clone());
 
         let old_len = range.end - range.start;
         self.adjust_mentions_after_edit(range.start, old_len, new_text.len());
 
-        self.content = format!(
-            "{}{}{}",
-            &self.content[0..range.start],
-            new_text,
-            &self.content[range.end..]
-        );
+        let (next_content, _) = EditCore::replace_range(&self.content, &range, new_text);
+        self.content = next_content;
 
         if !new_text.is_empty() {
             self.marked_range = Some(range.start..range.start + new_text.len());
@@ -639,7 +626,7 @@ impl EntityInputHandler for MentionInputState {
         }
 
         let last_layout = self.last_layout.as_ref()?;
-        let range = self.range_from_utf16(&range_utf16);
+        let range = EditCore::range_from_utf16(&self.content, &range_utf16);
         Some(Bounds::from_corners(
             point(
                 bounds.left() + last_layout.x_for_index(range.start),
@@ -673,7 +660,7 @@ impl EntityInputHandler for MentionInputState {
 
         let last_layout = self.last_layout.as_ref()?;
         let utf8_index = last_layout.index_for_x(point.x - line_point.x)?;
-        Some(self.offset_to_utf16(utf8_index))
+        Some(EditCore::offset_to_utf16(&self.content, utf8_index))
     }
 }
 
@@ -1373,6 +1360,16 @@ mod tests {
         callback_calls: Option<Rc<Cell<usize>>>,
     }
 
+    struct MentionStateTestView {
+        state: Entity<MentionInputState>,
+    }
+
+    impl Render for MentionStateTestView {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            div()
+        }
+    }
+
     impl Render for MentionRenderTestView {
         fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
             MentionInput::new(&self.state, Vec::new())
@@ -1416,5 +1413,38 @@ mod tests {
                 .update(cx, |_, cx| cx.emit(MentionInputEvent::Change));
         });
         assert_eq!(current_calls.get(), 1);
+    }
+
+    #[gpui::test]
+    fn out_of_bounds_offsets_never_produce_invalid_selections() {
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let state = app.update(|cx| cx.new(MentionInputState::new));
+        let mut window = app.open_window(|_, _| MentionStateTestView {
+            state: state.clone(),
+        });
+
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.set_value("héllo", window, cx);
+                let len = "héllo".len();
+
+                // move_to previously skipped clamping, so a stale or
+                // oversized offset produced an out-of-bounds selection that
+                // panicked on the next content slice.
+                state.move_to(len + 40, cx);
+                assert_eq!(state.selected_range, len..len, "move_to clamps");
+                assert!(!state.selection_reversed, "move_to resets direction");
+
+                state.move_to(0, cx);
+                state.select_to(len + 40, cx);
+                assert_eq!(state.selected_range, 0..len, "select_to clamps");
+                assert!(!state.selection_reversed);
+
+                // The clamped selection stays directly sliceable.
+                let range = state.selected_range.clone();
+                assert_eq!(&state.content[range], "héllo");
+            });
+        });
     }
 }
