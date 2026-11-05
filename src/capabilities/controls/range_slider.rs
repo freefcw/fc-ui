@@ -1,6 +1,7 @@
 use crate::capabilities::controls::slider::{
-    horizontal_drag_percentage, keyboard_value, snap_to_step, value_percentage,
-    vertical_drag_percentage, SliderAxis, SliderSize,
+    bounds_canvas, filled_track, focus_shell, horizontal_drag_percentage, keyboard_value,
+    slider_thumb, snap_to_step, value_label, value_percentage, vertical_drag_percentage,
+    with_drag_handlers, SliderAxis, SliderDrag, SliderPaint, SliderSize, TrackBounds, TrackSpec,
 };
 use crate::capabilities::foundation::theme::use_theme;
 use gpui::{prelude::*, *};
@@ -102,10 +103,8 @@ impl RangeSliderState {
         let clamped_start = start.clamp(self.min, self.max);
         let clamped_end = end.clamp(clamped_start, self.max);
 
-        let stepped_start =
-            ((clamped_start / self.step).round() * self.step).clamp(self.min, self.max);
-        let stepped_end =
-            ((clamped_end / self.step).round() * self.step).clamp(stepped_start, self.max);
+        let stepped_start = snap_to_step(clamped_start, self.step, self.min, self.max);
+        let stepped_end = snap_to_step(clamped_end, self.step, stepped_start, self.max);
 
         let changed = (self.start_value - stepped_start).abs() > f32::EPSILON
             || (self.end_value - stepped_end).abs() > f32::EPSILON;
@@ -134,23 +133,9 @@ impl RangeSliderState {
         value_percentage(self.end_value, self.min, self.max)
     }
 
-    fn value_from_position(&self, position: Point<Pixels>) -> f32 {
-        match horizontal_drag_percentage(self.bounds, position) {
-            Some(percentage) => self.min + percentage * (self.max - self.min),
-            None => self.min,
-        }
-    }
-
-    fn value_from_position_vertical(&self, position: Point<Pixels>) -> f32 {
-        match vertical_drag_percentage(self.bounds, position) {
-            Some(percentage) => self.min + percentage * (self.max - self.min),
-            None => self.min,
-        }
-    }
-
-    fn update_from_position(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
-        let new_value = self.value_from_position(position);
-
+    /// Move whichever thumb is active to `new_value`; with no active thumb,
+    /// the nearer thumb becomes active (ties favor the start thumb).
+    fn apply_to_active_thumb(&mut self, new_value: f32, cx: &mut Context<Self>) {
         match self.active_thumb {
             ActiveThumb::Start => self.set_start_value(new_value, cx),
             ActiveThumb::End => self.set_end_value(new_value, cx),
@@ -169,25 +154,48 @@ impl RangeSliderState {
         }
     }
 
-    fn update_from_position_vertical(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
-        let new_value = self.value_from_position_vertical(position);
+    /// Map a pointer `position` on the horizontal/vertical track to a value
+    /// and move the active thumb there.
+    fn update_at(&mut self, position: Point<Pixels>, vertical: bool, cx: &mut Context<Self>) {
+        let percentage = if vertical {
+            vertical_drag_percentage(self.bounds, position)
+        } else {
+            horizontal_drag_percentage(self.bounds, position)
+        };
+        let new_value = percentage.map_or(self.min, |percentage| {
+            self.min + percentage * (self.max - self.min)
+        });
+        self.apply_to_active_thumb(new_value, cx);
+    }
+}
 
-        match self.active_thumb {
-            ActiveThumb::Start => self.set_start_value(new_value, cx),
-            ActiveThumb::End => self.set_end_value(new_value, cx),
-            ActiveThumb::None => {
-                let start_dist = (new_value - self.start_value).abs();
-                let end_dist = (new_value - self.end_value).abs();
+impl TrackBounds for RangeSliderState {
+    fn set_track_bounds(&mut self, bounds: Bounds<Pixels>) {
+        self.bounds = bounds;
+    }
+}
 
-                if start_dist <= end_dist {
-                    self.active_thumb = ActiveThumb::Start;
-                    self.set_start_value(new_value, cx);
-                } else {
-                    self.active_thumb = ActiveThumb::End;
-                    self.set_end_value(new_value, cx);
-                }
-            }
+impl SliderDrag for RangeSliderState {
+    fn begin_drag(&mut self, position: Point<Pixels>, vertical: bool, cx: &mut Context<Self>) {
+        // No active thumb yet: the nearest one is picked.
+        self.update_at(position, vertical, cx);
+    }
+
+    fn drag_move(
+        &mut self,
+        position: Point<Pixels>,
+        vertical: bool,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.active_thumb == ActiveThumb::None {
+            return false;
         }
+        self.update_at(position, vertical, cx);
+        true
+    }
+
+    fn end_drag(&mut self) {
+        self.active_thumb = ActiveThumb::None;
     }
 }
 
@@ -268,559 +276,149 @@ impl Styled for RangeSlider {
 }
 
 impl RangeSlider {
-    fn render_horizontal(
-        self,
+    fn key_down_listener(
+        &self,
         window: &mut Window,
-        theme: crate::capabilities::foundation::theme::Theme,
-        focus_handle: FocusHandle,
-        is_focused: bool,
-        start_percentage: f32,
-        end_percentage: f32,
-        start_value: f32,
-        end_value: f32,
-        track_height: Pixels,
-        thumb_width: Pixels,
-        thumb_height: Pixels,
-        track_bg: Hsla,
-        active_bg: Hsla,
-        thumb_bg: Hsla,
-        focus_ring: BoxShadow,
-        user_style: StyleRefinement,
-    ) -> Div {
-        div()
-            .flex()
-            .items_center()
-            .gap_3()
-            .w_full()
-            .map(|this| {
-                let mut div = this;
-                div.style().refine(&user_style);
-                div
-            })
-            .when(self.show_values, |this| {
-                this.child(
-                    div()
-                        .min_w(px(40.0))
-                        .text_center()
-                        .text_sm()
-                        .text_color(theme.tokens.foreground)
-                        .child(format!("{:.0}", start_value)),
-                )
-            })
-            .child(
-                div()
-                    .relative()
-                    .flex_1()
-                    .h(thumb_height)
-                    .flex()
-                    .items_center()
-                    .when(!self.disabled, |this| {
-                        this.track_focus(&focus_handle.tab_index(0).tab_stop(true))
-                    })
-                    .when(is_focused && !self.disabled, |this| {
-                        this.shadow(smallvec::smallvec![focus_ring])
-                    })
-                    .rounded(theme.tokens.radius_md)
-                    .when(!self.disabled, |this| {
-                        let on_change_for_key = self.on_change.clone();
-                        this.on_key_down(window.listener_for(
-                            &self.state,
-                            move |state, e: &KeyDownEvent, window, cx| {
-                                // Keys move the most recently used thumb, defaulting to start.
-                                let use_start = !matches!(state.active_thumb, ActiveThumb::End);
-                                let active_value = if use_start {
-                                    state.start_value
-                                } else {
-                                    state.end_value
-                                };
-                                let Some(new_value) = keyboard_value(
-                                    e.keystroke.key.as_str(),
-                                    active_value,
-                                    state.step,
-                                    state.min,
-                                    state.max,
-                                ) else {
-                                    return;
-                                };
-                                if use_start {
-                                    state.set_start_value(new_value, cx);
-                                } else {
-                                    state.set_end_value(new_value, cx);
-                                }
-                                cx.stop_propagation();
-                                if let Some(ref handler) = on_change_for_key {
-                                    handler(state.start_value, state.end_value, window, cx);
-                                }
-                            },
-                        ))
-                    })
-                    .child(
-                        canvas(
-                            {
-                                let state = self.state.clone();
-                                move |bounds, _, cx| {
-                                    state.update(cx, |state, _| {
-                                        state.bounds = bounds;
-                                    });
-                                }
-                            },
-                            |_, _, _, _| {},
-                        )
-                        .absolute()
-                        .size_full(),
-                    )
-                    .child(
-                        div()
-                            .relative()
-                            .w_full()
-                            .h(track_height)
-                            .rounded_full()
-                            .bg(track_bg)
-                            .overflow_hidden()
-                            .child(
-                                div()
-                                    .absolute()
-                                    .left(relative(start_percentage))
-                                    .top_0()
-                                    .h_full()
-                                    .w(relative(end_percentage - start_percentage))
-                                    .bg(active_bg),
-                            ),
-                    )
-                    .child({
-                        let state_clone = self.state.clone();
-                        let on_change_thumb = self.on_change.clone();
-
-                        div()
-                            .absolute()
-                            .left(relative(start_percentage))
-                            .top_0()
-                            .ml(-(thumb_width / 2.0))
-                            .w(thumb_width)
-                            .h(thumb_height)
-                            .rounded(thumb_height / 2.0)
-                            .bg(thumb_bg)
-                            .border_2()
-                            .border_color(theme.tokens.background)
-                            .when(!self.disabled, {
-                                let shadow = theme.tokens.shadow_sm.clone();
-                                move |this| {
-                                    this.shadow(smallvec::smallvec![shadow])
-                                        .cursor(CursorStyle::PointingHand)
-                                }
-                            })
-                            .when(!self.disabled, |this| {
-                                this.on_mouse_down(
-                                    MouseButton::Left,
-                                    window.listener_for(
-                                        &state_clone,
-                                        move |state, e: &MouseDownEvent, window, cx| {
-                                            state.active_thumb = ActiveThumb::Start;
-                                            state.update_from_position(e.position, cx);
-
-                                            if let Some(ref handler) = on_change_thumb {
-                                                handler(
-                                                    state.start_value,
-                                                    state.end_value,
-                                                    window,
-                                                    cx,
-                                                );
-                                            }
-
-                                            cx.stop_propagation();
-                                        },
-                                    ),
-                                )
-                            })
-                    })
-                    .child({
-                        let state_clone = self.state.clone();
-                        let on_change_thumb = self.on_change.clone();
-
-                        div()
-                            .absolute()
-                            .left(relative(end_percentage))
-                            .top_0()
-                            .ml(-(thumb_width / 2.0))
-                            .w(thumb_width)
-                            .h(thumb_height)
-                            .rounded(thumb_height / 2.0)
-                            .bg(thumb_bg)
-                            .border_2()
-                            .border_color(theme.tokens.background)
-                            .when(!self.disabled, {
-                                let shadow = theme.tokens.shadow_sm.clone();
-                                move |this| {
-                                    this.shadow(smallvec::smallvec![shadow])
-                                        .cursor(CursorStyle::PointingHand)
-                                }
-                            })
-                            .when(!self.disabled, |this| {
-                                this.on_mouse_down(
-                                    MouseButton::Left,
-                                    window.listener_for(
-                                        &state_clone,
-                                        move |state, e: &MouseDownEvent, window, cx| {
-                                            state.active_thumb = ActiveThumb::End;
-                                            state.update_from_position(e.position, cx);
-
-                                            if let Some(ref handler) = on_change_thumb {
-                                                handler(
-                                                    state.start_value,
-                                                    state.end_value,
-                                                    window,
-                                                    cx,
-                                                );
-                                            }
-
-                                            cx.stop_propagation();
-                                        },
-                                    ),
-                                )
-                            })
-                    })
-                    .when(!self.disabled, |this| {
-                        let state_bar = self.state.clone();
-                        let on_change_bar = self.on_change.clone();
-
-                        this.on_mouse_down(
-                            MouseButton::Left,
-                            window.listener_for(
-                                &state_bar,
-                                move |state, e: &MouseDownEvent, window, cx| {
-                                    state.update_from_position(e.position, cx);
-
-                                    if let Some(ref handler) = on_change_bar {
-                                        handler(state.start_value, state.end_value, window, cx);
-                                    }
-                                },
-                            ),
-                        )
-                        .on_mouse_move({
-                            let state_move = self.state.clone();
-                            let on_change_move = self.on_change.clone();
-
-                            window.listener_for(
-                                &state_move,
-                                move |state, e: &MouseMoveEvent, window, cx| {
-                                    if state.active_thumb != ActiveThumb::None {
-                                        state.update_from_position(e.position, cx);
-
-                                        if let Some(ref handler) = on_change_move {
-                                            handler(state.start_value, state.end_value, window, cx);
-                                        }
-                                    }
-                                },
-                            )
-                        })
-                        .on_mouse_up(
-                            MouseButton::Left,
-                            window.listener_for(
-                                &self.state,
-                                move |state, _: &MouseUpEvent, _, _cx| {
-                                    state.active_thumb = ActiveThumb::None;
-                                },
-                            ),
-                        )
-                        .on_mouse_up_out(
-                            MouseButton::Left,
-                            window.listener_for(
-                                &self.state,
-                                move |state, _: &MouseUpEvent, _, _cx| {
-                                    state.active_thumb = ActiveThumb::None;
-                                },
-                            ),
-                        )
-                    }),
-            )
-            .when(self.show_values, |this| {
-                this.child(
-                    div()
-                        .min_w(px(40.0))
-                        .text_center()
-                        .text_sm()
-                        .text_color(theme.tokens.foreground)
-                        .child(format!("{:.0}", end_value)),
-                )
-            })
+    ) -> Box<dyn Fn(&KeyDownEvent, &mut Window, &mut App) + 'static> {
+        let on_change = self.on_change.clone();
+        Box::new(
+            window.listener_for(&self.state, move |state, e: &KeyDownEvent, window, cx| {
+                // Keys move the most recently used thumb, defaulting to start.
+                let use_start = !matches!(state.active_thumb, ActiveThumb::End);
+                let active_value = if use_start {
+                    state.start_value
+                } else {
+                    state.end_value
+                };
+                let Some(new_value) = keyboard_value(
+                    e.keystroke.key.as_str(),
+                    active_value,
+                    state.step,
+                    state.min,
+                    state.max,
+                ) else {
+                    return;
+                };
+                if use_start {
+                    state.set_start_value(new_value, cx);
+                } else {
+                    state.set_end_value(new_value, cx);
+                }
+                cx.stop_propagation();
+                if let Some(ref handler) = on_change {
+                    handler(state.start_value, state.end_value, window, cx);
+                }
+            }),
+        )
     }
 
-    fn render_vertical(
+    fn thumb_press_listener(
+        &self,
+        window: &mut Window,
+        thumb: ActiveThumb,
+        vertical: bool,
+    ) -> Box<dyn Fn(&MouseDownEvent, &mut Window, &mut App) + 'static> {
+        let state = self.state.clone();
+        let on_change = self.on_change.clone();
+        Box::new(
+            window.listener_for(&state, move |state, e: &MouseDownEvent, window, cx| {
+                state.active_thumb = thumb;
+                state.update_at(e.position, vertical, cx);
+                if let Some(ref handler) = on_change {
+                    handler(state.start_value, state.end_value, window, cx);
+                }
+                cx.stop_propagation();
+            }),
+        )
+    }
+
+    fn emit_change(
+        &self,
+    ) -> impl Fn(&mut RangeSliderState, &mut Window, &mut App) + Clone + 'static {
+        let on_change = self.on_change.clone();
+        move |state, window, cx| {
+            if let Some(ref handler) = on_change {
+                handler(state.start_value, state.end_value, window, cx);
+            }
+        }
+    }
+
+    /// Render the range slider for either axis from the shared paint inputs.
+    /// Horizontal places the start label before the track and the end label
+    /// after it; vertical mirrors that top-to-bottom.
+    fn render_range(
         self,
         window: &mut Window,
-        theme: crate::capabilities::foundation::theme::Theme,
-        focus_handle: FocusHandle,
-        is_focused: bool,
+        paint: SliderPaint,
+        spec: TrackSpec,
         start_percentage: f32,
         end_percentage: f32,
         start_value: f32,
         end_value: f32,
-        track_height: Pixels,
-        thumb_width: Pixels,
-        thumb_height: Pixels,
-        track_bg: Hsla,
-        active_bg: Hsla,
-        thumb_bg: Hsla,
-        focus_ring: BoxShadow,
-        user_style: StyleRefinement,
     ) -> Div {
-        div()
+        let axis = self.axis;
+        let vertical = matches!(axis, SliderAxis::Vertical);
+
+        let shell = focus_shell(
+            axis,
+            &spec,
+            &paint,
+            self.disabled,
+            self.key_down_listener(window),
+        )
+        .child(bounds_canvas(&self.state))
+        .child(filled_track(axis, &spec, start_percentage, end_percentage))
+        .child(slider_thumb(
+            axis,
+            &spec,
+            &paint.theme,
+            start_percentage,
+            self.disabled,
+            self.thumb_press_listener(window, ActiveThumb::Start, vertical),
+        ))
+        .child(slider_thumb(
+            axis,
+            &spec,
+            &paint.theme,
+            end_percentage,
+            self.disabled,
+            self.thumb_press_listener(window, ActiveThumb::End, vertical),
+        ));
+        let shell = with_drag_handlers(
+            shell,
+            window,
+            &self.state,
+            axis,
+            self.disabled,
+            self.emit_change(),
+        );
+
+        let container = div()
             .flex()
-            .flex_col()
             .items_center()
             .gap_3()
-            .h_full()
-            .map(|this| {
-                let mut div = this;
-                div.style().refine(&user_style);
+            .map(|container| match axis {
+                SliderAxis::Horizontal => container.w_full(),
+                SliderAxis::Vertical => container.flex_col().h_full(),
+            })
+            .map(|container| {
+                let mut div = container;
+                div.style().refine(&paint.user_style);
                 div
-            })
+            });
+
+        let (label_before, label_after) = match axis {
+            SliderAxis::Horizontal => (start_value, end_value),
+            SliderAxis::Vertical => (end_value, start_value),
+        };
+
+        container
             .when(self.show_values, |this| {
-                this.child(
-                    div()
-                        .min_h(px(24.0))
-                        .text_center()
-                        .text_sm()
-                        .text_color(theme.tokens.foreground)
-                        .child(format!("{:.0}", end_value)),
-                )
+                this.child(value_label(axis, &paint.theme, label_before))
             })
-            .child(
-                div()
-                    .relative()
-                    .flex_1()
-                    .w(thumb_width)
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .when(!self.disabled, |this| {
-                        this.track_focus(&focus_handle.tab_index(0).tab_stop(true))
-                    })
-                    .when(is_focused && !self.disabled, |this| {
-                        this.shadow(smallvec::smallvec![focus_ring])
-                    })
-                    .rounded(theme.tokens.radius_md)
-                    .when(!self.disabled, |this| {
-                        let on_change_for_key = self.on_change.clone();
-                        this.on_key_down(window.listener_for(
-                            &self.state,
-                            move |state, e: &KeyDownEvent, window, cx| {
-                                // Keys move the most recently used thumb, defaulting to start.
-                                let use_start = !matches!(state.active_thumb, ActiveThumb::End);
-                                let active_value = if use_start {
-                                    state.start_value
-                                } else {
-                                    state.end_value
-                                };
-                                let Some(new_value) = keyboard_value(
-                                    e.keystroke.key.as_str(),
-                                    active_value,
-                                    state.step,
-                                    state.min,
-                                    state.max,
-                                ) else {
-                                    return;
-                                };
-                                if use_start {
-                                    state.set_start_value(new_value, cx);
-                                } else {
-                                    state.set_end_value(new_value, cx);
-                                }
-                                cx.stop_propagation();
-                                if let Some(ref handler) = on_change_for_key {
-                                    handler(state.start_value, state.end_value, window, cx);
-                                }
-                            },
-                        ))
-                    })
-                    .child(
-                        canvas(
-                            {
-                                let state = self.state.clone();
-                                move |bounds, _, cx| {
-                                    state.update(cx, |state, _| {
-                                        state.bounds = bounds;
-                                    });
-                                }
-                            },
-                            |_, _, _, _| {},
-                        )
-                        .absolute()
-                        .size_full(),
-                    )
-                    .child(
-                        div()
-                            .relative()
-                            .h_full()
-                            .w(track_height)
-                            .rounded_full()
-                            .bg(track_bg)
-                            .overflow_hidden()
-                            .child(
-                                div()
-                                    .absolute()
-                                    .left_0()
-                                    .bottom(relative(start_percentage))
-                                    .w_full()
-                                    .h(relative(end_percentage - start_percentage))
-                                    .bg(active_bg),
-                            ),
-                    )
-                    .child({
-                        let state_clone = self.state.clone();
-                        let on_change_thumb = self.on_change.clone();
-
-                        div()
-                            .absolute()
-                            .left_0()
-                            .bottom(relative(start_percentage))
-                            .mb(-(thumb_height / 2.0))
-                            .w(thumb_width)
-                            .h(thumb_height)
-                            .rounded(thumb_width / 2.0)
-                            .bg(thumb_bg)
-                            .border_2()
-                            .border_color(theme.tokens.background)
-                            .when(!self.disabled, {
-                                let shadow = theme.tokens.shadow_sm.clone();
-                                move |this| {
-                                    this.shadow(smallvec::smallvec![shadow])
-                                        .cursor(CursorStyle::PointingHand)
-                                }
-                            })
-                            .when(!self.disabled, |this| {
-                                this.on_mouse_down(
-                                    MouseButton::Left,
-                                    window.listener_for(
-                                        &state_clone,
-                                        move |state, e: &MouseDownEvent, window, cx| {
-                                            state.active_thumb = ActiveThumb::Start;
-                                            state.update_from_position_vertical(e.position, cx);
-
-                                            if let Some(ref handler) = on_change_thumb {
-                                                handler(
-                                                    state.start_value,
-                                                    state.end_value,
-                                                    window,
-                                                    cx,
-                                                );
-                                            }
-
-                                            cx.stop_propagation();
-                                        },
-                                    ),
-                                )
-                            })
-                    })
-                    .child({
-                        let state_clone = self.state.clone();
-                        let on_change_thumb = self.on_change.clone();
-
-                        div()
-                            .absolute()
-                            .left_0()
-                            .bottom(relative(end_percentage))
-                            .mb(-(thumb_height / 2.0))
-                            .w(thumb_width)
-                            .h(thumb_height)
-                            .rounded(thumb_width / 2.0)
-                            .bg(thumb_bg)
-                            .border_2()
-                            .border_color(theme.tokens.background)
-                            .when(!self.disabled, {
-                                let shadow = theme.tokens.shadow_sm.clone();
-                                move |this| {
-                                    this.shadow(smallvec::smallvec![shadow])
-                                        .cursor(CursorStyle::PointingHand)
-                                }
-                            })
-                            .when(!self.disabled, |this| {
-                                this.on_mouse_down(
-                                    MouseButton::Left,
-                                    window.listener_for(
-                                        &state_clone,
-                                        move |state, e: &MouseDownEvent, window, cx| {
-                                            state.active_thumb = ActiveThumb::End;
-                                            state.update_from_position_vertical(e.position, cx);
-
-                                            if let Some(ref handler) = on_change_thumb {
-                                                handler(
-                                                    state.start_value,
-                                                    state.end_value,
-                                                    window,
-                                                    cx,
-                                                );
-                                            }
-
-                                            cx.stop_propagation();
-                                        },
-                                    ),
-                                )
-                            })
-                    })
-                    .when(!self.disabled, |this| {
-                        let state_bar = self.state.clone();
-                        let on_change_bar = self.on_change.clone();
-
-                        this.on_mouse_down(
-                            MouseButton::Left,
-                            window.listener_for(
-                                &state_bar,
-                                move |state, e: &MouseDownEvent, window, cx| {
-                                    state.update_from_position_vertical(e.position, cx);
-
-                                    if let Some(ref handler) = on_change_bar {
-                                        handler(state.start_value, state.end_value, window, cx);
-                                    }
-                                },
-                            ),
-                        )
-                        .on_mouse_move({
-                            let state_move = self.state.clone();
-                            let on_change_move = self.on_change.clone();
-
-                            window.listener_for(
-                                &state_move,
-                                move |state, e: &MouseMoveEvent, window, cx| {
-                                    if state.active_thumb != ActiveThumb::None {
-                                        state.update_from_position_vertical(e.position, cx);
-
-                                        if let Some(ref handler) = on_change_move {
-                                            handler(state.start_value, state.end_value, window, cx);
-                                        }
-                                    }
-                                },
-                            )
-                        })
-                        .on_mouse_up(
-                            MouseButton::Left,
-                            window.listener_for(
-                                &self.state,
-                                move |state, _: &MouseUpEvent, _, _cx| {
-                                    state.active_thumb = ActiveThumb::None;
-                                },
-                            ),
-                        )
-                        .on_mouse_up_out(
-                            MouseButton::Left,
-                            window.listener_for(
-                                &self.state,
-                                move |state, _: &MouseUpEvent, _, _cx| {
-                                    state.active_thumb = ActiveThumb::None;
-                                },
-                            ),
-                        )
-                    }),
-            )
+            .child(shell)
             .when(self.show_values, |this| {
-                this.child(
-                    div()
-                        .min_h(px(24.0))
-                        .text_center()
-                        .text_sm()
-                        .text_color(theme.tokens.foreground)
-                        .child(format!("{:.0}", start_value)),
-                )
+                this.child(value_label(axis, &paint.theme, label_after))
             })
     }
 }
@@ -836,65 +434,23 @@ impl RenderOnce for RangeSlider {
         let start_value = state.start_value;
         let end_value = state.end_value;
 
-        let track_height = self.size.track_height();
-        let thumb_width = self.size.thumb_width();
-        let thumb_height = self.size.thumb_height();
-
-        let (track_bg, active_bg, thumb_bg) = if self.disabled {
-            (
-                theme.tokens.muted.opacity(0.3),
-                theme.tokens.primary.opacity(0.3),
-                theme.tokens.primary.opacity(0.3),
-            )
-        } else {
-            (
-                theme.tokens.muted,
-                theme.tokens.primary,
-                theme.tokens.primary,
-            )
+        let spec = TrackSpec::resolve(self.size, self.disabled, &theme);
+        let paint = SliderPaint {
+            theme,
+            focus_handle,
+            is_focused,
+            user_style: self.style.clone(),
         };
 
-        let focus_ring = theme.tokens.focus_ring_light();
-        let user_style = self.style.clone();
-
-        match self.axis {
-            SliderAxis::Horizontal => self.render_horizontal(
-                window,
-                theme,
-                focus_handle,
-                is_focused,
-                start_percentage,
-                end_percentage,
-                start_value,
-                end_value,
-                track_height,
-                thumb_width,
-                thumb_height,
-                track_bg,
-                active_bg,
-                thumb_bg,
-                focus_ring,
-                user_style,
-            ),
-            SliderAxis::Vertical => self.render_vertical(
-                window,
-                theme,
-                focus_handle,
-                is_focused,
-                start_percentage,
-                end_percentage,
-                start_value,
-                end_value,
-                track_height,
-                thumb_width,
-                thumb_height,
-                track_bg,
-                active_bg,
-                thumb_bg,
-                focus_ring,
-                user_style,
-            ),
-        }
+        self.render_range(
+            window,
+            paint,
+            spec,
+            start_percentage,
+            end_percentage,
+            start_value,
+            end_value,
+        )
     }
 }
 
@@ -936,6 +492,37 @@ mod tests {
                 assert!(start <= end, "start {start} must not exceed end {end}");
                 assert_eq!(state.min(), -20.0);
                 assert_eq!((start, end), (-20.0, -20.0));
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn pressing_track_picks_the_nearest_thumb_and_follows_drags() {
+        let mut app = TestApp::new();
+        let slider = app.update(|cx| cx.new(RangeSliderState::new));
+
+        app.update(|cx| {
+            slider.update(cx, |state, cx| {
+                // Give the track a 0..=100px horizontal bounds so pointer
+                // positions map to percentages.
+                state.set_track_bounds(Bounds::new(
+                    Point::new(px(0.0), px(0.0)),
+                    size(px(100.0), px(20.0)),
+                ));
+
+                // A press at 90% of 0..=100 is nearest the end thumb (75).
+                state.begin_drag(Point::new(px(90.0), px(0.0)), false, cx);
+                assert_eq!(state.end_value(), 90.0);
+
+                // Moving applies to the now-active end thumb only.
+                state.drag_move(Point::new(px(60.0), px(0.0)), false, cx);
+                assert_eq!(state.end_value(), 60.0);
+                assert_eq!(state.start_value(), 25.0);
+
+                // After release, moves no longer apply.
+                state.end_drag();
+                assert!(!state.drag_move(Point::new(px(10.0), px(0.0)), false, cx));
+                assert_eq!(state.start_value(), 25.0);
             });
         });
     }

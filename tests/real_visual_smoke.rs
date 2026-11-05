@@ -37,7 +37,10 @@ fn run() -> anyhow::Result<()> {
         components::input::{Input, InputState},
         overlays::dialog::{Dialog, DialogSize},
         overlays::popover::{Popover, PopoverContent},
-        prelude::{Button, Checkbox, GlassIntensity, GlassMorphism, Select, SelectOption},
+        prelude::{
+            Button, Checkbox, GlassIntensity, GlassMorphism, RangeSlider, RangeSliderState, Select,
+            SelectOption, Slider, SliderState,
+        },
     };
     use gpui::{
         div, point, px, rgb, size, AppContext as _, Context, IntoElement, Modifiers, MouseButton,
@@ -99,6 +102,25 @@ fn run() -> anyhow::Result<()> {
                         })
                     }),
             )
+        }
+    }
+
+    struct SliderSmokeView {
+        slider: gpui::Entity<SliderState>,
+        range: gpui::Entity<RangeSliderState>,
+    }
+
+    impl Render for SliderSmokeView {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .size_full()
+                .bg(rgb(0xf8fafc))
+                .p(px(24.0))
+                .flex()
+                .flex_col()
+                .gap(px(24.0))
+                .child(Slider::new(self.slider.clone()))
+                .child(RangeSlider::new(self.range.clone()))
         }
     }
 
@@ -266,6 +288,26 @@ fn run() -> anyhow::Result<()> {
             let overlay_window = overlay_window.into();
             let (overlay_scene, overlay_image) = draw_and_capture(cx, overlay_window)?;
             assert_scene_and_image(overlay_scene, &overlay_image, "transparent overlay scene")?;
+
+            // Sliders (shared track/thumb constructors) must render both the
+            // single- and dual-thumb variants.
+            let slider_window = cx.open_offscreen_window(size(px(640.0), px(480.0)), |_, app| {
+                let slider = app.new(|cx| {
+                    let mut state = SliderState::new(cx);
+                    state.set_value(40.0, cx);
+                    state
+                });
+                let range = app.new(|cx| {
+                    let mut state = RangeSliderState::new(cx);
+                    state.set_start_value(20.0, cx);
+                    state.set_end_value(70.0, cx);
+                    state
+                });
+                app.new(|_| SliderSmokeView { slider, range })
+            })?;
+            let slider_window = slider_window.into();
+            let (slider_scene, slider_image) = draw_and_capture(cx, slider_window)?;
+            assert_scene_and_image(slider_scene, &slider_image, "slider scene")?;
             Ok(())
         })();
         *outcome_in_run.borrow_mut() = Some(result);
