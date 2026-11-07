@@ -103,8 +103,9 @@ impl ToastManager {
         self
     }
 
+    /// Set the maximum number of visible toasts. Zero is treated as one.
     pub fn max_toasts(mut self, max: usize) -> Self {
-        self.max_toasts = max;
+        self.max_toasts = max.max(1);
         self
     }
 
@@ -376,6 +377,23 @@ impl EventEmitter<()> for ToastManager {}
 mod tests {
     use super::*;
     use gpui::{Empty, TestApp};
+
+    #[gpui::test]
+    fn zero_capacity_keeps_only_the_latest_toast() {
+        let mut app = TestApp::new();
+        let manager = app.update(|cx| cx.new(|cx| ToastManager::new(cx).max_toasts(0)));
+        let latest = app.update(|cx| {
+            manager.update(cx, |manager, cx| {
+                manager.add_toast_no_dismiss(ToastItem::new(0, "first"), cx);
+                manager.add_toast_no_dismiss(ToastItem::new(0, "latest"), cx)
+            })
+        });
+        app.read(|cx| {
+            let toasts = &manager.read(cx).toasts;
+            assert_eq!(toasts.len(), 1);
+            assert_eq!(toasts[0].id, latest);
+        });
+    }
 
     #[gpui::test]
     fn manager_returns_ids_that_can_be_dismissed() {

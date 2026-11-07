@@ -1,5 +1,5 @@
 use gpui::*;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::capabilities::motion::animations::{durations, easings, lerp_pixels};
 
@@ -8,6 +8,8 @@ pub struct AnimatedPresenceState {
     is_animating_out: bool,
     version: usize,
     exit_duration: Duration,
+    exit_started_at: Option<Instant>,
+    exit_timer_version: usize,
 }
 
 impl AnimatedPresenceState {
@@ -16,7 +18,9 @@ impl AnimatedPresenceState {
             is_visible: false,
             is_animating_out: false,
             version: 0,
-            exit_duration: durations::NORMAL,
+            exit_duration: durations::FAST,
+            exit_started_at: None,
+            exit_timer_version: 0,
         }
     }
 
@@ -27,6 +31,7 @@ impl AnimatedPresenceState {
             }
             self.is_visible = true;
             self.is_animating_out = false;
+            self.exit_started_at = None;
             self.version += 1;
             cx.notify();
         } else {
@@ -34,23 +39,51 @@ impl AnimatedPresenceState {
                 return;
             }
             self.is_animating_out = true;
+            self.exit_started_at = Some(cx.background_executor().now());
             self.version += 1;
             cx.notify();
-
-            let version = self.version;
-            let duration = self.exit_duration;
-            cx.spawn(async move |this, cx| {
-                cx.background_executor().timer(duration).await;
-                _ = this.update(cx, |state, cx| {
-                    if state.version == version {
-                        state.is_visible = false;
-                        state.is_animating_out = false;
-                        cx.notify();
-                    }
-                });
-            })
-            .detach();
+            self.schedule_exit(cx);
         }
+    }
+
+    fn set_exit_duration(&mut self, duration: Duration, cx: &mut Context<Self>) {
+        if self.exit_duration == duration {
+            return;
+        }
+        self.exit_duration = duration;
+        if self.is_animating_out {
+            self.schedule_exit(cx);
+        }
+    }
+
+    fn schedule_exit(&mut self, cx: &mut Context<Self>) {
+        let Some(started_at) = self.exit_started_at else {
+            return;
+        };
+        self.exit_timer_version += 1;
+        let timer_version = self.exit_timer_version;
+        let version = self.version;
+        let elapsed = cx
+            .background_executor()
+            .now()
+            .saturating_duration_since(started_at);
+        let remaining = self.exit_duration.saturating_sub(elapsed);
+        let timer = cx.background_executor().timer(remaining);
+        cx.spawn(async move |this, cx| {
+            timer.await;
+            _ = this.update(cx, |state, cx| {
+                if state.version == version
+                    && state.exit_timer_version == timer_version
+                    && state.is_animating_out
+                {
+                    state.is_visible = false;
+                    state.is_animating_out = false;
+                    state.exit_started_at = None;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     pub fn is_visible(&self) -> bool {
@@ -107,16 +140,21 @@ impl AnimatedPresence {
 }
 
 impl RenderOnce for AnimatedPresence {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        // State owns the phase and its deadline for both imperative and
+        // declarative visibility changes. A redraw does not restart a timer.
+        if self.state.read(cx).exit_duration != self.exit_duration {
+            self.state.update(cx, |state, cx| {
+                state.set_exit_duration(self.exit_duration, cx)
+            });
+        }
         if let Some(desired) = self.show {
             let state = self.state.read(cx);
-            let needs_show = desired && !state.is_visible;
+            let needs_show = desired && (!state.is_visible || state.is_animating_out);
             let needs_hide = !desired && state.is_visible && !state.is_animating_out;
 
             if needs_show || needs_hide {
-                let exit_dur = self.exit_duration;
                 self.state.update(cx, |state, cx| {
-                    state.exit_duration = exit_dur;
                     state.set_visible(desired, cx);
                 });
             }
@@ -132,19 +170,30 @@ impl RenderOnce for AnimatedPresence {
         }
 
         let enter_dur = self.enter_duration;
-        let exit_dur = self.exit_duration;
+        let exit_dur = state.exit_duration;
         let slide_offset = px(8.0);
 
         if is_animating_out {
+            let elapsed = state
+                .exit_started_at
+                .map(|started| {
+                    cx.background_executor()
+                        .now()
+                        .saturating_duration_since(started)
+                })
+                .unwrap_or_default();
+            let progress = if exit_dur.is_zero() {
+                1.
+            } else {
+                (elapsed.as_secs_f32() / exit_dur.as_secs_f32()).clamp(0., 1.)
+            };
+            if progress < 1. {
+                window.request_animation_frame();
+            }
+            let delta = easings::ease_in_cubic(progress);
             self.base
-                .with_animation(
-                    ElementId::Name(format!("{}-exit-{}", self.id, version).into()),
-                    Animation::new(exit_dur).with_easing(easings::ease_in_cubic),
-                    move |el, delta| {
-                        el.opacity(1.0 - delta)
-                            .mt(lerp_pixels(px(0.0), slide_offset, delta))
-                    },
-                )
+                .opacity(1.0 - delta)
+                .mt(lerp_pixels(px(0.0), slide_offset, delta))
                 .into_any_element()
         } else {
             self.base
