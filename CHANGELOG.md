@@ -87,6 +87,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   renders; physics uses the final scroll handle regardless of builder order.
   Scroll containers connect implicit handles to physics, and
   `ScrollList::no_flex_grow` preserves existing configuration.
+- Buttons preserve externally supplied focus handles and tab settings.
 - Removing input/textarea builder overrides restores the original state
   configuration instead of leaving stale validation rules or erasing state
   metadata. Input-type defaults share one configuration path and replace only

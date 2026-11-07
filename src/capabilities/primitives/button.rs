@@ -8,6 +8,35 @@ use crate::capabilities::primitives::text::{Text, TextVariant};
 use gpui::{prelude::FluentBuilder as _, *};
 use std::rc::Rc;
 
+/// Keep explicit trait-level focus settings until the enabled state is known.
+/// GPUI's Interactivity does not expose its tracked handle or tab policy.
+#[derive(Default)]
+pub(super) struct ButtonFocus {
+    pub handle: Option<FocusHandle>,
+    pub tab_index: Option<isize>,
+    pub tab_stop: Option<bool>,
+}
+
+impl ButtonFocus {
+    pub fn resolve(self, id: ElementId, window: &mut Window, cx: &mut App) -> FocusHandle {
+        let mut handle = self.handle.unwrap_or_else(|| {
+            window
+                .use_keyed_state(id, cx, |_, cx| {
+                    cx.focus_handle().tab_index(0).tab_stop(true)
+                })
+                .read(cx)
+                .clone()
+        });
+        if let Some(index) = self.tab_index {
+            handle = handle.tab_index(index);
+        }
+        if let Some(stop) = self.tab_stop {
+            handle = handle.tab_stop(stop);
+        }
+        handle
+    }
+}
+
 /// Render an icon from IconSource
 fn render_icon(icon_src: IconSource, size: Pixels, color: Hsla) -> impl IntoElement {
     let svg_path = match icon_src {
@@ -62,6 +91,7 @@ pub struct Button {
     on_click: Option<Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>>,
     ripple_enabled: bool,
     style: StyleRefinement,
+    focus: ButtonFocus,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -98,6 +128,7 @@ impl Button {
             ripple_enabled: false,
 
             style: StyleRefinement::default(),
+            focus: ButtonFocus::default(),
         }
     }
 
@@ -180,6 +211,22 @@ impl InteractiveElement for Button {
     fn interactivity(&mut self) -> &mut Interactivity {
         self.base.interactivity()
     }
+
+    fn track_focus(mut self, handle: &FocusHandle) -> Self {
+        self.focus.handle = Some(handle.clone());
+        self
+    }
+
+    fn tab_index(mut self, index: isize) -> Self {
+        self.focus.tab_index = Some(index);
+        self.focus.tab_stop = Some(true);
+        self
+    }
+
+    fn tab_stop(mut self, stop: bool) -> Self {
+        self.focus.tab_stop = Some(stop);
+        self
+    }
 }
 
 impl StatefulInteractiveElement for Button {}
@@ -252,10 +299,7 @@ impl RenderOnce for Button {
         let ripple_id = ElementId::Name(format!("{}-ripple", self.id).into());
         let ripple_color = fg;
 
-        let focus_handle = window
-            .use_keyed_state(self.id.clone(), cx, |_, cx| cx.focus_handle())
-            .read(cx)
-            .clone();
+        let focus_handle = self.focus.resolve(self.id.clone(), window, cx);
 
         let label_text = Text::new(self.label.clone())
             .variant(TextVariant::Custom)
@@ -280,7 +324,7 @@ impl RenderOnce for Button {
             .aria_label(aria_label)
             .aria_disabled(self.disabled || is_loading)
             .when(!self.disabled && !is_loading, |this| {
-                this.track_focus(&focus_handle.tab_index(0).tab_stop(true))
+                this.track_focus(&focus_handle)
             })
             .relative()
             .overflow_hidden()

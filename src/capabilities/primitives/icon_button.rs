@@ -2,7 +2,7 @@
 
 use crate::capabilities::foundation::icon_config::resolve_icon_path;
 use crate::capabilities::foundation::theme::use_theme;
-use crate::capabilities::primitives::button::ButtonVariant;
+use crate::capabilities::primitives::button::{ButtonFocus, ButtonVariant};
 use crate::capabilities::primitives::icon_source::IconSource;
 use crate::capabilities::primitives::ripple::Ripple;
 use gpui::{prelude::FluentBuilder as _, *};
@@ -25,6 +25,7 @@ pub struct IconButton {
     on_click: Option<Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>>,
     ripple_enabled: bool,
     style: StyleRefinement,
+    focus: ButtonFocus,
 }
 
 impl IconButton {
@@ -49,6 +50,7 @@ impl IconButton {
             on_click: None,
             ripple_enabled: false,
             style: StyleRefinement::default(),
+            focus: ButtonFocus::default(),
         }
     }
 
@@ -111,6 +113,22 @@ impl Styled for IconButton {
 impl InteractiveElement for IconButton {
     fn interactivity(&mut self) -> &mut Interactivity {
         self.base.interactivity()
+    }
+
+    fn track_focus(mut self, handle: &FocusHandle) -> Self {
+        self.focus.handle = Some(handle.clone());
+        self
+    }
+
+    fn tab_index(mut self, index: isize) -> Self {
+        self.focus.tab_index = Some(index);
+        self.focus.tab_stop = Some(true);
+        self
+    }
+
+    fn tab_stop(mut self, stop: bool) -> Self {
+        self.focus.tab_stop = Some(stop);
+        self
     }
 }
 
@@ -175,15 +193,10 @@ impl RenderOnce for IconButton {
         let ripple_id = ElementId::Name(format!("{}-ripple", self.id).into());
         let ripple_color = fg;
 
-        let focus_handle = window
-            .use_keyed_state(self.id.clone(), cx, |_, cx| cx.focus_handle())
-            .read(cx)
-            .clone();
+        let focus_handle = self.focus.resolve(self.id.clone(), window, cx);
 
         self.base
-            .when(!self.disabled, |this| {
-                this.track_focus(&focus_handle.tab_index(0).tab_stop(true))
-            })
+            .when(!self.disabled, |this| this.track_focus(&focus_handle))
             .relative()
             .overflow_hidden()
             .flex()
