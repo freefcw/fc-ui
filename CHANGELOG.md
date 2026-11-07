@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   comparators for `DataTable`/`DataGrid`. Replacing the comparator of the
   active sort column reorders rows immediately and reports the cleared
   selection to `on_selection_change`.
+- `FileTree::presentation_resolver` for custom file icons and colors, with
+  `FileNode::presentation` preserving the built-in defaults.
 - `TextValidationRules` and typed textarea builders express text-only
   constraints; legacy `ValidationRules` entry points remain supported.
 - Shared internal foundations for previously duplicated implementations:
