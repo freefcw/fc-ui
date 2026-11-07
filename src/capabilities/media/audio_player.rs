@@ -3,8 +3,6 @@ use crate::capabilities::foundation::theme::use_theme;
 use crate::capabilities::media::playback::{self, PlaybackCore, SliderDrag};
 use gpui::{prelude::*, *};
 use std::rc::Rc;
-#[cfg(feature = "audio")]
-use std::sync::{Arc, Mutex};
 
 type WindowCallback = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 type ValueCallback<T> = Rc<dyn Fn(T, &mut Window, &mut App) + 'static>;
@@ -52,6 +50,20 @@ impl PlaybackSpeed {
             PlaybackSpeed::Double => PlaybackSpeed::Half,
         }
     }
+}
+
+/// Playback operations used by the audio controls. Implementations can use a
+/// host-owned mixer or a test backend without opening the default output device.
+#[cfg(feature = "audio")]
+pub trait AudioPlayback: Send + Sync + 'static {
+    fn load(&mut self, path: &str) -> Result<std::time::Duration, String>;
+    fn play(&self);
+    fn pause(&self);
+    fn stop(&self);
+    fn seek(&self, position: std::time::Duration);
+    fn set_volume(&self, volume: f32);
+    fn set_speed(&self, speed: f32);
+    fn is_empty(&self) -> bool;
 }
 
 #[cfg(feature = "audio")]
@@ -127,6 +139,34 @@ impl AudioBackend {
     }
 }
 
+#[cfg(feature = "audio")]
+impl AudioPlayback for AudioBackend {
+    fn load(&mut self, path: &str) -> Result<std::time::Duration, String> {
+        AudioBackend::load(self, path)
+    }
+    fn play(&self) {
+        AudioBackend::play(self);
+    }
+    fn pause(&self) {
+        AudioBackend::pause(self);
+    }
+    fn stop(&self) {
+        AudioBackend::stop(self);
+    }
+    fn seek(&self, position: std::time::Duration) {
+        AudioBackend::seek(self, position);
+    }
+    fn set_volume(&self, volume: f32) {
+        AudioBackend::set_volume(self, volume);
+    }
+    fn set_speed(&self, speed: f32) {
+        AudioBackend::set_speed(self, speed);
+    }
+    fn is_empty(&self) -> bool {
+        AudioBackend::is_empty(self)
+    }
+}
+
 /// Decodes `path` into a seekable source.
 ///
 /// Converts the `File` itself rather than a `BufReader`: only that `TryFrom`
@@ -149,11 +189,43 @@ pub struct AudioPlayerState {
     volume_bounds: Bounds<Pixels>,
     source_path: Option<String>,
     #[cfg(feature = "audio")]
-    backend: Option<Arc<Mutex<AudioBackend>>>,
+    backend: Option<Box<dyn AudioPlayback>>,
 }
 
 impl AudioPlayerState {
     pub fn new(cx: &mut Context<Self>) -> Self {
+        #[cfg(feature = "audio")]
+        {
+            Self::from_backend(
+                cx,
+                AudioBackend::new().map(|backend| Box::new(backend) as Box<dyn AudioPlayback>),
+            )
+        }
+        #[cfg(not(feature = "audio"))]
+        {
+            Self::without_backend(cx)
+        }
+    }
+
+    /// Create controls for an existing playback implementation without opening
+    /// an audio device. The controls own and synchronize the supplied backend.
+    #[cfg(feature = "audio")]
+    pub fn new_with_backend(cx: &mut Context<Self>, backend: impl AudioPlayback) -> Self {
+        Self::from_backend(cx, Some(Box::new(backend)))
+    }
+
+    #[cfg(feature = "audio")]
+    fn from_backend(cx: &mut Context<Self>, backend: Option<Box<dyn AudioPlayback>>) -> Self {
+        let mut state = Self::without_backend(cx);
+        state.backend = backend;
+        state.sync_backend_settings();
+        if let Some(backend) = &state.backend {
+            backend.pause();
+        }
+        state
+    }
+
+    fn without_backend(cx: &mut Context<Self>) -> Self {
         Self {
             is_playing: false,
             core: PlaybackCore::new(0.8, PlaybackSpeed::Normal),
@@ -164,36 +236,36 @@ impl AudioPlayerState {
             volume_bounds: Bounds::default(),
             source_path: None,
             #[cfg(feature = "audio")]
-            backend: AudioBackend::new().map(|b| Arc::new(Mutex::new(b))),
+            backend: None,
         }
     }
 
     #[cfg(feature = "audio")]
     pub fn load_file(&mut self, path: impl Into<String>, cx: &mut Context<Self>) -> bool {
-        let path_str = path.into();
-
-        if let Some(ref backend) = self.backend {
-            if let Ok(mut backend) = backend.lock() {
-                match backend.load(&path_str) {
-                    Ok(duration) => {
-                        self.core.set_duration(f64::from(duration.as_secs_f32()));
-                        self.core.set_current_time(0.0);
-                        self.is_playing = false;
-                        backend.set_volume(self.core.volume());
-                        backend.set_speed(self.core.speed().value());
-                        self.source_path = Some(path_str);
-                        cx.notify();
-                        return true;
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to load audio: {}", e);
-                    }
+        let path = path.into();
+        let result = self.backend.as_mut().map(|backend| backend.load(&path));
+        match result {
+            Some(Ok(duration)) => {
+                self.core.set_duration(duration.as_secs_f64());
+                self.core.set_current_time(0.0);
+                self.is_playing = false;
+                self.source_path = Some(path);
+                self.sync_backend_settings();
+                if let Some(backend) = &self.backend {
+                    backend.pause();
                 }
+                cx.notify();
+                true
+            }
+            result => {
+                if let Some(Err(error)) = result {
+                    eprintln!("Failed to load audio: {error}");
+                }
+                self.source_path = None;
+                cx.notify();
+                false
             }
         }
-        self.source_path = None;
-        cx.notify();
-        false
     }
 
     #[cfg(not(feature = "audio"))]
@@ -210,31 +282,18 @@ impl AudioPlayerState {
     pub fn set_playing(&mut self, playing: bool, cx: &mut Context<Self>) {
         self.is_playing = playing;
         #[cfg(feature = "audio")]
-        if let Some(ref backend) = self.backend {
-            if let Ok(backend) = backend.lock() {
-                if playing {
-                    backend.play();
-                } else {
-                    backend.pause();
-                }
+        if let Some(backend) = &self.backend {
+            if playing {
+                backend.play();
+            } else {
+                backend.pause();
             }
         }
         cx.notify();
     }
 
     pub fn toggle_playing(&mut self, cx: &mut Context<Self>) {
-        self.is_playing = !self.is_playing;
-        #[cfg(feature = "audio")]
-        if let Some(ref backend) = self.backend {
-            if let Ok(backend) = backend.lock() {
-                if self.is_playing {
-                    backend.play();
-                } else {
-                    backend.pause();
-                }
-            }
-        }
-        cx.notify();
+        self.set_playing(!self.is_playing, cx);
     }
 
     pub fn is_muted(&self) -> bool {
@@ -244,14 +303,14 @@ impl AudioPlayerState {
     pub fn set_muted(&mut self, muted: bool, cx: &mut Context<Self>) {
         self.core.set_muted(muted);
         #[cfg(feature = "audio")]
-        self.apply_volume();
+        self.sync_backend_settings();
         cx.notify();
     }
 
     pub fn toggle_muted(&mut self, cx: &mut Context<Self>) {
         self.core.set_muted(!self.core.muted());
         #[cfg(feature = "audio")]
-        self.apply_volume();
+        self.sync_backend_settings();
         cx.notify();
     }
 
@@ -281,16 +340,15 @@ impl AudioPlayerState {
     pub fn set_volume(&mut self, volume: f32, cx: &mut Context<Self>) {
         self.core.set_volume(volume);
         #[cfg(feature = "audio")]
-        self.apply_volume();
+        self.sync_backend_settings();
         cx.notify();
     }
 
     #[cfg(feature = "audio")]
-    fn apply_volume(&self) {
-        if let Some(ref backend) = self.backend {
-            if let Ok(backend) = backend.lock() {
-                backend.set_volume(self.core.effective_volume());
-            }
+    fn sync_backend_settings(&self) {
+        if let Some(backend) = &self.backend {
+            backend.set_volume(self.core.effective_volume());
+            backend.set_speed(self.core.speed().value());
         }
     }
 
@@ -305,46 +363,29 @@ impl AudioPlayerState {
     pub fn set_playback_speed(&mut self, speed: PlaybackSpeed, cx: &mut Context<Self>) {
         self.core.set_speed(speed);
         #[cfg(feature = "audio")]
-        if let Some(ref backend) = self.backend {
-            if let Ok(backend) = backend.lock() {
-                backend.set_speed(speed.value());
-            }
-        }
+        self.sync_backend_settings();
         cx.notify();
     }
 
     pub fn cycle_playback_speed(&mut self, cx: &mut Context<Self>) {
-        let next = self.core.speed().next();
-        self.core.set_speed(next);
-        #[cfg(feature = "audio")]
-        if let Some(ref backend) = self.backend {
-            if let Ok(backend) = backend.lock() {
-                backend.set_speed(next.value());
-            }
-        }
-        cx.notify();
+        self.set_playback_speed(self.core.speed().next(), cx);
     }
 
     pub fn stop(&mut self, cx: &mut Context<Self>) {
         self.is_playing = false;
         self.core.set_current_time(0.0);
         #[cfg(feature = "audio")]
-        if let Some(ref backend) = self.backend {
-            if let Ok(backend) = backend.lock() {
-                backend.stop();
-            }
+        if let Some(backend) = &self.backend {
+            backend.stop();
         }
         cx.notify();
     }
 
     #[cfg(feature = "audio")]
     pub fn is_finished(&self) -> bool {
-        if let Some(ref backend) = self.backend {
-            if let Ok(backend) = backend.lock() {
-                return backend.is_empty();
-            }
-        }
-        false
+        self.backend
+            .as_ref()
+            .is_some_and(|backend| backend.is_empty())
     }
 
     #[cfg(not(feature = "audio"))]
@@ -363,10 +404,8 @@ impl AudioPlayerState {
         self.core
             .set_current_time(f64::from(percentage) * self.core.duration());
         #[cfg(feature = "audio")]
-        if let Some(ref backend) = self.backend {
-            if let Ok(backend) = backend.lock() {
-                backend.seek(std::time::Duration::from_secs_f32(self.current_time()));
-            }
+        if let Some(backend) = &self.backend {
+            backend.seek(std::time::Duration::from_secs_f32(self.current_time()));
         }
         cx.notify();
     }

@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   selection to `on_selection_change`.
 - `FileTree::presentation_resolver` for custom file icons and colors, with
   `FileNode::presentation` preserving the built-in defaults.
+- `AudioPlayback` and `AudioPlayerState::new_with_backend` for host-owned
+  playback implementations and device-independent tests.
 - `TextValidationRules` and typed textarea builders express text-only
   constraints; legacy `ValidationRules` entry points remain supported.
 - Shared internal foundations for previously duplicated implementations:
@@ -90,6 +92,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   metadata. Input-type defaults share one configuration path and replace only
   a placeholder, autocomplete hint or input mask still set to the previous
   type's default, so explicit values survive `input_type`/`password` changes.
+- Loading audio while muted keeps the playback backend muted and retains its
+  configured speed.
 - Overlay exit timers keep weak references so a removed dialog cannot run a
   stale close callback against its replacement.
 - `BottomSheet` restores the previous focus when unmounted programmatically,
