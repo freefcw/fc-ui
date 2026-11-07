@@ -711,7 +711,8 @@ pub struct EditorState {
     scroll_offset_x: Pixels,
     max_line_width: Pixels,
     line_layouts: HashMap<usize, ShapedLine>,
-    line_content_hashes: HashMap<usize, u64>,
+    line_layout_keys: HashMap<usize, LineLayoutKey>,
+    /// Sorted by line so each paint can binary-search a line's spans.
     cached_highlight_spans: Vec<HighlightSpan>,
     highlight_cache_version: u64,
     highlight_cache_first_line: usize,
@@ -886,7 +887,7 @@ impl EditorState {
             scroll_offset_x: px(0.0),
             max_line_width: px(0.0),
             line_layouts: HashMap::new(),
-            line_content_hashes: HashMap::new(),
+            line_layout_keys: HashMap::new(),
             cached_highlight_spans: Vec::new(),
             highlight_cache_version: u64::MAX,
             highlight_cache_first_line: 0,
@@ -956,7 +957,7 @@ impl EditorState {
         self.font_size = px(size);
         self.line_height = px((size * 1.5).round());
         self.line_layouts.clear();
-        self.line_content_hashes.clear();
+        self.line_layout_keys.clear();
         self.max_line_width = px(0.0);
         cx.notify();
     }
@@ -964,7 +965,7 @@ impl EditorState {
     pub fn set_font_family(&mut self, family: impl Into<SharedString>, cx: &mut Context<Self>) {
         self.font_family_override = Some(family.into());
         self.line_layouts.clear();
-        self.line_content_hashes.clear();
+        self.line_layout_keys.clear();
         self.max_line_width = px(0.0);
         cx.notify();
     }
@@ -1582,14 +1583,14 @@ impl EditorState {
             return;
         }
 
-        let delete_count = self.cursor.col.saturating_sub(trigger_col);
-        if delete_count > 0 {
-            let start_pos = Position::new(self.cursor.line, trigger_col);
-            let end_pos = self.cursor;
-            self.delete_selection_internal(Selection::new(start_pos, end_pos), cx);
-        }
-
-        self.insert_text_at_cursor(insert_text, cx);
+        let start = self.pos_to_byte_offset(Position::new(self.cursor.line, trigger_col));
+        let end = self.pos_to_byte_offset(self.cursor);
+        let range = if start < end {
+            start..end
+        } else {
+            self.selected_byte_range()
+        };
+        self.replace_byte_range(range, insert_text, cx);
         self.ensure_cursor_visible(cx);
         cx.notify();
     }
@@ -2087,59 +2088,89 @@ impl EditorState {
     }
 
     fn insert_text_at_cursor(&mut self, text: &str, cx: &mut Context<Self>) {
-        let replaces_selection = self.selection.as_ref().is_some_and(|selection| {
-            let (start, end) = selection.range();
-            self.pos_to_byte_offset(start) < self.pos_to_byte_offset(end)
-        });
-        if let Some(selection) = self.selection.take() {
-            self.delete_selection_internal(selection, cx);
-        }
-
-        let byte_offset = self.pos_to_byte_offset(self.cursor);
-        let new_end_byte = byte_offset + text.len();
-        let plan = TextEditPlan::new(self, byte_offset, byte_offset, new_end_byte);
-        self.undo_stack.push(EditOp::Insert {
-            byte_offset,
-            text: text.to_string(),
-        });
-        self.redo_stack.clear();
-
-        self.rope_insert(byte_offset, text);
-        self.mark_modified();
-
-        self.cursor = self.byte_offset_to_pos(new_end_byte);
-        self.update_syntax_tree_for_edit(plan, cx);
-        self.invalidate_after_text_edit(plan, text.contains('\n'));
-        if replaces_selection {
-            self.group_last_edits(2);
-        }
+        let range = self.selected_byte_range();
+        self.replace_byte_range(range, text, cx);
     }
 
     fn delete_selection_internal(&mut self, selection: Selection, cx: &mut Context<Self>) {
         let (start, end) = selection.range();
         let start_offset = self.pos_to_byte_offset(start);
         let end_offset = self.pos_to_byte_offset(end);
+        self.replace_byte_range(start_offset..end_offset, "", cx);
+    }
 
-        if start_offset >= end_offset {
-            self.cursor = start;
-            return;
+    /// Resolve platform input once, before mutating the document or selection.
+    fn input_replacement_range(&self, range_utf16: Option<Range<usize>>) -> Range<usize> {
+        range_utf16
+            .as_ref()
+            .map(|range| self.range_from_utf16(range))
+            .or_else(|| self.marked_range.clone())
+            .unwrap_or_else(|| self.selected_byte_range())
+    }
+
+    fn selected_byte_range(&self) -> Range<usize> {
+        if let Some(selection) = self.selection {
+            let (start, end) = selection.range();
+            self.pos_to_byte_offset(start)..self.pos_to_byte_offset(end)
+        } else {
+            let offset = self.pos_to_byte_offset(self.cursor);
+            offset..offset
+        }
+    }
+
+    /// Commit a replacement as one history, revision, parse, and cache update.
+    /// The explicit range owns the edit; a stale selection must never delete it again.
+    fn replace_byte_range(
+        &mut self,
+        range: Range<usize>,
+        text: &str,
+        cx: &mut Context<Self>,
+    ) -> Range<usize> {
+        let start = self.rope.char_to_byte(
+            self.rope
+                .byte_to_char(range.start.min(self.rope.len_bytes())),
+        );
+        let end = self
+            .rope
+            .char_to_byte(self.rope.byte_to_char(range.end.min(self.rope.len_bytes())))
+            .max(start);
+        self.selection = None;
+        self.cursor = self.byte_offset_to_pos(start);
+        if start == end && text.is_empty() {
+            return start..start;
         }
 
-        let plan = TextEditPlan::new(self, start_offset, end_offset, start_offset);
-        let deleted: String = self.rope.byte_slice(start_offset..end_offset).into();
-        let line_structure_changed = deleted.contains('\n');
-        self.undo_stack.push(EditOp::Delete {
-            byte_offset: start_offset,
-            text: deleted,
-        });
+        let new_end = start + text.len();
+        let plan = TextEditPlan::new(self, start, end, new_end);
+        let deleted: String = self.rope.byte_slice(start..end).into();
+        let line_structure_changed = deleted.contains('\n') || text.contains('\n');
+        let mut edits = Vec::with_capacity(2);
+        if !deleted.is_empty() {
+            edits.push(EditOp::Delete {
+                byte_offset: start,
+                text: deleted,
+            });
+        }
+        if !text.is_empty() {
+            edits.push(EditOp::Insert {
+                byte_offset: start,
+                text: text.to_owned(),
+            });
+        }
+        let op = if edits.len() == 1 {
+            edits.pop().unwrap()
+        } else {
+            EditOp::Batch(edits)
+        };
+        self.undo_stack.push(op);
         self.redo_stack.clear();
-
-        self.rope_remove(start_offset, end_offset);
+        self.rope_remove(start, end);
+        self.rope_insert(start, text);
         self.mark_modified();
-        self.cursor = start;
-        self.clamp_cursor();
+        self.cursor = self.byte_offset_to_pos(new_end);
         self.update_syntax_tree_for_edit(plan, cx);
         self.invalidate_after_text_edit(plan, line_structure_changed);
+        start..new_end
     }
 
     fn get_selection_text(&self, selection: &Selection) -> String {
@@ -3021,7 +3052,7 @@ impl EditorState {
     /// (file load, language change, fold/unfold).
     fn invalidate_all_caches(&mut self) {
         self.line_layouts.clear();
-        self.line_content_hashes.clear();
+        self.line_layout_keys.clear();
         self.highlight_cache_version = u64::MAX;
         self.max_line_width = px(0.0);
     }
@@ -3046,7 +3077,7 @@ impl EditorState {
 
     fn invalidate_text_edit_caches(&mut self) {
         self.line_layouts.clear();
-        self.line_content_hashes.clear();
+        self.line_layout_keys.clear();
         self.highlight_cache_version = u64::MAX;
         // Search matches hold byte ranges into the old content and are
         // dropped after every committed text edit.
@@ -3524,50 +3555,29 @@ impl EntityInputHandler for EditorState {
         if self.read_only {
             return;
         }
-        let range_utf8 = range_utf16
-            .as_ref()
-            .map(|r| self.range_from_utf16(r))
-            .or_else(|| self.marked_range.clone())
-            .or_else(|| {
-                if let Some(sel) = &self.selection {
-                    let start = self.pos_to_byte_offset(sel.anchor);
-                    let end = self.pos_to_byte_offset(sel.cursor);
-                    Some(start.min(end)..start.max(end))
-                } else {
-                    let cursor_offset = self.pos_to_byte_offset(self.cursor);
-                    Some(cursor_offset..cursor_offset)
-                }
-            });
-
-        if let Some(range) = range_utf8 {
-            let start_pos = self.byte_offset_to_pos(range.start);
-            let end_pos = self.byte_offset_to_pos(range.end);
-
-            if start_pos != end_pos {
-                self.delete_selection_internal(Selection::new(start_pos, end_pos), cx);
+        let range = self.input_replacement_range(range_utf16);
+        self.cursor = self.byte_offset_to_pos(range.start);
+        if new_text.len() == 1 && self.selection.is_none() {
+            let ch = new_text.chars().next().unwrap();
+            if let Some(closer) = self.closing_char_for(ch) {
+                let pair_text = format!("{}{}", ch, closer);
+                self.replace_byte_range(range, &pair_text, cx);
+                self.cursor.col = self.cursor.col.saturating_sub(1);
+                self.marked_range = None;
+                return;
             }
 
-            if new_text.len() == 1 && self.selection.is_none() {
-                let ch = new_text.chars().next().unwrap();
-
-                if let Some(closer) = self.closing_char_for(ch) {
-                    let pair_text = format!("{}{}", ch, closer);
-                    self.insert_text_at_cursor(&pair_text, cx);
-                    self.cursor.col = self.cursor.col.saturating_sub(1);
-                    self.marked_range = None;
-                    return;
-                }
-
-                if self.should_skip_closing_char(ch) {
-                    self.cursor.col += 1;
-                    self.marked_range = None;
-                    cx.notify();
-                    return;
-                }
+            // After removing the range, the character at its end follows the cursor.
+            self.cursor = self.byte_offset_to_pos(range.end);
+            if self.should_skip_closing_char(ch) {
+                self.replace_byte_range(range, "", cx);
+                self.cursor.col += 1;
+                self.marked_range = None;
+                cx.notify();
+                return;
             }
-
-            self.insert_text_at_cursor(new_text, cx);
         }
+        self.replace_byte_range(range, new_text, cx);
         self.marked_range = None;
     }
 
@@ -3583,32 +3593,28 @@ impl EntityInputHandler for EditorState {
             return;
         }
 
-        let range_utf8 = range_utf16
-            .map(|r| self.range_from_utf16(&r))
-            .unwrap_or_else(|| {
-                let cursor_offset = self.pos_to_byte_offset(self.cursor);
-                cursor_offset..cursor_offset
-            });
-
-        let start_pos = self.byte_offset_to_pos(range_utf8.start);
-        let end_pos = self.byte_offset_to_pos(range_utf8.end);
-
-        if start_pos != end_pos {
-            self.delete_selection_internal(Selection::new(start_pos, end_pos), cx);
-        }
-
-        let insert_start = self.pos_to_byte_offset(self.cursor);
-        self.insert_text_at_cursor(new_text, cx);
-        let insert_end = self.pos_to_byte_offset(self.cursor);
-
-        if !new_text.is_empty() {
-            self.marked_range = Some(insert_start..insert_end);
-        }
+        let range = self.input_replacement_range(range_utf16);
+        let inserted_range = self.replace_byte_range(range, new_text, cx);
+        let insert_start = inserted_range.start;
+        self.marked_range = (!new_text.is_empty()).then_some(inserted_range);
 
         if let Some(new_sel_utf16) = new_selected_range_utf16 {
-            let new_sel_utf8 = self.range_from_utf16(&new_sel_utf16);
-            let sel_start = self.byte_offset_to_pos(insert_start + new_sel_utf8.start);
-            let sel_end = self.byte_offset_to_pos(insert_start + new_sel_utf8.end);
+            // IME selection offsets are relative to the inserted composition,
+            // not to the document prefix (which may contain different UTF-16 widths).
+            let offset_in_composition = |offset| {
+                let mut utf16 = 0;
+                for (byte, ch) in new_text.char_indices() {
+                    if utf16 >= offset {
+                        return byte;
+                    }
+                    utf16 += ch.len_utf16();
+                }
+                new_text.len()
+            };
+            let sel_start =
+                self.byte_offset_to_pos(insert_start + offset_in_composition(new_sel_utf16.start));
+            let sel_end =
+                self.byte_offset_to_pos(insert_start + offset_in_composition(new_sel_utf16.end));
             self.selection = Some(Selection::new(sel_start, sel_end));
             self.cursor = sel_end;
         }
@@ -3870,7 +3876,7 @@ impl Element for EditorElement {
         }
 
         let text_style = window.text_style();
-        let mut shaped_layouts: Vec<(usize, Option<ShapedLine>, u64)> =
+        let mut shaped_layouts: Vec<(usize, Option<ShapedLine>, LineLayoutKey)> =
             Vec::with_capacity(visible_buffer_lines.len());
         let mut max_line_width = px(0.0);
 
@@ -3924,16 +3930,28 @@ impl Element for EditorElement {
                 ));
             }
 
-            // Content-hash-based cache: only re-shape lines whose content changed
-            let line_hash = {
-                use std::hash::{Hash, Hasher};
-                let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                line_text.hash(&mut hasher);
-                hasher.finish()
+            // Resolve colors every paint, but reuse shaping while the effective
+            // text, font, size, and decorations are unchanged. Closure identity
+            // is irrelevant: builders commonly construct a fresh callback each frame.
+            let text_runs = {
+                let state = self.state.read(cx);
+                self.build_text_runs(
+                    &line_text,
+                    line_idx,
+                    &state.cached_highlight_spans,
+                    &text_style,
+                    &theme,
+                    state.syntax_color_fn.as_deref(),
+                )
+            };
+            let layout_key = LineLayoutKey {
+                text: line_text.into(),
+                font_size,
+                runs: text_runs,
             };
             let cached_layout = {
                 let state = self.state.read(cx);
-                if state.line_content_hashes.get(&line_idx) == Some(&line_hash) {
+                if state.line_layout_keys.get(&line_idx) == Some(&layout_key) {
                     state.line_layouts.get(&line_idx).cloned()
                 } else {
                     None
@@ -3953,20 +3971,18 @@ impl Element for EditorElement {
                 continue;
             }
 
-            if line_text.is_empty() {
-                shaped_layouts.push((line_idx, None, line_hash));
+            if layout_key.text.is_empty() {
+                shaped_layouts.push((line_idx, None, layout_key));
                 continue;
             }
 
-            let highlight_spans = &self.state.read(cx).cached_highlight_spans;
-            let text_runs =
-                self.build_text_runs(&line_text, line_idx, highlight_spans, &text_style, &theme);
-
-            let line_len = line_text.len();
-            let shaped =
-                window
-                    .text_system()
-                    .shape_line(line_text.into(), font_size, &text_runs, None);
+            let line_len = layout_key.text.len();
+            let shaped = window.text_system().shape_line(
+                layout_key.text.clone(),
+                font_size,
+                &layout_key.runs,
+                None,
+            );
 
             let line_width = shaped.x_for_index(line_len);
             if line_width > max_line_width {
@@ -3980,7 +3996,7 @@ impl Element for EditorElement {
                 cx,
             );
 
-            shaped_layouts.push((line_idx, Some(shaped), line_hash));
+            shaped_layouts.push((line_idx, Some(shaped), layout_key));
         }
 
         self.state.update(cx, |state, _| {
@@ -3988,13 +4004,13 @@ impl Element for EditorElement {
                 .line_layouts
                 .retain(|&line_idx, _| line_idx >= first_buf && line_idx < last_buf);
             state
-                .line_content_hashes
+                .line_layout_keys
                 .retain(|&line_idx, _| line_idx >= first_buf && line_idx < last_buf);
-            for (idx, layout, hash) in shaped_layouts {
+            for (idx, layout, key) in shaped_layouts {
                 if let Some(shaped) = layout {
                     state.line_layouts.insert(idx, shaped);
                 }
-                state.line_content_hashes.insert(idx, hash);
+                state.line_layout_keys.insert(idx, key);
             }
             if max_line_width > state.max_line_width {
                 state.max_line_width = max_line_width;
@@ -4376,11 +4392,18 @@ impl Element for EditorElement {
     }
 }
 
+#[derive(PartialEq)]
+struct LineLayoutKey {
+    text: SharedString,
+    font_size: Pixels,
+    runs: Vec<TextRun>,
+}
+
 struct HighlightSpan {
     line: usize,
     start_col: usize,
     end_col: usize,
-    color: Hsla,
+    capture_name: SharedString,
 }
 
 impl EditorElement {
@@ -4477,16 +4500,11 @@ impl EditorElement {
 
             while let Some(m) = matches.next() {
                 for capture in m.captures {
-                    let capture_name = &query.capture_names()[capture.index as usize];
+                    let capture_name: SharedString =
+                        query.capture_names()[capture.index as usize].into();
                     let node = capture.node;
                     let start_byte = node.start_byte();
                     let end_byte = node.end_byte();
-                    let color = if let Some(ref color_fn) = state.syntax_color_fn {
-                        color_fn(capture_name)
-                    } else {
-                        highlight_color_for_capture(capture_name)
-                    };
-
                     let start_line = rope.byte_to_line(start_byte);
                     let end_line =
                         rope.byte_to_line(end_byte.min(rope.len_bytes().saturating_sub(1)));
@@ -4507,7 +4525,7 @@ impl EditorElement {
                                 line,
                                 start_col: span_start,
                                 end_col: span_end,
-                                color,
+                                capture_name: capture_name.clone(),
                             });
                         }
                     }
@@ -4517,6 +4535,9 @@ impl EditorElement {
             chunk_start = chunk_end + 1;
         }
 
+        // `build_text_runs` slices this per line on every paint. A stable sort
+        // keeps capture order within a line, which decides overlapping spans.
+        spans.sort_by_key(|span| span.line);
         spans
     }
 
@@ -4527,11 +4548,12 @@ impl EditorElement {
         highlight_spans: &[HighlightSpan],
         text_style: &gpui::TextStyle,
         theme: &crate::capabilities::foundation::theme::Theme,
+        syntax_color_fn: Option<&dyn Fn(&str) -> Hsla>,
     ) -> Vec<TextRun> {
-        let mut line_spans: Vec<&HighlightSpan> = highlight_spans
-            .iter()
-            .filter(|s| s.line == line_idx)
-            .collect();
+        let first = highlight_spans.partition_point(|s| s.line < line_idx);
+        let count = highlight_spans[first..].partition_point(|s| s.line == line_idx);
+        let mut line_spans: Vec<&HighlightSpan> =
+            highlight_spans[first..first + count].iter().collect();
         line_spans.sort_by_key(|s| s.start_col);
 
         if line_spans.is_empty() {
@@ -4568,7 +4590,10 @@ impl EditorElement {
             runs.push(TextRun {
                 len: end - start,
                 font: text_style.font(),
-                color: span.color,
+                color: syntax_color_fn.map_or_else(
+                    || highlight_color_for_capture(&span.capture_name),
+                    |color_fn| color_fn(&span.capture_name),
+                ),
                 background_color: None,
                 underline: None,
                 strikethrough: None,
@@ -5225,6 +5250,348 @@ mod tests {
         fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
             div()
         }
+    }
+
+    #[gpui::test]
+    fn platform_input_replaces_selection_once_and_is_one_undo() {
+        let mut app = TestApp::new();
+        let editor = app.update(|cx| cx.new(EditorState::new));
+        let mut window = app.open_window(|_, _| EditorTestView { state: editor });
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.set_content("hello world", cx);
+                state.selection = Some(Selection::new(Position::zero(), Position::new(0, 5)));
+                state.cursor = Position::new(0, 5);
+                let version = state.content_version();
+
+                state.replace_text_in_range(None, "hi", window, cx);
+
+                assert_eq!(state.content(), "hi world\n");
+                assert_eq!(state.cursor, Position::new(0, 2));
+                assert!(state.selection.is_none());
+                assert_eq!(state.content_version(), version + 1);
+                state.undo(&Undo, window, cx);
+                assert_eq!(state.content(), "hello world\n");
+                state.redo(&Redo, window, cx);
+                assert_eq!(state.content(), "hi world\n");
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn platform_input_honors_explicit_ranges_over_cursor_and_selection() {
+        let mut app = TestApp::new();
+        let editor = app.update(|cx| cx.new(EditorState::new));
+        let mut window = app.open_window(|_, _| EditorTestView { state: editor });
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                for selected in [false, true] {
+                    for (range, text, expected) in [
+                        (0..0, "X", "Xhello world\n"),
+                        (6..11, "earth", "hello earth\n"),
+                        (6..11, "", "hello \n"),
+                    ] {
+                        state.set_content("hello world", cx);
+                        state.selection = selected
+                            .then_some(Selection::new(Position::zero(), Position::new(0, 5)));
+                        state.cursor = Position::new(0, 5);
+                        state.replace_text_in_range(Some(range), text, window, cx);
+                        assert_eq!(state.content(), expected);
+                        state.undo(&Undo, window, cx);
+                        assert_eq!(state.content(), "hello world\n");
+                        state.redo(&Redo, window, cx);
+                        assert_eq!(state.content(), expected);
+                    }
+                }
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn platform_ime_replaces_marked_text_and_uses_relative_utf16_selection() {
+        let mut app = TestApp::new();
+        let editor = app.update(|cx| cx.new(EditorState::new));
+        let mut window = app.open_window(|_, _| EditorTestView { state: editor });
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.set_content("hello world", cx);
+                state.selection = Some(Selection::new(Position::zero(), Position::new(0, 5)));
+                state.cursor = Position::new(0, 5);
+                state.replace_and_mark_text_in_range(None, "😀你", Some(2..3), window, cx);
+                assert_eq!(state.content(), "😀你 world\n");
+                assert_eq!(state.marked_text_range(window, cx), Some(0..3));
+                assert_eq!(
+                    state.selected_text_range(false, window, cx).unwrap().range,
+                    2..3
+                );
+
+                state.replace_and_mark_text_in_range(None, "😀好", Some(3..3), window, cx);
+                assert_eq!(state.content(), "😀好 world\n");
+                state.replace_text_in_range(None, "你好", window, cx);
+                assert_eq!(state.content(), "你好 world\n");
+                assert!(state.marked_text_range(window, cx).is_none());
+                state.undo(&Undo, window, cx);
+                assert_eq!(state.content(), "😀好 world\n");
+                state.redo(&Redo, window, cx);
+                assert_eq!(state.content(), "你好 world\n");
+
+                state.set_content("😀abc", cx);
+                state.cursor = Position::new(0, 7);
+                state.replace_and_mark_text_in_range(Some(2..2), "你😀", Some(1..3), window, cx);
+                assert_eq!(state.content(), "😀你😀abc\n");
+                assert_eq!(state.marked_text_range(window, cx), Some(2..5));
+                assert_eq!(
+                    state.selected_text_range(false, window, cx).unwrap().range,
+                    3..5
+                );
+                state.replace_and_mark_text_in_range(None, "", None, window, cx);
+                assert_eq!(state.content(), "😀abc\n");
+                assert!(state.marked_text_range(window, cx).is_none());
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn platform_input_preserves_auto_close_and_skips_existing_closer() {
+        let mut app = TestApp::new();
+        let editor = app.update(|cx| cx.new(EditorState::new));
+        let mut window = app.open_window(|_, _| EditorTestView { state: editor });
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.set_content("", cx);
+                state.replace_text_in_range(None, "(", window, cx);
+                assert_eq!(state.content(), "()\n");
+                assert_eq!(state.cursor, Position::new(0, 1));
+                let version = state.content_version();
+                state.replace_text_in_range(None, ")", window, cx);
+                assert_eq!(state.content(), "()\n");
+                assert_eq!(state.cursor, Position::new(0, 2));
+                assert_eq!(state.content_version(), version);
+                state.undo(&Undo, window, cx);
+                assert_eq!(state.content(), "\n");
+                state.redo(&Redo, window, cx);
+                assert_eq!(state.content(), "()\n");
+
+                state.set_content("word", cx);
+                state.selection = Some(Selection::new(Position::zero(), Position::new(0, 4)));
+                state.cursor = Position::new(0, 4);
+                state.replace_text_in_range(None, "(", window, cx);
+                assert_eq!(state.content(), "(\n");
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn text_runs_use_only_the_requested_lines_spans() {
+        use crate::capabilities::foundation::theme::Theme;
+
+        let mut app = TestApp::new();
+        let element = EditorElement {
+            state: app.update(|cx| cx.new(EditorState::new)),
+        };
+        let span = |line, start_col, end_col, name: &'static str| HighlightSpan {
+            line,
+            start_col,
+            end_col,
+            capture_name: name.into(),
+        };
+        let spans = [
+            span(0, 0, 3, "keyword"),
+            span(1, 4, 6, "keyword"),
+            span(1, 0, 2, "comment"),
+            span(2, 0, 1, "comment"),
+        ];
+        let color = |name: &str| {
+            if name == "keyword" {
+                hsla(0.1, 1.0, 0.5, 1.0)
+            } else {
+                hsla(0.5, 1.0, 0.5, 1.0)
+            }
+        };
+        let theme = Theme::light();
+        let style = gpui::TextStyle::default();
+        let runs = element.build_text_runs("ab cd ef", 1, &spans, &style, &theme, Some(&color));
+        assert_eq!(
+            runs.iter().map(|run| run.len).collect::<Vec<_>>(),
+            [2, 2, 2, 2]
+        );
+        assert_eq!(runs[0].color, color("comment"));
+        assert_eq!(runs[1].color, theme.tokens.foreground);
+        assert_eq!(runs[2].color, color("keyword"));
+        assert_eq!(runs[3].color, theme.tokens.foreground);
+
+        let unhighlighted = element.build_text_runs("zz", 3, &spans, &style, &theme, Some(&color));
+        assert_eq!(unhighlighted.len(), 1);
+        assert_eq!(unhighlighted[0].color, theme.tokens.foreground);
+    }
+
+    #[cfg(feature = "tree-sitter-rust")]
+    #[gpui::test]
+    fn collected_highlight_spans_are_sorted_by_line() {
+        use crate::capabilities::foundation::theme::{install_theme, Theme};
+
+        struct HighlightedEditorView {
+            state: Entity<EditorState>,
+        }
+        impl Render for HighlightedEditorView {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div().size_full().child(Editor::new(&self.state))
+            }
+        }
+
+        let mut app = TestApp::new();
+        let editor = app.update(|cx| {
+            install_theme(cx, Theme::light());
+            cx.new(|cx| {
+                let mut state = EditorState::new(cx);
+                state.set_language(Language::Rust);
+                state.set_content(
+                    "#[derive(\n    Debug,\n)]\nstruct A { b: \"x\ny\" }\nfn c() {}",
+                    cx,
+                );
+                state
+            })
+        });
+        let mut window = app.open_window(|_, _| HighlightedEditorView { state: editor });
+        window.draw();
+        window.read(|view, cx| {
+            let spans = &view.state.read(cx).cached_highlight_spans;
+            assert!(spans.iter().any(|span| span.line == 4));
+            assert!(spans.windows(2).all(|pair| pair[0].line <= pair[1].line));
+        });
+    }
+
+    #[cfg(feature = "tree-sitter-rust")]
+    #[gpui::test]
+    fn rendered_line_cache_tracks_callback_theme_and_font_without_text_edits() {
+        use crate::capabilities::foundation::theme::{install_theme, Theme};
+
+        struct StyledEditorTestView {
+            state: Entity<EditorState>,
+            syntax_color: Option<Hsla>,
+        }
+        impl Render for StyledEditorTestView {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                let editor = Editor::new(&self.state)
+                    .when_some(self.syntax_color, |editor, color| {
+                        editor.syntax_color_fn(move |_| color)
+                    });
+                div().size_full().child(editor)
+            }
+        }
+
+        let mut app = TestApp::new();
+        let editor = app.update(|cx| {
+            install_theme(cx, Theme::light());
+            cx.new(|cx| {
+                let mut state = EditorState::new(cx);
+                state.set_language(Language::Rust);
+                state.set_content("let value = 1;", cx);
+                state
+            })
+        });
+        let mut window = app.open_window(|_, _| StyledEditorTestView {
+            state: editor.clone(),
+            syntax_color: Some(hsla(0.0, 1.0, 0.5, 1.0)),
+        });
+        window.draw();
+        let snapshot = |window: &TestAppWindow<StyledEditorTestView>| {
+            window.read(|view, cx| {
+                let state = view.state.read(cx);
+                (
+                    state.content_version(),
+                    format!("{:?}", state.line_layouts.get(&0).unwrap()),
+                )
+            })
+        };
+        let initial = snapshot(&window);
+        let initial_key_text = window.read(|view, cx| {
+            view.state
+                .read(cx)
+                .line_layout_keys
+                .get(&0)
+                .unwrap()
+                .text
+                .as_ptr() as usize
+        });
+        window.update(|_, _, cx| cx.notify());
+        window.draw();
+        assert_eq!(
+            snapshot(&window),
+            initial,
+            "equivalent callback results retain layouts"
+        );
+        window.read(|view, cx| {
+            assert_eq!(
+                view.state
+                    .read(cx)
+                    .line_layout_keys
+                    .get(&0)
+                    .unwrap()
+                    .text
+                    .as_ptr() as usize,
+                initial_key_text,
+                "a fresh equivalent callback must keep the existing cache entry"
+            );
+        });
+
+        window.update(|view, _, cx| {
+            view.syntax_color = Some(hsla(0.6, 1.0, 0.5, 1.0));
+            cx.notify();
+        });
+        window.draw();
+        let recolored = snapshot(&window);
+        assert_eq!(recolored.0, initial.0);
+        assert_ne!(
+            recolored.1, initial.1,
+            "new syntax callback must recolor cached text"
+        );
+
+        app.update(|cx| install_theme(cx, Theme::dark()));
+        window.draw();
+        let rethemed = snapshot(&window);
+        assert_eq!(rethemed.0, initial.0);
+        assert_ne!(
+            rethemed.1, recolored.1,
+            "theme foreground must recolor uncaptured text"
+        );
+
+        app.update(|cx| {
+            let mut theme = Theme::dark();
+            theme.tokens.font_mono = "Changed Theme Mono".into();
+            install_theme(cx, theme);
+        });
+        window.draw();
+        window.read(|view, cx| {
+            let state = view.state.read(cx);
+            let key = state.line_layout_keys.get(&0).unwrap();
+            assert!(key
+                .runs
+                .iter()
+                .all(|run| run.font.family == "Changed Theme Mono"));
+            assert_eq!(state.content_version(), initial.0);
+        });
+
+        window.update(|view, _, cx| {
+            view.state
+                .update(cx, |state, cx| state.set_font_size(24.0, cx));
+        });
+        window.draw();
+        let resized = snapshot(&window);
+        assert_eq!(resized.0, initial.0);
+        assert_ne!(resized.1, rethemed.1, "font size must reshape cached text");
+
+        window.update(|view, _, cx| {
+            view.syntax_color = None;
+            cx.notify();
+        });
+        window.draw();
+        window.read(|view, cx| {
+            let state = view.state.read(cx);
+            let key = state.line_layout_keys.get(&0).unwrap();
+            assert_eq!(key.runs[0].color, highlight_color_for_capture("keyword"));
+            assert_eq!(state.content_version(), initial.0);
+        });
     }
 
     #[gpui::test]

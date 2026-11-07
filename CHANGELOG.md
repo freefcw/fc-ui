@@ -74,6 +74,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Editor platform input replaces each range once, respects explicit UTF-16
+  ranges and records replacements as single undo transactions; IME selection
+  offsets are interpreted relative to the composition.
+- Editor shaping caches follow effective text runs, fonts and colors, so
+  changing themes or syntax-color callbacks does not retain stale styling.
 - Default uniform/variable virtual lists retain their scroll offset across
   renders; physics uses the final scroll handle regardless of builder order.
   Scroll containers connect implicit handles to physics, and
