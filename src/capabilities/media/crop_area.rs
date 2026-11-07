@@ -44,7 +44,10 @@ impl CropAreaState {
     }
 
     fn to_normalized(&self, pos: Point<Pixels>) -> Point<f32> {
-        if let Some(bounds) = self.bounds {
+        if let Some(bounds) = self
+            .bounds
+            .filter(|bounds| bounds.size.width > px(0.) && bounds.size.height > px(0.))
+        {
             let x = (pos.x - bounds.left()) / bounds.size.width;
             let y = (pos.y - bounds.top()) / bounds.size.height;
             point(x, y)
@@ -281,6 +284,7 @@ impl RenderOnce for CropArea {
         let state_move = self.state.clone();
         let state_up = self.state.clone();
         let state_up_out = self.state.clone();
+        let state_for_bounds = self.state.clone();
         let min_size = self.min_size;
         let aspect_ratio = self.aspect_ratio;
 
@@ -292,7 +296,10 @@ impl RenderOnce for CropArea {
             .children(self.children)
             .child(
                 canvas(
-                    move |_, _, _| paint_data,
+                    move |bounds, _, cx| {
+                        state_for_bounds.update(cx, |state, _| state.bounds = Some(bounds));
+                        paint_data
+                    },
                     move |bounds, data, window, _cx| {
                         let sel = &data.selection;
                         let bw = bounds.size.width;

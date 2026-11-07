@@ -97,6 +97,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   full response instead of restarting after request-body buffering.
 - Loading audio while muted keeps the playback backend muted and retains its
   configured speed.
+- Crop selections use their rendered bounds for dragging.
 - Animated presence uses the same exit timing for drawing and unmounting and
   cancels an exit when shown again. Zero toast capacity is normalized to one.
 - Overlay exit timers keep weak references so a removed dialog cannot run a
