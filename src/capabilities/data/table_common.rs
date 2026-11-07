@@ -7,6 +7,10 @@
 //! [`HeaderSortState`] and callers convert.
 
 use gpui::{prelude::FluentBuilder as _, *};
+use std::cmp::Ordering;
+use std::rc::Rc;
+
+pub(crate) type RowComparator<T> = Rc<dyn Fn(&T, &T) -> Ordering>;
 
 /// Sort state used by the shared header helpers. `DataTable`'s
 /// `SortDirection` and `DataGrid`'s `GridSortDirection` stay public;
@@ -18,17 +22,21 @@ pub(crate) enum HeaderSortState {
     None,
 }
 
-/// Numeric-aware ordering for cell values: two parseable numbers compare
-/// numerically, any other pair falls back to lexicographic order.
-///
-/// Lifted from the `parse::<f64>` comparators previously duplicated in
-/// `DataTableState::sort_rows` and `DataGridState::resort_data`.
-pub(crate) fn compare_cell_values(a: &str, b: &str) -> std::cmp::Ordering {
+/// Numeric values sort before text; numbers compare numerically and text
+/// compares lexicographically. NaN sorts after other numbers (before text).
+/// Equal numeric spellings retain their input order under a stable sort.
+/// Classifying each value independently keeps mixed columns transitive.
+pub(crate) fn compare_cell_values(a: &str, b: &str) -> Ordering {
     match (a.parse::<f64>(), b.parse::<f64>()) {
-        (Ok(number_a), Ok(number_b)) => number_a
-            .partial_cmp(&number_b)
-            .unwrap_or(std::cmp::Ordering::Equal),
-        _ => a.cmp(b),
+        (Ok(number_a), Ok(number_b)) => match (number_a.is_nan(), number_b.is_nan()) {
+            (true, true) => Ordering::Equal,
+            (true, false) => Ordering::Greater,
+            (false, true) => Ordering::Less,
+            (false, false) => number_a.partial_cmp(&number_b).unwrap(),
+        },
+        (Ok(_), Err(_)) => Ordering::Less,
+        (Err(_), Ok(_)) => Ordering::Greater,
+        (Err(_), Err(_)) => a.cmp(b),
     }
 }
 
@@ -86,6 +94,13 @@ mod tests {
     }
 
     #[::core::prelude::v1::test]
+    fn mixed_values_obey_transitivity() {
+        assert!(compare_cell_values("2", "10").is_lt());
+        assert!(compare_cell_values("10", "1x").is_lt());
+        assert!(compare_cell_values("2", "1x").is_lt());
+    }
+
+    #[::core::prelude::v1::test]
     fn non_numeric_pairs_fall_back_to_lexicographic_order() {
         assert_eq!(compare_cell_values("a", "b"), std::cmp::Ordering::Less);
         assert_eq!(compare_cell_values("b", "a"), std::cmp::Ordering::Greater);
@@ -98,10 +113,31 @@ mod tests {
     }
 
     #[::core::prelude::v1::test]
-    fn non_parseable_numbers_use_partial_cmp_semantics() {
-        // "NaN" parses as a float; NaN comparisons fall back to Equal.
+    fn nan_sorts_after_numbers_and_before_text() {
         assert_eq!(compare_cell_values("NaN", "NaN"), std::cmp::Ordering::Equal);
-        // Mixed pairs cannot compare numerically and use string order.
+        assert!(compare_cell_values("NaN", "inf").is_gt());
+        assert!(compare_cell_values("NaN", "text").is_lt());
         assert_eq!(compare_cell_values("10", "1x"), std::cmp::Ordering::Less);
+    }
+
+    #[::core::prelude::v1::test]
+    fn mixed_values_form_a_total_order() {
+        let values = [
+            "2", "10", "1x", "NaN", "-NaN", "inf", "-inf", "0", "-0", "2.0", "", "a",
+        ];
+        for a in values {
+            assert_eq!(compare_cell_values(a, a), Ordering::Equal);
+            for b in values {
+                assert_eq!(
+                    compare_cell_values(a, b),
+                    compare_cell_values(b, a).reverse()
+                );
+                for c in values {
+                    if compare_cell_values(a, b).is_le() && compare_cell_values(b, c).is_le() {
+                        assert!(compare_cell_values(a, c).is_le(), "{a:?} <= {b:?} <= {c:?}");
+                    }
+                }
+            }
+        }
     }
 }

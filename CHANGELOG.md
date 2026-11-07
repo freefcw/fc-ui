@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Tokenized virtual-table page requests, stale-result rejection and explicit
+  failure completion; optional remote-search callbacks and per-column row
+  comparators for `DataTable`/`DataGrid`. Replacing the comparator of the
+  active sort column reorders rows immediately and reports the cleared
+  selection to `on_selection_change`.
 - Shared internal foundations for previously duplicated implementations:
   `EditCore` (text editing state machines), `overlay_shell` (focus guard,
   dismiss timing, backdrops, menu panels), `chart_common`/`table_common`,
@@ -26,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Default table sorting consistently orders numbers before NaN and then text,
+  preventing non-transitive comparisons in mixed columns. Virtual tables show
+  search controls only when a remote-search callback is configured.
 - `Input` no longer shows a green "Valid input" footer on blur when no
   validation rules or validating input type are configured (mirrors the
   documented `Textarea` gating).

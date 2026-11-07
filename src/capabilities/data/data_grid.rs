@@ -1,5 +1,6 @@
 use crate::capabilities::data::table_common::{
     column_resize_handle, compare_cell_values, sortable_header_content, HeaderSortState,
+    RowComparator,
 };
 use crate::capabilities::foundation::theme::use_theme;
 use gpui::{prelude::FluentBuilder as _, *};
@@ -135,6 +136,7 @@ pub struct DataGridState<T: 'static> {
     column_widths: HashMap<SharedString, Pixels>,
     sort_column: Option<SharedString>,
     sort_direction: GridSortDirection,
+    sort_comparators: HashMap<SharedString, RowComparator<T>>,
     focus_handle: Option<FocusHandle>,
     resizing_column: Option<usize>,
     resize_start_x: f32,
@@ -155,6 +157,7 @@ impl<T: 'static> DataGridState<T> {
             column_widths,
             sort_column: None,
             sort_direction: GridSortDirection::None,
+            sort_comparators: HashMap::new(),
             focus_handle: None,
             resizing_column: None,
             resize_start_x: 0.0,
@@ -164,6 +167,24 @@ impl<T: 'static> DataGridState<T> {
 
     pub fn data(&self) -> &[T] {
         &self.data
+    }
+
+    /// Register a column's ascending row comparator independently of its
+    /// display/value getter. It must provide a consistent total order.
+    /// Reapplies an active sort and returns `false` for unknown column IDs.
+    pub fn set_column_comparator(
+        &mut self,
+        column_id: impl Into<SharedString>,
+        comparator: impl Fn(&T, &T) -> std::cmp::Ordering + 'static,
+    ) -> bool {
+        let column_id = column_id.into();
+        if !self.columns.iter().any(|column| column.id == column_id) {
+            return false;
+        }
+        self.cancel_edit();
+        self.sort_comparators.insert(column_id, Rc::new(comparator));
+        self.resort_data();
+        true
     }
 
     /// Mutate rows while preserving the active sort and edit invariants.
@@ -317,11 +338,14 @@ impl<T: 'static> DataGridState<T> {
         }
 
         let getter = self.columns[col_idx].value_getter.clone();
+        let comparator = self.sort_comparators.get(&sort_column).cloned();
         let ascending = self.sort_direction == GridSortDirection::Ascending;
         self.data.sort_by(|a, b| {
-            let va = getter(a);
-            let vb = getter(b);
-            let ordering = compare_cell_values(&va, &vb);
+            let ordering = if let Some(comparator) = &comparator {
+                comparator(a, b)
+            } else {
+                compare_cell_values(&getter(a), &getter(b))
+            };
             if ascending {
                 ordering
             } else {
@@ -829,6 +853,32 @@ mod tests {
             state.data.iter().map(|row| row.value).collect::<Vec<_>>(),
             [0, 1, 2]
         );
+    }
+
+    #[::core::prelude::v1::test]
+    fn custom_comparator_sorts_formatted_values_and_reapplies_after_data_changes() {
+        let column = GridColumnDef::new(
+            "value",
+            "Value",
+            |row: &Row, _| div().child(format!("${}", row.value)).into_any_element(),
+            |row: &Row| format!("${}", row.value),
+        )
+        .sortable(true);
+        let mut state =
+            DataGridState::new(vec![Row { value: 200 }, Row { value: 1000 }], vec![column]);
+        assert!(state.set_column_comparator("value", |a, b| a.value.cmp(&b.value)));
+        assert!(!state.set_column_comparator("missing", |a, b| a.value.cmp(&b.value)));
+        state.sort_by_column("value");
+        assert_eq!(state.data()[0].value, 200);
+        state.set_data(vec![Row { value: 1000 }, Row { value: 300 }]);
+        assert_eq!(state.data()[0].value, 300);
+        state.update_data(|rows| rows.push(Row { value: 100 }));
+        assert_eq!(state.data()[0].value, 100);
+        state.sort_by_column("value");
+        assert_eq!(state.data()[0].value, 1000);
+        assert_eq!((state.columns[0].value_getter)(&state.data()[0]), "$1000");
+        assert!(state.set_column_comparator("value", |a, b| b.value.cmp(&a.value)));
+        assert_eq!(state.data()[0].value, 100);
     }
 
     #[::core::prelude::v1::test]
