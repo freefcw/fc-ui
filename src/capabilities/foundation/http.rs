@@ -165,58 +165,86 @@ impl HttpClient for SimpleHttpClient {
         };
 
         async move {
-            let body_bytes = read_request_body(body).await?;
-            let method = reqwest::Method::from_bytes(parts.method.as_str().as_bytes())
-                .map_err(|e| gpui::http_client::anyhow!("Unsupported HTTP method: {}", e))?;
-            let uri_str = parts.uri.to_string();
-            let headers: Vec<_> = parts
-                .headers
-                .iter()
-                .map(|(key, value)| (key.clone(), value.clone()))
-                .collect();
+            let deadline = timeout.map(|duration| std::time::Instant::now() + duration);
+            let operation = async move {
+                let body_bytes = read_request_body(body).await?;
+                let method = reqwest::Method::from_bytes(parts.method.as_str().as_bytes())
+                    .map_err(|e| gpui::http_client::anyhow!("Unsupported HTTP method: {}", e))?;
+                let uri_str = parts.uri.to_string();
+                let headers: Vec<_> = parts
+                    .headers
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect();
 
-            smol::unblock(move || {
-                let mut request_builder = client.request(method, &uri_str);
+                smol::unblock(move || {
+                    let mut request_builder = client.request(method, &uri_str);
 
-                for (key, value) in headers {
-                    request_builder = request_builder.header(key, value);
+                    for (key, value) in headers {
+                        request_builder = request_builder.header(key, value);
+                    }
+
+                    if let Some(deadline) = deadline {
+                        let remaining =
+                            deadline.saturating_duration_since(std::time::Instant::now());
+                        if remaining.is_zero() {
+                            return Err(std::io::Error::new(
+                                std::io::ErrorKind::TimedOut,
+                                "HTTP request timed out",
+                            )
+                            .into());
+                        }
+                        request_builder = request_builder.timeout(remaining);
+                    }
+
+                    if !body_bytes.is_empty() {
+                        request_builder = request_builder.body(body_bytes);
+                    }
+
+                    let response = request_builder
+                        .send()
+                        .map_err(|e| gpui::http_client::anyhow!("HTTP request failed: {}", e))?;
+
+                    let status = response.status();
+                    let headers = response.headers().clone();
+                    let bytes = response.bytes().map_err(|e| {
+                        gpui::http_client::anyhow!("Failed to read response body: {}", e)
+                    })?;
+
+                    let mut builder = gpui::http_client::http::Response::builder().status(
+                        gpui::http_client::http::StatusCode::from_u16(status.as_u16()).map_err(
+                            |e| gpui::http_client::anyhow!("Invalid status code: {}", e),
+                        )?,
+                    );
+
+                    for (key, value) in headers.iter() {
+                        builder = builder.header(key.as_str(), value.as_bytes());
+                    }
+
+                    let async_body = AsyncBody::from_bytes(bytes);
+                    let response = builder.body(async_body).map_err(|e| {
+                        gpui::http_client::anyhow!("Failed to build response: {}", e)
+                    })?;
+
+                    Ok(response)
+                })
+                .await
+            }
+            .boxed();
+
+            if let Some(deadline) = deadline {
+                match futures::future::select(operation, Box::pin(smol::Timer::at(deadline))).await
+                {
+                    futures::future::Either::Left((result, _)) => result,
+                    futures::future::Either::Right(_) => Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "HTTP request timed out",
+                    )
+                    .into()),
                 }
-
-                if let Some(timeout) = timeout {
-                    request_builder = request_builder.timeout(timeout);
-                }
-
-                if !body_bytes.is_empty() {
-                    request_builder = request_builder.body(body_bytes);
-                }
-
-                let response = request_builder
-                    .send()
-                    .map_err(|e| gpui::http_client::anyhow!("HTTP request failed: {}", e))?;
-
-                let status = response.status();
-                let headers = response.headers().clone();
-                let bytes = response.bytes().map_err(|e| {
-                    gpui::http_client::anyhow!("Failed to read response body: {}", e)
-                })?;
-
-                let mut builder = gpui::http_client::http::Response::builder().status(
-                    gpui::http_client::http::StatusCode::from_u16(status.as_u16())
-                        .map_err(|e| gpui::http_client::anyhow!("Invalid status code: {}", e))?,
-                );
-
-                for (key, value) in headers.iter() {
-                    builder = builder.header(key.as_str(), value.as_bytes());
-                }
-
-                let async_body = AsyncBody::from_bytes(bytes);
-                let response = builder
-                    .body(async_body)
-                    .map_err(|e| gpui::http_client::anyhow!("Failed to build response: {}", e))?;
-
-                Ok(response)
-            })
-            .await
+            } else {
+                operation.await
+            }
         }
         .boxed()
     }

@@ -92,6 +92,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   metadata. Input-type defaults share one configuration path and replace only
   a placeholder, autocomplete hint or input mask still set to the previous
   type's default, so explicit values survive `input_type`/`password` changes.
+- HTTP request deadlines include reading asynchronous request bodies and the
+  full response instead of restarting after request-body buffering.
 - Loading audio while muted keeps the playback backend muted and retains its
   configured speed.
 - Overlay exit timers keep weak references so a removed dialog cannot run a
