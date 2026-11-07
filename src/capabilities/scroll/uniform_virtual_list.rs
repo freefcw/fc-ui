@@ -163,6 +163,10 @@ struct FrameGeometry {
     offset: Point<Pixels>,
 }
 
+/// The element identity owns its implicit handle, so rebuilding a list does
+/// not reset the offset or leave physics attached to a discarded frame.
+struct DefaultScrollHandle(gpui::ScrollHandle);
+
 /// State and behavior shared by [`UniformVirtualList`] and
 /// [`VariableVirtualList`]: identity, base element, scroll geometry, the
 /// renderer, and the scroll-command plumbing (`scroll_to`, physics, pending
@@ -174,12 +178,15 @@ struct VirtualListCore {
     overscan: usize,
     base: Stateful<Div>,
     scroll_handle: gpui::ScrollHandle,
+    explicit_scroll_handle: bool,
+    scroll_bound: bool,
     sizing_behavior: ListSizingBehavior,
     renderer: SharedRenderer,
     on_visible_range: Option<VisibleRangeCallback>,
     near_end_threshold: NearEndSlot,
     physics_state: Option<PhysicsScrollState>,
     pending_scroll: Cell<Option<PendingScroll>>,
+    pending_animation: Cell<Option<usize>>,
 }
 
 impl VirtualListCore {
@@ -190,12 +197,15 @@ impl VirtualListCore {
             axis,
             overscan: 5,
             scroll_handle: gpui::ScrollHandle::new(),
+            explicit_scroll_handle: false,
+            scroll_bound: false,
             sizing_behavior: ListSizingBehavior::Auto,
             renderer,
             on_visible_range: None,
             near_end_threshold: None,
             physics_state: None,
             pending_scroll: Cell::new(None),
+            pending_animation: Cell::new(None),
         }
     }
 
@@ -212,8 +222,8 @@ impl VirtualListCore {
     }
 
     fn track_scroll(&mut self, handle: &gpui::ScrollHandle) {
-        self.map_base(|base| base.track_scroll(handle));
         self.scroll_handle = handle.clone();
+        self.explicit_scroll_handle = true;
     }
 
     fn with_sizing_behavior(&mut self, behavior: ListSizingBehavior) {
@@ -233,19 +243,43 @@ impl VirtualListCore {
     }
 
     fn with_physics(&mut self, state: &PhysicsScrollState) {
-        let physics_c = state.clone();
-        let handle_c = self.scroll_handle.clone();
-        let dir = if self.axis.is_vertical() {
+        self.physics_state = Some(state.clone());
+    }
+
+    fn bind_scroll(&mut self, global_id: Option<&GlobalElementId>, window: &mut Window) {
+        if self.scroll_bound {
+            return;
+        }
+        if !self.explicit_scroll_handle {
+            if let Some(global_id) = global_id {
+                self.scroll_handle = window.with_element_state(
+                    global_id,
+                    |state: Option<DefaultScrollHandle>, _| {
+                        let state = state
+                            .unwrap_or_else(|| DefaultScrollHandle(self.scroll_handle.clone()));
+                        (state.0.clone(), state)
+                    },
+                );
+            }
+        }
+        let handle = self.scroll_handle.clone();
+        let physics = self.physics_state.clone();
+        let direction = if self.axis.is_vertical() {
             ScrollDirection::Vertical
         } else {
             ScrollDirection::Horizontal
         };
         self.map_base(|base| {
-            base.on_scroll_wheel(move |event, window, _cx| {
-                physics_c.handle_scroll_event(&handle_c, dir, event, window);
-            })
+            let base = base.track_scroll(&handle);
+            if let Some(physics) = physics {
+                base.on_scroll_wheel(move |event, window, _| {
+                    physics.handle_scroll_event(&handle, direction, event, window);
+                })
+            } else {
+                base
+            }
         });
-        self.physics_state = Some(state.clone());
+        self.scroll_bound = true;
     }
 
     /// Shared body of `scroll_to`: cancel any in-flight animated scroll (the
@@ -261,6 +295,7 @@ impl VirtualListCore {
         if let Some(physics) = self.physics_state.as_ref() {
             physics.stop();
         }
+        self.pending_animation.set(None);
         self.pending_scroll
             .set(Some(PendingScroll { index, strategy }));
 
@@ -313,20 +348,29 @@ impl VirtualListCore {
             // resolve to the position the handle already has.
             return;
         }
+        if self.physics_state.is_some() && !self.explicit_scroll_handle && !self.scroll_bound {
+            self.pending_scroll.set(None);
+            self.pending_animation.set(Some(index));
+            return;
+        }
         // `Top` always resolves, with or without layout metrics.
         let target = self
             .immediate_target(extents, index, ScrollStrategy::Top)
             .expect("ScrollStrategy::Top always resolves");
 
         if let Some(physics) = self.physics_state.as_ref() {
-            self.pending_scroll.set(None);
-            if self.axis.is_vertical() {
-                physics.scroll_to_y_animated(target.as_f32(), &self.scroll_handle, window);
-            } else {
-                physics.scroll_to_x_animated(target.as_f32(), &self.scroll_handle, window);
-            }
+            self.animate_to(physics, target, window);
         } else {
             self.scroll_to(extents, index, ScrollStrategy::Top);
+        }
+    }
+
+    fn animate_to(&self, physics: &PhysicsScrollState, target: Pixels, window: &Window) {
+        self.pending_scroll.set(None);
+        if self.axis.is_vertical() {
+            physics.scroll_to_y_animated(target.as_f32(), &self.scroll_handle, window);
+        } else {
+            physics.scroll_to_x_animated(target.as_f32(), &self.scroll_handle, window);
         }
     }
 
@@ -369,6 +413,7 @@ impl VirtualListCore {
         cx: &mut App,
         total_extent: Pixels,
     ) -> gpui::LayoutId {
+        self.bind_scroll(global_id, window);
         let axis = self.axis;
         let behavior = self.sizing_behavior;
 
@@ -457,6 +502,25 @@ impl VirtualListCore {
         );
         let offset = clamp_scroll_offset(offset, max_scroll);
         self.scroll_handle.set_offset(offset);
+
+        if let Some(index) = self.pending_animation.take() {
+            if let Some(physics) = self.physics_state.as_ref() {
+                let count = extents.item_count();
+                if count > 0 {
+                    let index = index.min(count - 1);
+                    // Div publishes this frame's metrics later in prepaint;
+                    // the retained handle still describes the previous frame.
+                    let target = scroll_target_for_strategy(
+                        extents.item_origin(index),
+                        extents.item_extent(index),
+                        viewport_len,
+                        max_scroll.along(self.axis),
+                        ScrollStrategy::Top,
+                    );
+                    self.animate_to(physics, target, window);
+                }
+            }
+        }
 
         FrameGeometry {
             content_bounds,

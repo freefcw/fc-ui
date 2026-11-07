@@ -40,7 +40,7 @@ HStack::new()
 ### Auto-Scrolling Container
 
 ```rust
-// Simple vertical scroll - auto-generates unique ID
+// Simple vertical scroll - implicit ID from the call site
 ScrollContainer::vertical()
     .h(px(400.0))
     .child(long_content())
@@ -104,7 +104,7 @@ HStack::new()
 
 #### ScrollContainer
 
-Auto-managed scrolling with unique IDs.
+Auto-managed scrolling whose state survives view rebuilds.
 
 ```rust
 // Vertical scroll (most common)
@@ -122,14 +122,22 @@ ScrollContainer::both()
     .size(px(800.0), px(600.0))
     .child(large_content)
 
-// Custom ID (overrides auto-generation)
+// Custom ID (overrides the call-site ID)
 ScrollContainer::vertical()
     .id("my-scroll-area")
     .child(content)
+
+// Repeated siblings from one call site need distinct IDs
+div().children(panels.iter().map(|panel| {
+    ScrollContainer::vertical()
+        .id(("panel-scroll", panel.id))
+        .child(panel.content())
+}))
 ```
 
 **Key Features:**
-- ✅ Auto-generates unique IDs (no manual ID management)
+- ✅ Implicit ID from the call site, so scroll offset and physics persist across renders
+- ⚠️ Containers created at the same call site under one parent (a loop, or a shared helper function) share that state unless given distinct `.id(...)` values
 - ✅ Optional scroll handle for programmatic control
 - ✅ Works with any content (single child or nested layouts)
 
@@ -652,20 +660,26 @@ impl Render for MyView {
 }
 ```
 
-### 5. Use Auto-IDs for Scroll Containers
+### 5. Use Implicit IDs for One-Off Scroll Containers
 
-Let the library manage IDs automatically:
+A single container at a call site can rely on its implicit, call-site ID:
 
 ```rust
-// ✅ Good: Auto-managed IDs
+// ✅ Good: one container at this call site
 ScrollContainer::vertical()
     .child(content)
 
-// Only use custom IDs when you need specific identification
-ScrollContainer::vertical()
-    .id("main-message-list")  // Explicit when needed
-    .child(content)
+// ✅ Required: distinct IDs for containers repeated from one call site
+for (index, section) in sections.iter().enumerate() {
+    column = column.child(
+        ScrollContainer::vertical()
+            .id(("section-scroll", index))
+            .child(section.render()),
+    );
+}
 ```
+
+Without distinct IDs, repeated siblings share one scroll offset and scroll together.
 
 ---
 

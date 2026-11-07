@@ -31,6 +31,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Scroll containers resolve their implicit scroll handle and physics state
+  during rendering so they survive view rebuilds. `ScrollContainer` and
+  `ScrollList` now convert to GPUI `Component<ScrollContainer>` instead of
+  `Stateful<Div>`; callers naming
+  the former associated element type must update that annotation (breaking).
+  Repeated containers created at the same call site (loops or shared helper
+  functions) share state unless given distinct `.id(...)` values.
+  `momentum` and `overscroll_bounce` apply to an explicit `with_physics` state
+  regardless of builder order.
 - Default table sorting consistently orders numbers before NaN and then text,
   preventing non-transitive comparisons in mixed columns. Virtual tables show
   search controls only when a remote-search callback is configured.
@@ -63,6 +72,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Default uniform/variable virtual lists retain their scroll offset across
+  renders; physics uses the final scroll handle regardless of builder order.
+  Scroll containers connect implicit handles to physics, and
+  `ScrollList::no_flex_grow` preserves existing configuration.
 - Overlay exit timers keep weak references so a removed dialog cannot run a
   stale close callback against its replacement.
 - `BottomSheet` restores the previous focus when unmounted programmatically,

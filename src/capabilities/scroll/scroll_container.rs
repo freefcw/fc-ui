@@ -8,9 +8,6 @@ use gpui::*;
 use std::cell::RefCell;
 use std::panic::Location;
 use std::rc::Rc;
-use std::sync::atomic::AtomicUsize;
-
-static SCROLL_CONTAINER_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 /// Attach the physics-driven wheel handler to a scrollable element.
 ///
@@ -317,6 +314,13 @@ fn drive_physics_frame(
     });
 }
 
+#[derive(Default)]
+struct ContainerPhysicsState {
+    implicit: Option<PhysicsScrollState>,
+    active: Option<PhysicsScrollState>,
+}
+
+#[derive(IntoElement)]
 pub struct ScrollContainer {
     base: Div,
     direction: ScrollDirection,
@@ -329,22 +333,29 @@ pub struct ScrollContainer {
     horizontal_top: bool,
     scrollbar_state: ScrollbarState,
     physics_state: Option<PhysicsScrollState>,
+    momentum_enabled: Option<bool>,
+    overscroll_enabled: Option<bool>,
 }
 
 impl ScrollContainer {
+    /// Create a scroll container whose implicit state follows this call site,
+    /// so its offset and physics survive view rebuilds.
+    ///
+    /// Containers created at the same call site under the same parent share
+    /// that state: siblings built in a loop, or by one helper function that is
+    /// not `#[track_caller]`, scroll together. Give each one a distinct ID:
+    ///
+    /// ```ignore
+    /// div().children(panels.iter().map(|panel| {
+    ///     ScrollContainer::vertical()
+    ///         .id(("panel-scroll", panel.id))
+    ///         .child(panel.content())
+    /// }))
+    /// ```
     #[track_caller]
     pub fn new(direction: ScrollDirection) -> Self {
         let location = Location::caller();
-        let auto_id = ElementId::Name(
-            format!(
-                "scroll-container:{}:{}:{}:{}",
-                location.file(),
-                location.line(),
-                location.column(),
-                SCROLL_CONTAINER_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-            )
-            .into(),
-        );
+        let auto_id = ElementId::CodeLocation(*location);
 
         Self {
             base: div(),
@@ -358,6 +369,8 @@ impl ScrollContainer {
             horizontal_top: false,
             scrollbar_state: ScrollbarState::default(),
             physics_state: None,
+            momentum_enabled: None,
+            overscroll_enabled: None,
         }
     }
 
@@ -423,33 +436,65 @@ impl ScrollContainer {
         self
     }
 
+    /// Drive scrolling with a caller-owned physics state. `momentum` and
+    /// `overscroll_bounce` apply to it during rendering regardless of order.
     pub fn with_physics(mut self, state: &PhysicsScrollState) -> Self {
         self.physics_state = Some(state.clone());
         self
     }
 
     pub fn momentum(mut self, enabled: bool) -> Self {
-        let state = self
-            .physics_state
-            .get_or_insert_with(PhysicsScrollState::new);
-        {
-            let mut inner = state.inner.borrow_mut();
-            inner.physics_y = inner.physics_y.clone().momentum(enabled);
-            inner.physics_x = inner.physics_x.clone().momentum(enabled);
-        }
+        self.momentum_enabled = Some(enabled);
         self
     }
 
     pub fn overscroll_bounce(mut self, enabled: bool) -> Self {
-        let state = self
-            .physics_state
-            .get_or_insert_with(PhysicsScrollState::new);
-        {
-            let mut inner = state.inner.borrow_mut();
-            inner.physics_y = inner.physics_y.clone().overscroll(enabled);
-            inner.physics_x = inner.physics_x.clone().overscroll(enabled);
-        }
+        self.overscroll_enabled = Some(enabled);
         self
+    }
+
+    fn resolve_physics_state(
+        &self,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Option<PhysicsScrollState> {
+        let id = self.custom_id.clone().unwrap_or(self.auto_id.clone());
+        let persisted = window.use_keyed_state(id, cx, |_, _| ContainerPhysicsState::default());
+        persisted.update(cx, |state, _| {
+            let next = if !self.smooth_scroll {
+                None
+            } else if let Some(explicit) = self.physics_state.as_ref() {
+                let mut explicit = explicit.clone();
+                if let Some(enabled) = self.momentum_enabled {
+                    explicit = explicit.momentum(enabled);
+                }
+                if let Some(enabled) = self.overscroll_enabled {
+                    explicit = explicit.overscroll(enabled);
+                }
+                Some(explicit)
+            } else if self.momentum_enabled.is_some() || self.overscroll_enabled.is_some() {
+                Some(
+                    state
+                        .implicit
+                        .get_or_insert_with(PhysicsScrollState::new)
+                        .clone()
+                        .momentum(self.momentum_enabled.unwrap_or(true))
+                        .overscroll(self.overscroll_enabled.unwrap_or(true)),
+                )
+            } else {
+                None
+            };
+            if let Some(previous) = state.active.as_ref() {
+                if next
+                    .as_ref()
+                    .is_none_or(|next| !Rc::ptr_eq(&previous.inner, &next.inner))
+                {
+                    previous.stop();
+                }
+            }
+            state.active = next.clone();
+            next
+        })
     }
 }
 
@@ -473,19 +518,19 @@ impl InteractiveElement for ScrollContainer {
 
 impl StatefulInteractiveElement for ScrollContainer {}
 
-impl IntoElement for ScrollContainer {
-    type Element = Stateful<Div>;
-
-    fn into_element(self) -> Self::Element {
+impl RenderOnce for ScrollContainer {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let id_to_use = self.custom_id.clone().unwrap_or(self.auto_id.clone());
-        let handle = self.scroll_handle.clone().unwrap_or_default();
+        let physics_state = self.resolve_physics_state(window, cx);
+        let handle = self.scroll_handle.clone().unwrap_or_else(|| {
+            window
+                .use_keyed_state(id_to_use.clone(), cx, |_, _| ScrollHandle::new())
+                .read(cx)
+                .clone()
+        });
 
         if !self.show_scrollbar {
-            let mut scrollable = self.base.id(id_to_use);
-
-            if let Some(handle) = &self.scroll_handle {
-                scrollable = scrollable.track_scroll(handle);
-            }
+            let mut scrollable = self.base.id(id_to_use).track_scroll(&handle);
 
             scrollable = match self.direction {
                 ScrollDirection::Vertical => scrollable.overflow_y_scroll(),
@@ -496,7 +541,7 @@ impl IntoElement for ScrollContainer {
             scrollable = apply_scroll_behavior(
                 scrollable,
                 self.smooth_scroll,
-                self.physics_state.as_ref(),
+                physics_state.as_ref(),
                 &handle,
                 self.direction,
             );
@@ -529,7 +574,7 @@ impl IntoElement for ScrollContainer {
             scrollable = apply_scroll_behavior(
                 scrollable,
                 self.smooth_scroll,
-                self.physics_state.as_ref(),
+                physics_state.as_ref(),
                 &handle,
                 self.direction,
             );
@@ -552,12 +597,14 @@ pub struct ScrollList {
 }
 
 impl Default for ScrollList {
+    #[track_caller]
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl ScrollList {
+    #[track_caller]
     pub fn new() -> Self {
         Self {
             scroll_container: ScrollContainer::vertical().flex_grow(),
@@ -586,11 +633,7 @@ impl ScrollList {
     }
 
     pub fn no_flex_grow(mut self) -> Self {
-        let id = SharedString::from(format!(
-            "scroll-list-{}",
-            SCROLL_CONTAINER_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        ));
-        self.scroll_container = ScrollContainer::vertical().id(id);
+        self.scroll_container.base = self.scroll_container.base.flex_initial();
         self
     }
 
@@ -631,11 +674,402 @@ impl InteractiveElement for ScrollList {
 impl StatefulInteractiveElement for ScrollList {}
 
 impl IntoElement for ScrollList {
-    type Element = Stateful<Div>;
+    type Element = <ScrollContainer as IntoElement>::Element;
 
     fn into_element(self) -> Self::Element {
         let mut scroll_container = self.scroll_container;
         scroll_container = scroll_container.child(self.stack);
         scroll_container.into_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::capabilities::scroll::uniform_virtual_list::{
+        hlist_uniform, hlist_variable, vlist_uniform, vlist_variable, ItemExtentProvider,
+    };
+    use gpui::{TestAppContext, VisualTestContext};
+    use std::cell::Cell;
+
+    struct FixedExtents;
+    impl ItemExtentProvider for FixedExtents {
+        fn extent(&self, _: usize) -> Pixels {
+            px(20.)
+        }
+    }
+
+    struct PhysicsHost {
+        physics: PhysicsScrollState,
+        handle: Option<ScrollHandle>,
+        variable: bool,
+    }
+
+    struct ImplicitPhysicsHost {
+        states: Rc<RefCell<Vec<PhysicsScrollState>>>,
+        momentum: bool,
+    }
+
+    impl Render for ImplicitPhysicsHost {
+        fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let container = ScrollContainer::vertical()
+                .id("implicit-physics-lifecycle")
+                .momentum(self.momentum)
+                .overscroll_bounce(false)
+                .size(px(100.))
+                .child(div().h(px(2000.)).w_full().flex_shrink_0());
+            self.states.borrow_mut().push(
+                container
+                    .resolve_physics_state(window, cx)
+                    .expect("momentum enables physics"),
+            );
+            // Exercise the production binding and wheel handler using the
+            // same resolution scope in which the selected state is observed.
+            container.render(window, cx).into_any_element()
+        }
+    }
+
+    struct SiblingContainersHost {
+        tops: [Rc<Cell<Pixels>>; 2],
+    }
+
+    impl Render for SiblingContainersHost {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .flex()
+                .children(self.tops.iter().enumerate().map(|(index, top)| {
+                    let top = top.clone();
+                    ScrollContainer::vertical()
+                        .id(("sibling-scroll", index))
+                        .w(px(100.))
+                        .h(px(100.))
+                        .child(
+                            canvas(
+                                move |bounds, _, _| top.set(bounds.origin.y),
+                                |_, _, _, _| {},
+                            )
+                            .w(px(100.))
+                            .h(px(2000.))
+                            .flex_shrink_0(),
+                        )
+                }))
+        }
+    }
+
+    #[gpui::test]
+    fn distinct_ids_isolate_sibling_containers_from_one_call_site(cx: &mut TestAppContext) {
+        let tops = [Rc::new(Cell::new(px(0.))), Rc::new(Cell::new(px(0.)))];
+        let (_, cx) = cx.add_window_view(|_, _| SiblingContainersHost { tops: tops.clone() });
+        send_wheel(cx);
+        cx.update(|window, cx| window.draw(cx).clear());
+        assert_eq!(tops[0].get(), px(-40.));
+        assert_eq!(tops[1].get(), px(0.), "the sibling keeps its own offset");
+    }
+
+    struct OrderedOptionsHost {
+        physics: PhysicsScrollState,
+        physics_first: bool,
+    }
+
+    impl Render for OrderedOptionsHost {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let container = ScrollContainer::vertical().id("ordered-physics-options");
+            let container = if self.physics_first {
+                container
+                    .with_physics(&self.physics)
+                    .momentum(false)
+                    .overscroll_bounce(false)
+            } else {
+                container
+                    .momentum(false)
+                    .overscroll_bounce(false)
+                    .with_physics(&self.physics)
+            };
+            container
+                .size(px(100.))
+                .child(div().h(px(2000.)).w_full().flex_shrink_0())
+        }
+    }
+
+    #[gpui::test]
+    fn physics_options_apply_to_an_explicit_state_in_either_order(cx: &mut TestAppContext) {
+        for physics_first in [true, false] {
+            let physics = PhysicsScrollState::new();
+            let (_, cx) = cx.add_window_view(|_, _| OrderedOptionsHost {
+                physics: physics.clone(),
+                physics_first,
+            });
+            cx.update(|window, cx| window.draw(cx).clear());
+            let mut simulation = physics.inner.borrow().physics_y.clone();
+            simulation.apply_delta(40.);
+            assert!(
+                !simulation.tick(PHYSICS_FRAME_DT),
+                "momentum(false) applies when physics_first={physics_first}"
+            );
+            simulation.apply_delta(-80.);
+            assert!(
+                !simulation.is_overscrolled(),
+                "overscroll_bounce(false) applies when physics_first={physics_first}"
+            );
+        }
+    }
+
+    #[gpui::test]
+    fn implicit_momentum_preserves_its_driver_across_rebuilds(cx: &mut TestAppContext) {
+        let states = Rc::new(RefCell::new(Vec::new()));
+        let (host, cx) = cx.add_window_view(|_, _| ImplicitPhysicsHost {
+            states: states.clone(),
+            momentum: true,
+        });
+        send_wheel(cx);
+        let first = states.borrow().last().unwrap().clone();
+        assert_eq!(
+            first.inner.borrow().generation,
+            1,
+            "observed generations: {:?}",
+            states
+                .borrow()
+                .iter()
+                .map(|state| state.inner.borrow().generation)
+                .collect::<Vec<_>>()
+        );
+        host.update(cx, |_, cx| cx.notify());
+        send_wheel(cx);
+        let second = states.borrow().last().unwrap().clone();
+        assert!(
+            Rc::ptr_eq(&first.inner, &second.inner),
+            "rebuilding .momentum(true) retains one owner for the active driver"
+        );
+        assert_eq!(
+            first.inner.borrow().generation,
+            2,
+            "the second wheel event cancels the first driver's generation"
+        );
+        host.update(cx, |host, cx| {
+            host.momentum = false;
+            cx.notify();
+        });
+        cx.update(|window, cx| window.draw(cx).clear());
+        let third = states.borrow().last().unwrap().clone();
+        assert!(Rc::ptr_eq(&first.inner, &third.inner));
+        let mut simulation = first.inner.borrow().physics_y.clone();
+        assert!(
+            !simulation.tick(PHYSICS_FRAME_DT),
+            "new builder options are applied to the retained simulation"
+        );
+    }
+
+    struct AnimatedReflowHost {
+        physics: PhysicsScrollState,
+        item_count: usize,
+        request: Option<usize>,
+        horizontal: bool,
+        variable: bool,
+    }
+
+    impl Render for AnimatedReflowHost {
+        fn render(&mut self, window: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let renderer = |range: std::ops::Range<usize>, _: &mut Window, _: &mut App| {
+                range.map(|_| div().size(px(20.))).collect::<Vec<_>>()
+            };
+            if self.variable {
+                let list = if self.horizontal {
+                    hlist_variable("animated-reflow", self.item_count, FixedExtents, renderer)
+                } else {
+                    vlist_variable("animated-reflow", self.item_count, FixedExtents, renderer)
+                }
+                .with_physics(&self.physics)
+                .size(px(100.));
+                if let Some(index) = self.request.take() {
+                    list.scroll_to_animated(index, window);
+                }
+                list.into_any_element()
+            } else {
+                let list = if self.horizontal {
+                    hlist_uniform("animated-reflow", self.item_count, px(20.), renderer)
+                } else {
+                    vlist_uniform("animated-reflow", self.item_count, px(20.), renderer)
+                }
+                .with_physics(&self.physics)
+                .size(px(100.));
+                if let Some(index) = self.request.take() {
+                    list.scroll_to_animated(index, window);
+                }
+                list.into_any_element()
+            }
+        }
+    }
+
+    fn assert_animation_uses_current_geometry(
+        cx: &mut TestAppContext,
+        horizontal: bool,
+        variable: bool,
+    ) {
+        let physics = PhysicsScrollState::new();
+        let (host, cx) = cx.add_window_view(|_, _| AnimatedReflowHost {
+            physics: physics.clone(),
+            item_count: 20,
+            request: None,
+            horizontal,
+            variable,
+        });
+        // Publish the old 300px scroll range into the default handle first.
+        cx.update(|window, cx| window.draw(cx).clear());
+        for (item_count, expected_target) in [(100, 1000.), (20, 300.)] {
+            host.update(cx, |host, cx| {
+                host.item_count = item_count;
+                host.request = Some(50);
+                cx.notify();
+            });
+            cx.update(|window, cx| window.draw(cx).clear());
+            let inner = physics.inner.borrow();
+            let target = inner
+                .scroll_target
+                .as_ref()
+                .expect("animation starts during layout");
+            assert_eq!(
+                if horizontal { target.end_x } else { target.end_y },
+                expected_target,
+                "deferred animation uses this frame's content and viewport after growing or shrinking"
+            );
+        }
+    }
+
+    #[gpui::test]
+    fn uniform_vertical_animation_uses_current_content_geometry(cx: &mut TestAppContext) {
+        assert_animation_uses_current_geometry(cx, false, false);
+    }
+
+    #[gpui::test]
+    fn uniform_horizontal_animation_uses_current_content_geometry(cx: &mut TestAppContext) {
+        assert_animation_uses_current_geometry(cx, true, false);
+    }
+
+    #[gpui::test]
+    fn variable_vertical_animation_uses_current_content_geometry(cx: &mut TestAppContext) {
+        assert_animation_uses_current_geometry(cx, false, true);
+    }
+
+    #[gpui::test]
+    fn variable_horizontal_animation_uses_current_content_geometry(cx: &mut TestAppContext) {
+        assert_animation_uses_current_geometry(cx, true, true);
+    }
+
+    impl Render for PhysicsHost {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            if let Some(handle) = &self.handle {
+                if self.variable {
+                    vlist_variable("ordered-variable", 100, FixedExtents, |range, _, _| {
+                        range.map(|_| div().h(px(20.))).collect::<Vec<_>>()
+                    })
+                    .with_physics(&self.physics)
+                    .with_physics(&self.physics)
+                    .track_scroll(handle)
+                    .size(px(100.))
+                    .into_any_element()
+                } else {
+                    vlist_uniform("ordered-uniform", 100, px(20.), |range, _, _| {
+                        range.map(|_| div().h(px(20.))).collect::<Vec<_>>()
+                    })
+                    .with_physics(&self.physics)
+                    .with_physics(&self.physics)
+                    .track_scroll(handle)
+                    .size(px(100.))
+                    .into_any_element()
+                }
+            } else {
+                ScrollContainer::vertical()
+                    .with_physics(&self.physics)
+                    .size(px(100.))
+                    .child(div().h(px(2000.)).w_full().flex_shrink_0())
+                    .into_any_element()
+            }
+        }
+    }
+
+    fn send_wheel(cx: &mut VisualTestContext) {
+        cx.update(|window, cx| window.draw(cx).clear());
+        cx.simulate_event(ScrollEvent {
+            position: point(px(50.), px(50.)),
+            delta: ScrollDelta::Pixels(point(px(0.), px(-40.))),
+            ..Default::default()
+        });
+    }
+
+    #[gpui::test]
+    fn repeated_physics_configuration_uses_the_final_virtual_list_handle(cx: &mut TestAppContext) {
+        for variable in [false, true] {
+            let physics = PhysicsScrollState::new().overscroll(false);
+            let handle = ScrollHandle::new();
+            handle.set_offset(point(px(0.), px(-100.)));
+            let (_, cx) = cx.add_window_view(|_, _| PhysicsHost {
+                physics: physics.clone(),
+                handle: Some(handle.clone()),
+                variable,
+            });
+            send_wheel(cx);
+            let inner = physics.inner.borrow();
+            assert_eq!(
+                inner.generation, 1,
+                "with_physics replaces its configuration rather than adding handlers"
+            );
+            assert_eq!(
+                inner.physics_y.position(),
+                -f32::from(handle.offset().y),
+                "physics reads the final explicit handle after GPUI applies the wheel delta"
+            );
+        }
+    }
+
+    #[gpui::test]
+    fn default_container_physics_uses_the_laid_out_scroll_range(cx: &mut TestAppContext) {
+        let physics = PhysicsScrollState::new().overscroll(false);
+        let (_, cx) = cx.add_window_view(|_, _| PhysicsHost {
+            physics: physics.clone(),
+            handle: None,
+            variable: false,
+        });
+        send_wheel(cx);
+        // The test platform has no frame loop. Advance the same simulation
+        // used by the scheduled callback, after real layout and wheel input.
+        let mut simulation = physics.inner.borrow().physics_y.clone();
+        assert!(simulation.tick(PHYSICS_FRAME_DT));
+        assert!(
+            simulation.position() > 0.,
+            "the default handle must publish the content's nonzero scroll range"
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn removing_flex_growth_preserves_the_scroll_list_configuration() {
+        let handle = ScrollHandle::new();
+        handle.set_offset(point(px(0.), px(-40.)));
+        let physics = PhysicsScrollState::new();
+        let mut list = ScrollList::new()
+            .id("configured-list")
+            .track_scroll(&handle)
+            .with_physics(&physics)
+            .p(px(12.))
+            .no_flex_grow();
+
+        assert_eq!(
+            list.scroll_container.custom_id,
+            Some("configured-list".into())
+        );
+        assert_eq!(
+            list.scroll_container
+                .scroll_handle
+                .as_ref()
+                .unwrap()
+                .offset(),
+            handle.offset()
+        );
+        assert!(Rc::ptr_eq(
+            &list.scroll_container.physics_state.as_ref().unwrap().inner,
+            &physics.inner
+        ));
+        assert_eq!(list.style().padding.top, Some(px(12.).into()));
+        assert_eq!(list.style().flex_grow, Some(0.));
+        assert_eq!(list.style().flex_basis, Some(Length::Auto));
     }
 }

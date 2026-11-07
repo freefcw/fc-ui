@@ -38,7 +38,7 @@ HStack::new()
 
 ### ScrollContainer
 ```rust
-// Automatic ID generation
+// Implicit ID from the call site (state persists across renders)
 ScrollContainer::vertical()
     .h(px(400.0))
     .child(content)
@@ -57,7 +57,7 @@ ScrollContainer::vertical()
     .track_scroll(&handle)
     .child(content)
 
-// Custom ID
+// Custom ID; required for siblings created in a loop or shared helper
 ScrollContainer::vertical()
     .id("my-scroll")
     .child(content)
@@ -320,7 +320,7 @@ HStack::new()
 |---------|------------------|---------|
 | `.flex().flex_col().gap()` | `VStack::new().spacing()` | Cleaner API |
 | `.flex().flex_row().justify_between()` | `HStack::new().space_between()` | Semantic |
-| `.id(ElementId::Name(...)).overflow_y_scroll()` | `ScrollContainer::vertical()` | Auto ID |
+| `.id(ElementId::Name(...)).overflow_y_scroll()` | `ScrollContainer::vertical()` | Call-site ID |
 | Manual composition | `ScrollList::new()` | Optimized |
 | `.border_1().rounded().p()` | `Panel::new().card()` | Reusable |
 
