@@ -14,8 +14,38 @@ use std::ops::Range;
 use gpui::{Context, SharedString, Task, UTF16Selection};
 
 use crate::capabilities::controls::text_util;
-use crate::capabilities::controls::validation::{ValidationError, ValidationRules};
+use crate::capabilities::controls::validation::{
+    TextConstraints, ValidationError, ValidationRules,
+};
 use crate::capabilities::foundation::edit;
+
+/// A builder temporarily owns only fields it explicitly overrides. Removing
+/// the override restores the value captured on entry. External writes remain
+/// live whenever no override owns the field; writes while owned are discarded.
+pub(crate) struct BuilderOverride<T> {
+    baseline: Option<T>,
+}
+
+impl<T> Default for BuilderOverride<T> {
+    fn default() -> Self {
+        Self { baseline: None }
+    }
+}
+
+impl<T: Clone> BuilderOverride<T> {
+    pub(crate) fn restore(&mut self, value: &mut T) {
+        if let Some(baseline) = self.baseline.take() {
+            *value = baseline;
+        }
+    }
+
+    pub(crate) fn apply(&mut self, value: &mut T, next: Option<T>) {
+        if let Some(next) = next {
+            self.baseline = Some(value.clone());
+            *value = next;
+        }
+    }
+}
 
 /// Caret movement shared by the text-editing states, applied with
 /// [`EditCore::apply_motion`].
@@ -305,28 +335,29 @@ impl EditCore {
     /// Whether the rules carry any constraint that can fail (used to gate
     /// automatic blur/change validation).
     pub(crate) fn has_validation_rules(rules: &ValidationRules) -> bool {
-        rules.required
-            || rules.min_length.is_some()
-            || rules.max_length.is_some()
-            || rules.pattern.is_some()
-            || rules.custom_validator.is_some()
+        TextConstraints::from(rules).has_rules()
     }
 
-    /// Update the public error/success slots from a validation result —
-    /// the half of `finish_validation` every text state shares. Emitting
-    /// the state-specific `Validate` event and notifying stay with the
-    /// caller.
+    /// Update the public error/success slots from a validation outcome —
+    /// the half of `finish_validation` every text state shares. `None` is an
+    /// optional empty value: stale messages are cleared without reporting
+    /// success. Emitting the state-specific `Validate` event and notifying
+    /// stay with the caller.
     pub(crate) fn apply_validation_outcome(
         validation_error: &mut Option<ValidationError>,
         success_message: &mut Option<SharedString>,
-        result: &Result<(), ValidationError>,
+        outcome: Option<&Result<(), ValidationError>>,
     ) {
-        match result {
-            Ok(()) => {
+        match outcome {
+            None => {
+                *validation_error = None;
+                *success_message = None;
+            }
+            Some(Ok(())) => {
                 *validation_error = None;
                 *success_message = Some("Valid input".into());
             }
-            Err(error) => {
+            Some(Err(error)) => {
                 *validation_error = Some(error.clone());
             }
         }

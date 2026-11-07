@@ -17,8 +17,8 @@ use std::ops::Range;
 use std::sync::LazyLock;
 
 use crate::capabilities::controls::edit_core::{
-    self, attach_action_handlers, impl_shared_edit_builders, DeletionPlan, EditCore, HasCaretBlink,
-    Motion,
+    self, attach_action_handlers, impl_shared_edit_builders, BuilderOverride, DeletionPlan,
+    EditCore, HasCaretBlink, Motion,
 };
 use crate::capabilities::controls::input_format::DisplayMapping;
 use crate::capabilities::controls::text_util;
@@ -124,6 +124,73 @@ enum DeletionDirection {
     Forward,
 }
 
+pub(super) struct InputBuilderConfig {
+    pub disabled: Option<bool>,
+    pub input_type: Option<InputType>,
+    pub placeholder: Option<SharedString>,
+    pub validation_rules: Option<ValidationRules>,
+    pub aria_label: Option<SharedString>,
+    pub aria_description: Option<SharedString>,
+    pub autocomplete: Option<SharedString>,
+    pub helper_text: Option<SharedString>,
+}
+
+#[derive(Default)]
+struct InputBuilderOverrides {
+    disabled: BuilderOverride<bool>,
+    placeholder: BuilderOverride<SharedString>,
+    validation_rules: BuilderOverride<ValidationRules>,
+    aria_label: BuilderOverride<Option<SharedString>>,
+    aria_description: BuilderOverride<Option<SharedString>>,
+    autocomplete: BuilderOverride<Option<SharedString>>,
+    helper_text: BuilderOverride<Option<SharedString>>,
+    input_type: Option<(InputType, InputTypeConfig)>,
+}
+
+struct InputTypeConfig {
+    input_type: InputType,
+    input_mask: InputMask,
+    masked: bool,
+    placeholder: SharedString,
+    autocomplete: Option<SharedString>,
+}
+
+const DEFAULT_PLACEHOLDER: &str = "Type here...";
+
+struct InputTypeDefaults {
+    placeholder: &'static str,
+    autocomplete: Option<&'static str>,
+    input_mask: InputMask,
+}
+
+impl InputTypeDefaults {
+    fn of(input_type: InputType) -> Self {
+        let (placeholder, autocomplete, input_mask) = match input_type {
+            InputType::Email => ("email@example.com", Some("email"), InputMask::None),
+            InputType::Tel => ("(555) 555-5555", Some("tel"), InputMask::Phone),
+            InputType::Url => ("https://example.com", Some("url"), InputMask::None),
+            InputType::Password => (
+                DEFAULT_PLACEHOLDER,
+                Some("current-password"),
+                InputMask::None,
+            ),
+            InputType::CreditCard => (
+                "1234 5678 9012 3456",
+                Some("cc-number"),
+                InputMask::CreditCard,
+            ),
+            InputType::Date => ("MM/DD/YYYY", None, InputMask::Date),
+            InputType::Time => ("HH:MM", None, InputMask::Time),
+            _ => (DEFAULT_PLACEHOLDER, None, InputMask::None),
+        };
+        Self {
+            placeholder,
+            autocomplete,
+            input_mask,
+        }
+    }
+}
+
 /// Core input state entity that handles text editing with validation
 pub struct InputState {
     focus_handle: FocusHandle,
@@ -191,9 +258,7 @@ pub struct InputState {
     // the initial value every frame, overwriting user edits and emitting
     // a spurious `Change` event on each render.
     initial_value_applied: bool,
-    // Tracks formatter ownership so removing a builder formatter does not
-    // leave the previous display transformation installed on the state.
-    builder_formatter_active: bool,
+    builder_overrides: InputBuilderOverrides,
     event_subscription: Option<Subscription>,
 }
 
@@ -216,7 +281,7 @@ impl InputState {
             raw_content: String::new(),
             last_synced_display: String::new(),
             content: "".into(),
-            placeholder: "Type here...".into(),
+            placeholder: DEFAULT_PLACEHOLDER.into(),
             disabled: false,
             masked: false,
             selected_range: 0..0,
@@ -247,7 +312,7 @@ impl InputState {
             shake_count: 0,
             cursor_position_override: None,
             initial_value_applied: false,
-            builder_formatter_active: false,
+            builder_overrides: InputBuilderOverrides::default(),
             event_subscription: None,
         }
     }
@@ -258,41 +323,131 @@ impl InputState {
 
     /// Set the input type
     pub fn input_type(mut self, input_type: InputType) -> Self {
-        self.input_type = input_type;
-        match input_type {
-            InputType::Email => {
-                self.placeholder = "email@example.com".into();
-                self.autocomplete = Some("email".into());
-            }
-            InputType::Tel => {
-                self.placeholder = "(555) 555-5555".into();
-                self.input_mask = InputMask::Phone;
-                self.autocomplete = Some("tel".into());
-            }
-            InputType::Url => {
-                self.placeholder = "https://example.com".into();
-                self.autocomplete = Some("url".into());
-            }
-            InputType::Password => {
-                self.masked = true;
-                self.autocomplete = Some("current-password".into());
-            }
-            InputType::CreditCard => {
-                self.input_mask = InputMask::CreditCard;
-                self.placeholder = "1234 5678 9012 3456".into();
-                self.autocomplete = Some("cc-number".into());
-            }
-            InputType::Date => {
-                self.input_mask = InputMask::Date;
-                self.placeholder = "MM/DD/YYYY".into();
-            }
-            InputType::Time => {
-                self.input_mask = InputMask::Time;
-                self.placeholder = "HH:MM".into();
-            }
-            _ => {}
-        }
+        self.apply_input_type(input_type);
         self
+    }
+
+    /// The single source for type-dependent defaults, shared by both builders.
+    /// Only values still equal to the previous type's default are replaced, so
+    /// an explicit placeholder, autocomplete token, or mask survives the change.
+    fn apply_input_type(&mut self, input_type: InputType) {
+        if self.input_type == input_type {
+            return;
+        }
+        let previous = InputTypeDefaults::of(self.input_type);
+        let next = InputTypeDefaults::of(input_type);
+        self.input_type = input_type;
+        self.masked = input_type == InputType::Password;
+        if self.placeholder.as_ref() == previous.placeholder {
+            self.placeholder = next.placeholder.into();
+        }
+        if self.autocomplete.as_deref() == previous.autocomplete {
+            self.autocomplete = next.autocomplete.map(Into::into);
+        }
+        if self.input_mask == previous.input_mask {
+            self.input_mask = next.input_mask;
+        }
+    }
+
+    fn type_config(&self) -> InputTypeConfig {
+        InputTypeConfig {
+            input_type: self.input_type,
+            input_mask: self.input_mask,
+            masked: self.masked,
+            placeholder: self.placeholder.clone(),
+            autocomplete: self.autocomplete.clone(),
+        }
+    }
+
+    fn restore_type_config(&mut self, config: InputTypeConfig) {
+        self.input_type = config.input_type;
+        self.input_mask = config.input_mask;
+        self.masked = config.masked;
+        self.placeholder = config.placeholder;
+        self.autocomplete = config.autocomplete;
+    }
+
+    /// Builder overrides take priority while present, then restore the state
+    /// baseline captured on entry. Repeated password renders retain the user's
+    /// visibility toggle instead of replaying the type's initial defaults.
+    pub(super) fn sync_builder_config(&mut self, config: InputBuilderConfig) {
+        let old_placeholder = self.placeholder.clone();
+        let old_masked = self.masked;
+        let old_type = self.input_type;
+        let old_rules = self.validation_rules.clone();
+        let overrides = &mut self.builder_overrides;
+        overrides.disabled.restore(&mut self.disabled);
+        overrides.placeholder.restore(&mut self.placeholder);
+        overrides
+            .validation_rules
+            .restore(&mut self.validation_rules);
+        overrides.aria_label.restore(&mut self.aria_label);
+        overrides
+            .aria_description
+            .restore(&mut self.aria_description);
+        overrides.autocomplete.restore(&mut self.autocomplete);
+        overrides.helper_text.restore(&mut self.helper_text);
+
+        if let Some((previous, baseline)) = self.builder_overrides.input_type.take() {
+            if config.input_type == Some(previous) {
+                self.builder_overrides.input_type = Some((previous, baseline));
+                self.apply_input_type(previous);
+            } else {
+                self.restore_type_config(baseline);
+            }
+        }
+        if self.builder_overrides.input_type.is_none() {
+            if let Some(input_type) = config.input_type {
+                let baseline = self.type_config();
+                self.apply_input_type(input_type);
+                self.builder_overrides.input_type = Some((input_type, baseline));
+            }
+        }
+
+        let overrides = &mut self.builder_overrides;
+        overrides
+            .disabled
+            .apply(&mut self.disabled, config.disabled);
+        overrides
+            .placeholder
+            .apply(&mut self.placeholder, config.placeholder);
+        overrides
+            .validation_rules
+            .apply(&mut self.validation_rules, config.validation_rules);
+        overrides
+            .aria_label
+            .apply(&mut self.aria_label, config.aria_label.map(Some));
+        overrides.aria_description.apply(
+            &mut self.aria_description,
+            config.aria_description.map(Some),
+        );
+        overrides
+            .autocomplete
+            .apply(&mut self.autocomplete, config.autocomplete.map(Some));
+        overrides
+            .helper_text
+            .apply(&mut self.helper_text, config.helper_text.map(Some));
+        if old_masked != self.masked
+            || (old_placeholder != self.placeholder && self.content.is_empty())
+        {
+            self.invalidate_layout_cache();
+        }
+        self.refresh_formatted_content();
+        // Existing feedback belongs to the effective policy. Reconcile it
+        // silently when that policy changes; rendering must not emit Validate
+        // events or trigger a new render loop.
+        if (self.validation_error.is_some() || self.success_message.is_some())
+            && (old_type != self.input_type
+                || !old_rules.same_validation_as(&self.validation_rules))
+        {
+            let value = self.committed_raw_value();
+            let outcome = self.check_value(&value, self.aria_label.clone());
+            EditCore::apply_validation_outcome(
+                &mut self.validation_error,
+                &mut self.success_message,
+                outcome.as_ref(),
+            );
+        }
     }
 
     /// Set the initial value.
@@ -552,13 +707,6 @@ impl InputState {
         self.invalidate_layout_cache();
     }
 
-    pub(crate) fn sync_builder_formatter(&mut self, active: bool) {
-        if !active && self.builder_formatter_active {
-            self.validation_rules.custom_formatter = None;
-        }
-        self.builder_formatter_active = active;
-    }
-
     /// Apply the builder-supplied initial value exactly once.
     ///
     /// `Input::render` runs every frame; calling `set_value` there would
@@ -613,29 +761,27 @@ impl InputState {
         let value = self.committed_raw_value();
         let field_name = self.aria_label.clone();
 
-        if let Some(result) = validation::check_required_empty(
+        let outcome = self.check_value(&value, field_name);
+        self.finish_validation(outcome, cx)
+    }
+
+    /// `None` means an optional empty value, which carries no feedback.
+    fn check_value(
+        &self,
+        value: &str,
+        field_name: Option<SharedString>,
+    ) -> Option<Result<(), ValidationError>> {
+        match validation::check_required_empty(
             self.validation_rules.required,
-            &value,
+            value,
             field_name.clone(),
         ) {
-            if result.is_ok() {
-                // Optional empty value: clear any stale messages without
-                // reporting success.
-                self.validation_error = None;
-                self.success_message = None;
-                cx.emit(InputEvent::Validate(Ok(())));
-                cx.notify();
-                return Ok(());
-            }
-            return self.finish_validation(result, cx);
+            Some(Ok(())) => None,
+            Some(Err(error)) => Some(Err(error)),
+            None => Some(self.validate_input_type(value).and_then(|()| {
+                validation::check_constraints(&self.validation_rules, value, field_name)
+            })),
         }
-
-        if let Err(error) = self.validate_input_type(&value) {
-            return self.finish_validation(Err(error), cx);
-        }
-
-        let result = validation::check_constraints(&self.validation_rules, &value, field_name);
-        self.finish_validation(result, cx)
     }
 
     fn validate_input_type(&self, value: &str) -> Result<(), ValidationError> {
@@ -665,14 +811,15 @@ impl InputState {
 
     fn finish_validation(
         &mut self,
-        result: Result<(), ValidationError>,
+        outcome: Option<Result<(), ValidationError>>,
         cx: &mut Context<Self>,
     ) -> Result<(), ValidationError> {
         EditCore::apply_validation_outcome(
             &mut self.validation_error,
             &mut self.success_message,
-            &result,
+            outcome.as_ref(),
         );
+        let result = outcome.unwrap_or(Ok(()));
         cx.emit(InputEvent::Validate(result.clone()));
         cx.notify();
         result

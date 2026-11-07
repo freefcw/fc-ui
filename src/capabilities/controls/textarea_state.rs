@@ -8,12 +8,14 @@ use gpui::{prelude::*, *};
 use std::ops::Range;
 
 use crate::capabilities::controls::edit_core::{
-    self, attach_action_handlers, impl_shared_edit_builders, DeletionPlan, EditCore, HasCaretBlink,
-    Motion,
+    self, attach_action_handlers, impl_shared_edit_builders, BuilderOverride, DeletionPlan,
+    EditCore, HasCaretBlink, Motion,
 };
 use crate::capabilities::controls::text_util;
 use crate::capabilities::controls::validation;
-pub use crate::capabilities::controls::validation::{ValidationError, ValidationRules};
+pub use crate::capabilities::controls::validation::{
+    TextValidationRules, ValidationError, ValidationRules,
+};
 use crate::capabilities::foundation::edit;
 
 pub fn init(cx: &mut App) {
@@ -148,6 +150,9 @@ pub struct TextareaState {
     was_focused: bool,
     blink: edit_core::CaretBlink,
     event_subscription: Option<Subscription>,
+    builder_rules: BuilderOverride<ValidationRules>,
+    builder_placeholder: BuilderOverride<SharedString>,
+    builder_disabled: BuilderOverride<bool>,
 
     // Validation (shared machinery with `InputState`)
     pub validation_rules: ValidationRules,
@@ -186,6 +191,9 @@ impl TextareaState {
             was_focused: false,
             blink: edit_core::CaretBlink::new(),
             event_subscription: None,
+            builder_rules: BuilderOverride::default(),
+            builder_placeholder: BuilderOverride::default(),
+            builder_disabled: BuilderOverride::default(),
             validation_rules: ValidationRules::default(),
             validation_error: None,
             success_message: None,
@@ -196,6 +204,50 @@ impl TextareaState {
 
     pub(super) fn replace_event_subscription(&mut self, subscription: Option<Subscription>) {
         self.event_subscription = subscription;
+    }
+
+    /// Set multiline text constraints without numeric or transformation rules.
+    /// The legacy `validation_rules(ValidationRules)` entry remains supported;
+    /// numeric bounds, filters, and formatters there are ignored by textareas.
+    pub fn text_validation_rules(mut self, rules: TextValidationRules) -> Self {
+        self.validation_rules = rules.into();
+        self
+    }
+
+    fn text_constraints(&self) -> validation::TextConstraints<'_> {
+        (&self.validation_rules).into()
+    }
+
+    pub(super) fn sync_builder_config(
+        &mut self,
+        placeholder: Option<SharedString>,
+        disabled: Option<bool>,
+        rules: Option<TextValidationRules>,
+    ) {
+        let previous_placeholder = self.placeholder.clone();
+        let previous_rules = self.validation_rules.clone();
+        self.builder_placeholder.restore(&mut self.placeholder);
+        self.builder_disabled.restore(&mut self.disabled);
+        self.builder_rules.restore(&mut self.validation_rules);
+        self.builder_placeholder
+            .apply(&mut self.placeholder, placeholder);
+        self.builder_disabled.apply(&mut self.disabled, disabled);
+        self.builder_rules
+            .apply(&mut self.validation_rules, rules.map(Into::into));
+        if previous_placeholder != self.placeholder && self.content.is_empty() {
+            self.last_layouts.clear();
+        }
+        if (self.validation_error.is_some() || self.success_message.is_some())
+            && !previous_rules.same_validation_as(&self.validation_rules)
+        {
+            let value = self.committed_content();
+            let outcome = self.check_value(&value);
+            EditCore::apply_validation_outcome(
+                &mut self.validation_error,
+                &mut self.success_message,
+                outcome.as_ref(),
+            );
+        }
     }
 
     /// Set the initial value.
@@ -265,7 +317,7 @@ impl TextareaState {
     }
 
     fn truncate_to_max_length(&self, value: SharedString) -> SharedString {
-        self.validation_rules
+        self.text_constraints()
             .max_length
             .map(|max_length| value.chars().take(max_length).collect::<String>().into())
             .unwrap_or(value)
@@ -277,42 +329,40 @@ impl TextareaState {
     /// textarea never sprouts a "Valid input" footer just because focus left
     /// the field. Explicit `validate()` calls (e.g. from `Form`) always run.
     fn should_auto_validate(&self, enabled: bool) -> bool {
-        enabled && EditCore::has_validation_rules(&self.validation_rules)
+        enabled && self.text_constraints().has_rules()
     }
 
     /// Validate the current value against the configured rules.
     pub fn validate(&mut self, cx: &mut Context<Self>) -> Result<(), ValidationError> {
         let value = self.committed_content();
+        let outcome = self.check_value(&value);
+        self.finish_validation(outcome, cx)
+    }
 
-        if let Some(result) =
-            validation::check_required_empty(self.validation_rules.required, &value, None)
-        {
-            if result.is_ok() {
-                // Optional empty value: clear any stale messages without
-                // reporting success.
-                self.validation_error = None;
-                self.success_message = None;
-                cx.emit(TextareaEvent::Validate(Ok(())));
-                cx.notify();
-                return Ok(());
-            }
-            return self.finish_validation(result, cx);
+    /// `None` means an optional empty value, which carries no feedback.
+    fn check_value(&self, value: &str) -> Option<Result<(), ValidationError>> {
+        match validation::check_required_empty(self.text_constraints().required, value, None) {
+            Some(Ok(())) => None,
+            Some(Err(error)) => Some(Err(error)),
+            None => Some(validation::check_text_constraints(
+                self.text_constraints(),
+                value,
+                None,
+            )),
         }
-
-        let result = validation::check_constraints(&self.validation_rules, &value, None);
-        self.finish_validation(result, cx)
     }
 
     fn finish_validation(
         &mut self,
-        result: Result<(), ValidationError>,
+        outcome: Option<Result<(), ValidationError>>,
         cx: &mut Context<Self>,
     ) -> Result<(), ValidationError> {
         EditCore::apply_validation_outcome(
             &mut self.validation_error,
             &mut self.success_message,
-            &result,
+            outcome.as_ref(),
         );
+        let result = outcome.unwrap_or(Ok(()));
         cx.emit(TextareaEvent::Validate(result.clone()));
         cx.notify();
         result
@@ -899,7 +949,7 @@ impl EntityInputHandler for TextareaState {
             .or(self.marked_range.clone())
             .unwrap_or(self.selected_range.clone());
 
-        let new_text = if let Some(max_length) = self.validation_rules.max_length {
+        let new_text = if let Some(max_length) = self.text_constraints().max_length {
             let retained_chars =
                 self.content.chars().count() - self.content[range.clone()].chars().count();
             let allowed_chars = max_length.saturating_sub(retained_chars);

@@ -5,6 +5,7 @@ pub use crate::capabilities::controls::textarea_state::wire_actions;
 use crate::capabilities::controls::textarea_state::TextareaEvent;
 use crate::capabilities::controls::textarea_state::TextareaState;
 use crate::capabilities::controls::textarea_state::{ValidationError, ValidationRules};
+pub use crate::capabilities::controls::validation::TextValidationRules;
 use crate::capabilities::controls::validation::{validation_footer, CharacterCount, FooterMessage};
 use crate::capabilities::foundation::theme::use_theme;
 use crate::capabilities::layout::VStack;
@@ -26,9 +27,9 @@ pub fn init(cx: &mut App) {
 #[derive(IntoElement)]
 pub struct Textarea {
     state: Entity<TextareaState>,
-    placeholder: SharedString,
+    placeholder: Option<SharedString>,
     variant: InputVariant,
-    disabled: bool,
+    disabled: Option<bool>,
     error: bool,
     rows: usize,
     min_rows: Option<usize>,
@@ -45,7 +46,7 @@ pub struct Textarea {
     on_focus: Option<Rc<dyn Fn(SharedString, &mut App)>>,
     on_blur: Option<Rc<dyn Fn(SharedString, &mut App)>>,
 
-    validation_rules: Option<ValidationRules>,
+    validation_rules: Option<TextValidationRules>,
     custom_validator: Option<TextareaValidator>,
     helper_text: Option<SharedString>,
     show_character_count: bool,
@@ -55,12 +56,15 @@ pub struct Textarea {
 }
 
 impl Textarea {
+    /// Builder rules, placeholder, and disabled settings temporarily override
+    /// state configuration. Removing a setting restores its pre-override
+    /// baseline; direct state writes remain live when that setting is unowned.
     pub fn new(state: &Entity<TextareaState>) -> Self {
         Self {
             state: state.clone(),
-            placeholder: "".into(),
+            placeholder: None,
             variant: InputVariant::Default,
-            disabled: false,
+            disabled: None,
             error: false,
             rows: 3,
             min_rows: None,
@@ -89,7 +93,7 @@ impl Textarea {
     }
 
     pub fn placeholder(mut self, placeholder: impl Into<SharedString>) -> Self {
-        self.placeholder = placeholder.into();
+        self.placeholder = Some(placeholder.into());
         self
     }
 
@@ -99,7 +103,7 @@ impl Textarea {
     }
 
     pub fn disabled(mut self, disabled: bool) -> Self {
-        self.disabled = disabled;
+        self.disabled = Some(disabled);
         self
     }
 
@@ -180,8 +184,16 @@ impl Textarea {
         self
     }
 
-    /// Set validation rules
+    /// Set legacy validation rules. Only required, length, pattern, and custom
+    /// validation constraints apply; numeric bounds, filters, and formatters
+    /// are ignored. Prefer [`Self::text_validation_rules`] for new code.
     pub fn validation_rules(mut self, rules: ValidationRules) -> Self {
+        self.validation_rules = Some(rules.into());
+        self
+    }
+
+    /// Set the constraints supported by multiline text controls.
+    pub fn text_validation_rules(mut self, rules: TextValidationRules) -> Self {
         self.validation_rules = Some(rules);
         self
     }
@@ -234,17 +246,17 @@ impl Textarea {
         self
     }
 
-    fn rules_mut(&mut self) -> &mut ValidationRules {
+    fn rules_mut(&mut self) -> &mut TextValidationRules {
         self.validation_rules
-            .get_or_insert_with(ValidationRules::default)
+            .get_or_insert_with(TextValidationRules::default)
     }
 
     #[allow(clippy::arc_with_non_send_sync)]
-    fn validation_rules_for_state(&self) -> Option<ValidationRules> {
+    fn validation_rules_for_state(&self) -> Option<TextValidationRules> {
         let mut rules = self.validation_rules.clone().or_else(|| {
             self.custom_validator
                 .is_some()
-                .then(ValidationRules::default)
+                .then(TextValidationRules::default)
         })?;
 
         if let Some(custom_validator) = self.custom_validator.as_ref() {
@@ -360,14 +372,13 @@ impl RenderOnce for Textarea {
 
         // Update state with properties
         self.state.update(cx, |state, cx| {
-            state.disabled = self.disabled;
-            state.placeholder = self.placeholder.clone();
-
             // Apply rules before the initial value so `set_value` truncates
             // against `max_length` on first render too.
-            if let Some(rules) = self.validation_rules_for_state() {
-                state.validation_rules = rules;
-            }
+            state.sync_builder_config(
+                self.placeholder.clone(),
+                self.disabled,
+                self.validation_rules_for_state(),
+            );
 
             if !state.initialized {
                 state.initialized = true;
@@ -378,6 +389,8 @@ impl RenderOnce for Textarea {
         });
 
         self.install_event_subscription(cx);
+        let disabled = self.state.read(cx).disabled;
+        let placeholder = self.state.read(cx).placeholder.clone();
 
         let (validation_error, success_message, content_length, max_length, has_value, composing) = {
             let state = self.state.read(cx);
@@ -401,7 +414,7 @@ impl RenderOnce for Textarea {
         let (bg_color, border_color, text_color) =
             crate::capabilities::controls::input_shell_colors(
                 self.variant,
-                self.disabled,
+                disabled,
                 has_error,
                 &theme.tokens,
             );
@@ -442,8 +455,8 @@ impl RenderOnce for Textarea {
                 this.aria_description(description)
             })
             .aria_value(self.state.read(cx).content.clone())
-            .aria_placeholder(self.placeholder.clone())
-            .aria_disabled(self.disabled)
+            .aria_placeholder(placeholder)
+            .aria_disabled(disabled)
             .aria_required(self.state.read(cx).validation_rules.required)
             .when(has_error, |this| {
                 this.aria_invalid(gpui::accesskit::Invalid::True)
@@ -461,7 +474,7 @@ impl RenderOnce for Textarea {
             .text_size(px(14.0))
             .font_family(theme.tokens.font_mono.clone())
             .text_color(text_color)
-            .when(!self.disabled, |this| {
+            .when(!disabled, |this| {
                 this.hover(|style| {
                     style.border_color(if has_error {
                         theme.tokens.destructive
@@ -470,14 +483,14 @@ impl RenderOnce for Textarea {
                     })
                 })
             })
-            .when(is_focused && !self.disabled, |this| {
+            .when(is_focused && !disabled, |this| {
                 this.border_color(if has_error {
                     theme.tokens.destructive
                 } else {
                     theme.tokens.ring
                 })
             })
-            .when(!self.disabled, |this| this.cursor(gpui::CursorStyle::IBeam))
+            .when(!disabled, |this| this.cursor(gpui::CursorStyle::IBeam))
             .child(self.state.clone());
 
         if has_footer {
@@ -785,6 +798,157 @@ mod tests {
             let state = state.read(cx);
             assert!(state.validation_error.is_none());
             assert!(state.success_message.is_none());
+        });
+    }
+    #[gpui::test]
+    fn removing_builder_rules_restores_textarea_state_rules() {
+        struct RulesView {
+            state: Entity<TextareaState>,
+            override_rules: bool,
+        }
+        impl Render for RulesView {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                Textarea::new(&self.state).when(self.override_rules, |area| {
+                    area.max_length(1).required(true)
+                })
+            }
+        }
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let mut window = app.open_window(|_, cx| RulesView {
+            state: cx.new(|cx| TextareaState::new(cx).min_length(3)),
+            override_rules: true,
+        });
+        window.draw();
+        window
+            .read(|view, cx| assert_eq!(view.state.read(cx).validation_rules.max_length, Some(1)));
+        window.update(|view, _, cx| {
+            assert!(view
+                .state
+                .update(cx, |state, cx| state.validate(cx))
+                .is_err());
+        });
+        window.update(|view, _, cx| {
+            view.override_rules = false;
+            cx.notify();
+        });
+        window.draw();
+        window.read(|view, cx| {
+            let rules = &view.state.read(cx).validation_rules;
+            assert_eq!(rules.max_length, None);
+            assert_eq!(rules.min_length, Some(3));
+            assert!(view.state.read(cx).validation_error.is_none());
+        });
+    }
+
+    #[gpui::test]
+    fn rebuilt_builder_validator_keeps_textarea_feedback_across_redraws() {
+        struct ValidatorView {
+            state: Entity<TextareaState>,
+        }
+        impl Render for ValidatorView {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                Textarea::new(&self.state).custom_validator(|value| {
+                    if value.len() < 3 {
+                        Err("too short".to_string())
+                    } else {
+                        Ok(())
+                    }
+                })
+            }
+        }
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let mut window = app.open_window(|_, cx| ValidatorView {
+            state: cx.new(TextareaState::new),
+        });
+        window.draw();
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                state.set_value("ab", window, cx);
+                assert!(state.validate(cx).is_err());
+                state.set_value("abcd", window, cx);
+            });
+        });
+        for _ in 0..2 {
+            window.update(|_, _, cx| cx.notify());
+            window.draw();
+        }
+        window.read(|view, cx| {
+            assert!(
+                view.state.read(cx).validation_error.is_some(),
+                "a rebuilt closure is the same policy; rendering must not revalidate"
+            );
+        });
+    }
+
+    #[gpui::test]
+    fn typed_text_rules_drive_builder_validation_and_initial_value_truncation() {
+        struct TypedRulesView {
+            state: Entity<TextareaState>,
+        }
+        impl Render for TypedRulesView {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                Textarea::new(&self.state)
+                    .text_validation_rules(TextValidationRules {
+                        min_length: Some(2),
+                        max_length: Some(3),
+                        required: true,
+                        pattern: Some("^[a-z]+$".into()),
+                        ..Default::default()
+                    })
+                    .value("abcd")
+            }
+        }
+        let mut app = TestApp::new();
+        app.update(|cx| install_theme(cx, Theme::light()));
+        let mut window = app.open_window(|_, cx| TypedRulesView {
+            state: cx.new(TextareaState::new),
+        });
+        window.draw();
+        window.update(|view, window, cx| {
+            view.state.update(cx, |state, cx| {
+                assert_eq!(state.content(), "abc");
+                assert!(state.validate(cx).is_ok());
+                state.set_value("12", window, cx);
+                assert!(state.validate(cx).is_err());
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn textarea_legacy_rules_ignore_numeric_bounds_and_transformations() {
+        let mut app = TestApp::new();
+        let state = app.update(|cx| {
+            cx.new(|cx| {
+                TextareaState::new(cx).validation_rules(ValidationRules {
+                    min_value: Some(100.0),
+                    max_value: Some(200.0),
+                    custom_filter: Some(Arc::new(|_| panic!("textarea must not filter text"))),
+                    custom_formatter: Some(Arc::new(|_| panic!("textarea must not format text"))),
+                    ..Default::default()
+                })
+            })
+        });
+        let typed_state = app.update(|cx| {
+            cx.new(|cx| {
+                TextareaState::new(cx).text_validation_rules(TextValidationRules {
+                    max_length: Some(2),
+                    ..Default::default()
+                })
+            })
+        });
+        let mut window = app.open_window(|_, _| gpui::Empty);
+        window.update(|_, window, cx| {
+            state.update(cx, |state, cx| {
+                state.set_value("words", window, cx);
+                assert_eq!(state.content(), "words");
+                assert!(state.validate(cx).is_ok());
+            });
+            typed_state.update(cx, |state, cx| {
+                state.set_value("你好呀", window, cx);
+                assert_eq!(state.content(), "你好");
+            });
         });
     }
 }

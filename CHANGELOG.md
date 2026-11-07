@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   comparators for `DataTable`/`DataGrid`. Replacing the comparator of the
   active sort column reorders rows immediately and reports the cleared
   selection to `on_selection_change`.
+- `TextValidationRules` and typed textarea builders express text-only
+  constraints; legacy `ValidationRules` entry points remain supported.
 - Shared internal foundations for previously duplicated implementations:
   `EditCore` (text editing state machines), `overlay_shell` (focus guard,
   dismiss timing, backdrops, menu panels), `chart_common`/`table_common`,
@@ -76,6 +78,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   renders; physics uses the final scroll handle regardless of builder order.
   Scroll containers connect implicit handles to physics, and
   `ScrollList::no_flex_grow` preserves existing configuration.
+- Removing input/textarea builder overrides restores the original state
+  configuration instead of leaving stale validation rules or erasing state
+  metadata. Input-type defaults share one configuration path and replace only
+  a placeholder, autocomplete hint or input mask still set to the previous
+  type's default, so explicit values survive `input_type`/`password` changes.
 - Overlay exit timers keep weak references so a removed dialog cannot run a
   stale close callback against its replacement.
 - `BottomSheet` restores the previous focus when unmounted programmatically,

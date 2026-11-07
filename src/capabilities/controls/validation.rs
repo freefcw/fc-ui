@@ -43,6 +43,101 @@ pub struct ValidationRules {
     pub required: bool,
 }
 
+/// Text constraints accepted by multiline controls. Numeric bounds and input
+/// filters/formatters belong to `Input` and are deliberately absent here.
+#[derive(Clone, Default)]
+pub struct TextValidationRules {
+    pub min_length: Option<usize>,
+    pub max_length: Option<usize>,
+    pub pattern: Option<String>,
+    pub custom_validator: Option<ValidationCallback>,
+    pub required: bool,
+}
+
+impl std::fmt::Debug for TextValidationRules {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TextValidationRules")
+            .field("min_length", &self.min_length)
+            .field("max_length", &self.max_length)
+            .field("pattern", &self.pattern)
+            .field("custom_validator", &self.custom_validator.is_some())
+            .field("required", &self.required)
+            .finish()
+    }
+}
+
+/// Legacy-to-text projection. Numeric bounds and transformations are ignored;
+/// converting a rule never adds filtering or formatting to a textarea.
+impl From<ValidationRules> for TextValidationRules {
+    fn from(rules: ValidationRules) -> Self {
+        Self {
+            min_length: rules.min_length,
+            max_length: rules.max_length,
+            pattern: rules.pattern,
+            custom_validator: rules.custom_validator,
+            required: rules.required,
+        }
+    }
+}
+
+impl From<&ValidationRules> for TextValidationRules {
+    fn from(rules: &ValidationRules) -> Self {
+        Self {
+            min_length: rules.min_length,
+            max_length: rules.max_length,
+            pattern: rules.pattern.clone(),
+            custom_validator: rules.custom_validator.clone(),
+            required: rules.required,
+        }
+    }
+}
+
+impl From<TextValidationRules> for ValidationRules {
+    fn from(rules: TextValidationRules) -> Self {
+        Self {
+            min_length: rules.min_length,
+            max_length: rules.max_length,
+            pattern: rules.pattern,
+            custom_validator: rules.custom_validator,
+            required: rules.required,
+            ..Self::default()
+        }
+    }
+}
+
+/// Borrowed view used during editing and validation, so legacy public state
+/// fields remain live without cloning regex strings or validator callbacks.
+#[derive(Clone, Copy)]
+pub(crate) struct TextConstraints<'a> {
+    pub min_length: Option<usize>,
+    pub max_length: Option<usize>,
+    pub pattern: Option<&'a str>,
+    pub custom_validator: Option<&'a ValidationCallback>,
+    pub required: bool,
+}
+
+impl<'a> From<&'a ValidationRules> for TextConstraints<'a> {
+    fn from(rules: &'a ValidationRules) -> Self {
+        Self {
+            min_length: rules.min_length,
+            max_length: rules.max_length,
+            pattern: rules.pattern.as_deref(),
+            custom_validator: rules.custom_validator.as_ref(),
+            required: rules.required,
+        }
+    }
+}
+
+impl TextConstraints<'_> {
+    pub(crate) fn has_rules(self) -> bool {
+        self.required
+            || self.min_length.is_some()
+            || self.max_length.is_some()
+            || self.pattern.is_some()
+            || self.custom_validator.is_some()
+    }
+}
+
 impl std::fmt::Debug for ValidationRules {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ValidationRules")
@@ -56,6 +151,21 @@ impl std::fmt::Debug for ValidationRules {
             .field("custom_formatter", &self.custom_formatter.is_some())
             .field("required", &self.required)
             .finish()
+    }
+}
+
+impl ValidationRules {
+    /// Validator closures compare by presence only: builders wrap them in a
+    /// fresh `Arc` every render, so pointer identity would report a change on
+    /// every frame and silently revalidate outside the blur/change policy.
+    pub(crate) fn same_validation_as(&self, other: &Self) -> bool {
+        self.required == other.required
+            && self.min_length == other.min_length
+            && self.max_length == other.max_length
+            && self.min_value == other.min_value
+            && self.max_value == other.max_value
+            && self.pattern == other.pattern
+            && self.custom_validator.is_some() == other.custom_validator.is_some()
     }
 }
 
@@ -90,6 +200,14 @@ pub(crate) fn check_constraints(
     value: &str,
     field_name: Option<SharedString>,
 ) -> Result<(), ValidationError> {
+    check_text_constraints(rules.into(), value, field_name)
+}
+
+pub(crate) fn check_text_constraints(
+    rules: TextConstraints<'_>,
+    value: &str,
+    field_name: Option<SharedString>,
+) -> Result<(), ValidationError> {
     if let Some(min_length) = rules.min_length {
         if value.chars().count() < min_length {
             return Err(ValidationError {
@@ -108,7 +226,7 @@ pub(crate) fn check_constraints(
         }
     }
 
-    if let Some(pattern) = rules.pattern.as_deref() {
+    if let Some(pattern) = rules.pattern {
         match regex::Regex::new(pattern) {
             Ok(regex) if !regex.is_match(value) => {
                 return Err(ValidationError {
@@ -126,7 +244,7 @@ pub(crate) fn check_constraints(
         }
     }
 
-    if let Some(ref validator) = rules.custom_validator {
+    if let Some(validator) = rules.custom_validator {
         validator(value)?;
     }
 
@@ -232,9 +350,45 @@ mod tests {
     // gpui, whose `test` attribute would clash with the built-in `#[test]`.
     use super::{
         check_constraints, check_required_empty, format_character_count, CharacterCount,
-        ValidationError, ValidationRules,
+        TextValidationRules, ValidationError, ValidationRules,
     };
     use std::sync::Arc;
+
+    #[test]
+    fn legacy_text_projection_preserves_constraints_and_drops_input_only_options() {
+        let legacy = ValidationRules {
+            min_length: Some(2),
+            max_length: Some(4),
+            min_value: Some(100.0),
+            max_value: Some(200.0),
+            pattern: Some("^[a-z]+$".into()),
+            custom_validator: Some(Arc::new(|value| {
+                if value == "bad" {
+                    Err(ValidationError {
+                        message: "bad value".into(),
+                        field_name: None,
+                    })
+                } else {
+                    Ok(())
+                }
+            })),
+            custom_filter: Some(Arc::new(|_| panic!("text projection must ignore filters"))),
+            custom_formatter: Some(Arc::new(|_| {
+                panic!("text projection must ignore formatters")
+            })),
+            required: true,
+        };
+        let projected = ValidationRules::from(TextValidationRules::from(&legacy));
+        assert!(projected.required);
+        assert_eq!(projected.min_value, None);
+        assert_eq!(projected.max_value, None);
+        assert!(projected.custom_filter.is_none());
+        assert!(projected.custom_formatter.is_none());
+        assert!(check_constraints(&projected, "ok", None).is_ok());
+        assert!(check_constraints(&projected, "a", None).is_err());
+        assert!(check_constraints(&projected, "123", None).is_err());
+        assert!(check_constraints(&projected, "bad", None).is_err());
+    }
 
     #[test]
     fn required_empty_fails() {

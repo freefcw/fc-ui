@@ -1,5 +1,6 @@
 //! Input component - Advanced text input with validation, masking, and accessibility.
 
+use crate::capabilities::controls::input_state::InputBuilderConfig;
 pub use crate::capabilities::controls::input_state::{
     wire_actions, Backspace, Copy, Cut, Delete, End, Enter, Escape, Home, InputEvent, InputMask,
     InputState, InputType, Left, Paste, Right, SelectAll, SelectLeft, SelectRight, SelectWordLeft,
@@ -94,7 +95,7 @@ pub struct Input {
     placeholder: Option<SharedString>,
     variant: InputVariant,
     size: InputSize,
-    disabled: bool,
+    disabled: Option<bool>,
     error: bool,
     password: bool,
     clearable: bool,
@@ -130,14 +131,19 @@ pub struct Input {
 }
 
 impl Input {
-    /// Create a new input with an InputState entity
+    /// Create a new input with an InputState entity.
+    ///
+    /// Explicit builder settings temporarily override state configuration.
+    /// Removing a setting restores the state value captured before that
+    /// override began. Direct state writes remain live when no override owns
+    /// the field; writes during an active override are replaced by the builder.
     pub fn new(state: &Entity<InputState>) -> Self {
         Self {
             state: state.clone(),
             placeholder: None,
             variant: InputVariant::Default,
             size: InputSize::default(),
-            disabled: false,
+            disabled: None,
             error: false,
             password: false,
             clearable: false,
@@ -221,7 +227,7 @@ impl Input {
 
     /// Set disabled state
     pub fn disabled(mut self, disabled: bool) -> Self {
-        self.disabled = disabled;
+        self.disabled = Some(disabled);
         self
     }
 
@@ -595,58 +601,18 @@ impl Input {
     /// on the first render.
     fn sync_state_from_builder(&self, window: &mut Window, cx: &mut App) {
         self.state.update(cx, |state, cx| {
-            state.disabled = self.disabled;
-            if let Some(placeholder) = self.placeholder.clone() {
-                if state.placeholder != placeholder {
-                    state.placeholder = placeholder;
-                    if state.content().is_empty() {
-                        state.invalidate_layout_cache();
-                    }
-                }
-            }
-
-            // Enable masking when this builder first transitions the state to a password input.
-            // Later renders preserve user-driven visibility toggles.
-            if self.password && state.input_type != InputType::Password {
-                state.input_type = InputType::Password;
-                state.masked = true;
-            }
-
-            if let Some(input_type) = self.input_type {
-                let input_type_changed = state.input_type != input_type;
-                state.input_type = input_type;
-                if input_type_changed && input_type == InputType::Password {
-                    state.masked = true;
-                }
-                match input_type {
-                    InputType::Tel => state.input_mask = InputMask::Phone,
-                    InputType::CreditCard => state.input_mask = InputMask::CreditCard,
-                    InputType::Date => state.input_mask = InputMask::Date,
-                    InputType::Time => state.input_mask = InputMask::Time,
-                    _ => {}
-                }
-            }
-
-            let builder_formatter_active = self.custom_formatter.is_some()
-                || self
-                    .validation_rules
-                    .as_ref()
-                    .is_some_and(|rules| rules.custom_formatter.is_some());
-
-            if let Some(rules) = self.validation_rules_for_state() {
-                state.validation_rules = rules;
-            }
-            state.sync_builder_formatter(builder_formatter_active);
-
-            // Keep the raw value when formatter configuration changes, then
-            // refresh the display representation before applying controlled
-            // value synchronization.
-            state.refresh_formatted_content();
-
-            state.aria_label = self.aria_label.clone();
-            state.aria_description = self.aria_description.clone();
-            state.autocomplete = self.autocomplete.clone();
-            state.helper_text = self.helper_text.clone();
+            state.sync_builder_config(InputBuilderConfig {
+                disabled: self.disabled,
+                input_type: self
+                    .input_type
+                    .or_else(|| self.password.then_some(InputType::Password)),
+                placeholder: self.placeholder.clone(),
+                validation_rules: self.validation_rules_for_state(),
+                aria_label: self.aria_label.clone(),
+                aria_description: self.aria_description.clone(),
+                autocomplete: self.autocomplete.clone(),
+                helper_text: self.helper_text.clone(),
+            });
 
             if let Some(value) = self.value.clone() {
                 if !state.value_matches(value.as_ref()) {
@@ -707,6 +673,7 @@ impl RenderOnce for Input {
 
         self.sync_state_from_builder(window, cx);
         self.install_event_subscription(cx);
+        let disabled = self.state.read(cx).disabled;
 
         // A failed validation (e.g. on blur) shows the destructive border just
         // like an explicit `.error(true)`, matching what `aria_invalid`
@@ -716,19 +683,20 @@ impl RenderOnce for Input {
         let (bg_color, border_color, text_color) =
             crate::capabilities::controls::input_shell_colors(
                 self.variant,
-                self.disabled,
+                disabled,
                 has_error,
                 &theme.tokens,
             );
 
         let has_value = !self.state.read(cx).content.is_empty();
-        let show_clear = self.clearable && has_value && !self.disabled;
+        let show_clear = self.clearable && has_value && !disabled;
         let state_for_clear = self.state.clone();
         let state_for_password = self.state.clone();
 
         let input_state = self.state.read(cx);
         let validation_error = input_state.validation_error.clone();
         let success_message = input_state.success_message.clone();
+        let helper_text = input_state.helper_text.clone();
         let composing = input_state.composition_char_count();
         let content_length = input_state.content.chars().count() - composing;
         let max_length = input_state.validation_rules.max_length;
@@ -764,7 +732,7 @@ impl RenderOnce for Input {
                     })
                     .aria_value(aria.value)
                     .aria_placeholder(aria.placeholder)
-                    .aria_disabled(self.disabled)
+                    .aria_disabled(disabled)
                     .aria_required(aria.required)
                     .when(aria.invalid, |this| {
                         this.aria_invalid(gpui::accesskit::Invalid::True)
@@ -784,8 +752,8 @@ impl RenderOnce for Input {
                             .font_family(theme.tokens.font_mono.clone())
                             .text_color(text_color)
                             .shadow(smallvec::smallvec![shadow_xs])
-                            .when(!self.disabled, |h| h.cursor(gpui::CursorStyle::IBeam))
-                            .when(!self.disabled, |h| {
+                            .when(!disabled, |h| h.cursor(gpui::CursorStyle::IBeam))
+                            .when(!disabled, |h| {
                                 h.hover(move |style| {
                                     style.border_color(if has_error {
                                         destructive_color
@@ -794,7 +762,7 @@ impl RenderOnce for Input {
                                     })
                                 })
                             })
-                            .when(is_focused && !self.disabled, |h| {
+                            .when(is_focused && !disabled, |h| {
                                 if has_error {
                                     h.border_color(destructive_color)
                                         .shadow(smallvec::smallvec![error_ring.clone()])
@@ -866,7 +834,7 @@ impl RenderOnce for Input {
                 }
             })
             .when(
-                self.helper_text.is_some()
+                helper_text.is_some()
                     || validation_error.is_some()
                     || success_message.is_some()
                     || self.show_character_count,
@@ -879,7 +847,7 @@ impl RenderOnce for Input {
                         } else {
                             FooterMessage::Blank
                         }
-                    } else if let Some(helper) = self.helper_text.as_ref() {
+                    } else if let Some(helper) = helper_text.as_ref() {
                         FooterMessage::Helper(helper)
                     } else {
                         FooterMessage::Blank
@@ -908,6 +876,271 @@ mod tests {
         cell::{Cell, RefCell},
         rc::Rc,
     };
+
+    #[gpui::test]
+    fn builder_rules_are_removed_without_erasing_state_rules() {
+        let mut app = TestApp::new();
+        let state = app.update(|cx| cx.new(|cx| InputState::new(cx).min_length(3)));
+        let mut window = app.open_window(|_, _| gpui::Empty);
+        window.update(|_, window, cx| {
+            Input::new(&state)
+                .required(true)
+                .sync_state_from_builder(window, cx);
+            assert!(state.read(cx).current_validation_rules().required);
+            Input::new(&state).sync_state_from_builder(window, cx);
+            let rules = state.read(cx).current_validation_rules();
+            assert!(!rules.required);
+            assert_eq!(rules.min_length, Some(3));
+        });
+    }
+
+    #[gpui::test]
+    fn input_type_defaults_match_for_state_and_builder_configuration() {
+        let mut app = TestApp::new();
+        let from_state =
+            app.update(|cx| cx.new(|cx| InputState::new(cx).input_type(InputType::Tel)));
+        let from_builder = app.update(|cx| cx.new(InputState::new));
+        let mut window = app.open_window(|_, _| gpui::Empty);
+        window.update(|_, window, cx| {
+            Input::new(&from_state).sync_state_from_builder(window, cx);
+            Input::new(&from_builder)
+                .input_type(InputType::Tel)
+                .sync_state_from_builder(window, cx);
+            assert_eq!(
+                from_builder.read(cx).placeholder_text(),
+                from_state.read(cx).placeholder_text()
+            );
+            assert_eq!(from_builder.read(cx).autocomplete(), Some("tel"));
+            assert_eq!(from_state.read(cx).autocomplete(), Some("tel"));
+            Input::new(&from_builder)
+                .input_type(InputType::Text)
+                .sync_state_from_builder(window, cx);
+            assert_eq!(from_builder.read(cx).input_mask(), InputMask::None);
+            assert_eq!(from_builder.read(cx).autocomplete(), None);
+        });
+    }
+
+    #[gpui::test]
+    fn removing_builder_metadata_restores_the_state_baseline() {
+        let mut app = TestApp::new();
+        let state = app.update(|cx| {
+            cx.new(|cx| {
+                let mut state = InputState::new(cx).input_type(InputType::Email);
+                state.aria_label = Some("State label".into());
+                state
+            })
+        });
+        let mut window = app.open_window(|_, _| gpui::Empty);
+        window.update(|_, window, cx| {
+            Input::new(&state)
+                .aria_label("Builder label")
+                .autocomplete("off")
+                .sync_state_from_builder(window, cx);
+            assert_eq!(state.read(cx).aria_label(), Some("Builder label"));
+            Input::new(&state).sync_state_from_builder(window, cx);
+            assert_eq!(state.read(cx).aria_label(), Some("State label"));
+            assert_eq!(state.read(cx).autocomplete(), Some("email"));
+        });
+    }
+
+    #[gpui::test]
+    fn plain_builder_preserves_state_metadata_and_later_external_writes() {
+        let mut app = TestApp::new();
+        let state = app.update(|cx| {
+            cx.new(|cx| {
+                let mut state = InputState::new(cx).placeholder("State placeholder");
+                state.aria_label = Some("State label".into());
+                state.aria_description = Some("State description".into());
+                state.helper_text = Some("State helper".into());
+                state.autocomplete = Some("state-token".into());
+                state
+            })
+        });
+        let mut window = app.open_window(|_, _| gpui::Empty);
+        window.update(|_, window, cx| {
+            Input::new(&state).sync_state_from_builder(window, cx);
+            assert_eq!(state.read(cx).aria_label(), Some("State label"));
+            assert_eq!(
+                state.read(cx).aria_description.as_deref(),
+                Some("State description")
+            );
+            assert_eq!(state.read(cx).helper_text.as_deref(), Some("State helper"));
+            assert_eq!(state.read(cx).autocomplete(), Some("state-token"));
+            Input::new(&state)
+                .placeholder("Builder placeholder")
+                .sync_state_from_builder(window, cx);
+            Input::new(&state).sync_state_from_builder(window, cx);
+            assert_eq!(state.read(cx).placeholder_text(), "State placeholder");
+            state.update(cx, |state, _| {
+                state.aria_label = Some("External label".into());
+                state.placeholder = "External placeholder".into();
+            });
+            Input::new(&state).sync_state_from_builder(window, cx);
+            assert_eq!(state.read(cx).aria_label(), Some("External label"));
+            assert_eq!(state.read(cx).placeholder_text(), "External placeholder");
+        });
+    }
+
+    #[gpui::test]
+    fn builder_type_restores_baseline_and_preserves_password_toggle_on_rerender() {
+        let mut app = TestApp::new();
+        let state = app.update(|cx| cx.new(|cx| InputState::new(cx).input_type(InputType::Email)));
+        let mut window = app.open_window(|_, _| gpui::Empty);
+        window.update(|_, window, cx| {
+            Input::new(&state)
+                .password(true)
+                .sync_state_from_builder(window, cx);
+            assert!(state.read(cx).masked);
+            state.update(cx, |state, cx| state.set_masked(false, cx));
+            Input::new(&state)
+                .password(true)
+                .sync_state_from_builder(window, cx);
+            assert!(!state.read(cx).masked);
+            Input::new(&state).sync_state_from_builder(window, cx);
+            assert_eq!(state.read(cx).current_input_type(), InputType::Email);
+            assert_eq!(state.read(cx).autocomplete(), Some("email"));
+            assert_eq!(state.read(cx).placeholder_text(), "email@example.com");
+        });
+    }
+
+    #[gpui::test]
+    fn removing_builder_rules_reconciles_feedback_without_validation_events() {
+        let mut app = TestApp::new();
+        let state = app.update(|cx| cx.new(InputState::new));
+        let validations = Rc::new(Cell::new(0));
+        let observed = validations.clone();
+        app.update(|cx| {
+            cx.subscribe(&state, move |_, event: &InputEvent, _| {
+                if matches!(event, InputEvent::Validate(_)) {
+                    observed.set(observed.get() + 1);
+                }
+            })
+            .detach();
+        });
+        let mut window = app.open_window(|_, _| gpui::Empty);
+        window.update(|_, window, cx| {
+            Input::new(&state)
+                .required(true)
+                .sync_state_from_builder(window, cx);
+            assert!(state.update(cx, |state, cx| state.validate(cx)).is_err());
+            Input::new(&state).sync_state_from_builder(window, cx);
+            assert!(state.read(cx).validation_error.is_none());
+            assert!(state.read(cx).success_message.is_none());
+        });
+        assert_eq!(validations.get(), 1);
+    }
+
+    #[gpui::test]
+    fn removing_builder_formatter_restores_the_state_formatter() {
+        let mut app = TestApp::new();
+        let state = app.update(|cx| {
+            cx.new(|cx| {
+                let mut state = InputState::new(cx);
+                state.validation_rules.custom_formatter =
+                    Some(Arc::new(|value| format!("{value} state")));
+                state
+            })
+        });
+        let mut window = app.open_window(|_, _| gpui::Empty);
+        window.update(|_, window, cx| {
+            Input::new(&state)
+                .custom_formatter(|value| format!("${value}"))
+                .sync_state_from_builder(window, cx);
+            state.update(cx, |state, cx| state.set_value("12", window, cx));
+            assert_eq!(state.read(cx).content(), "$12");
+            Input::new(&state).sync_state_from_builder(window, cx);
+            assert_eq!(state.read(cx).content(), "12 state");
+            assert_eq!(state.read(cx).raw_value(), "12");
+        });
+    }
+
+    #[gpui::test]
+    fn input_type_changes_keep_explicit_placeholder_autocomplete_and_mask() {
+        let mut app = TestApp::new();
+        let builder_password = app.update(|cx| {
+            cx.new(|cx| {
+                let mut state = InputState::new(cx).placeholder("Enter your secret");
+                state.autocomplete = Some("new-password".into());
+                state
+            })
+        });
+        let state_order = app.update(|cx| {
+            cx.new(|cx| {
+                InputState::new(cx)
+                    .placeholder("Your email")
+                    .input_type(InputType::Email)
+            })
+        });
+        let custom_mask = app.update(|cx| {
+            cx.new(|cx| {
+                let mut state = InputState::new(cx);
+                state.input_mask = InputMask::Date;
+                state.input_type(InputType::Tel)
+            })
+        });
+        let defaults = app.update(|cx| {
+            cx.new(|cx| {
+                InputState::new(cx)
+                    .input_type(InputType::Tel)
+                    .input_type(InputType::Email)
+            })
+        });
+        let mut window = app.open_window(|_, _| gpui::Empty);
+        window.update(|_, window, cx| {
+            Input::new(&builder_password)
+                .password(true)
+                .sync_state_from_builder(window, cx);
+            let state = builder_password.read(cx);
+            assert!(state.masked);
+            assert_eq!(state.placeholder_text(), "Enter your secret");
+            assert_eq!(state.autocomplete(), Some("new-password"));
+
+            let state = state_order.read(cx);
+            assert_eq!(state.placeholder_text(), "Your email");
+            assert_eq!(state.autocomplete(), Some("email"));
+
+            assert_eq!(custom_mask.read(cx).input_mask(), InputMask::Date);
+
+            let state = defaults.read(cx);
+            assert_eq!(state.placeholder_text(), "email@example.com");
+            assert_eq!(state.autocomplete(), Some("email"));
+            assert_eq!(state.input_mask(), InputMask::None);
+        });
+    }
+
+    #[gpui::test]
+    fn rebuilt_builder_validator_keeps_feedback_until_the_next_validation() {
+        let mut app = TestApp::new();
+        let state = app.update(|cx| cx.new(InputState::new));
+        let mut window = app.open_window(|_, _| gpui::Empty);
+        let builder = || {
+            Input::new(&state).custom_validator(|value| {
+                if value.len() < 3 {
+                    Err("too short".to_string())
+                } else {
+                    Ok(())
+                }
+            })
+        };
+        window.update(|_, window, cx| {
+            builder().sync_state_from_builder(window, cx);
+            state.update(cx, |state, cx| {
+                state.set_value("ab", window, cx);
+                assert!(state.validate(cx).is_err());
+                state.set_value("abcd", window, cx);
+            });
+            assert!(state.read(cx).validation_error.is_some());
+            builder().sync_state_from_builder(window, cx);
+            assert!(
+                state.read(cx).validation_error.is_some(),
+                "a rebuilt closure is the same policy; rendering must not revalidate"
+            );
+            assert!(state.update(cx, |state, cx| state.validate(cx)).is_ok());
+            builder().sync_state_from_builder(window, cx);
+            assert!(state.read(cx).validation_error.is_none());
+            assert!(state.read(cx).success_message.is_some());
+        });
+    }
 
     struct InputRenderTestView {
         state: Entity<InputState>,
