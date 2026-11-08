@@ -940,22 +940,23 @@ impl InputState {
         }
     }
 
+    fn build_validation_error(&self, message: impl Into<SharedString>) -> ValidationError {
+        ValidationError {
+            message: message.into(),
+            field_name: self.aria_label.clone(),
+        }
+    }
+
     fn validate_email(&self, email: &str) -> Result<(), ValidationError> {
         if !EMAIL_REGEX.is_match(email) {
-            return Err(ValidationError {
-                message: "Please enter a valid email address".into(),
-                field_name: self.aria_label.clone(),
-            });
+            return Err(self.build_validation_error("Please enter a valid email address"));
         }
         Ok(())
     }
 
     fn validate_url(&self, url: &str) -> Result<(), ValidationError> {
         if !url.starts_with("http://") && !url.starts_with("https://") {
-            return Err(ValidationError {
-                message: "URL must start with http:// or https://".into(),
-                field_name: self.aria_label.clone(),
-            });
+            return Err(self.build_validation_error("URL must start with http:// or https://"));
         }
         Ok(())
     }
@@ -963,27 +964,20 @@ impl InputState {
     fn validate_number(&self, number: &str) -> Result<(), ValidationError> {
         let parsed = number.parse::<f64>();
         if parsed.is_err() {
-            return Err(ValidationError {
-                message: "Please enter a valid number".into(),
-                field_name: self.aria_label.clone(),
-            });
+            return Err(self.build_validation_error("Please enter a valid number"));
         }
 
         if let Ok(value) = parsed {
             if let Some(min) = self.validation_rules.min_value {
                 if value < min {
-                    return Err(ValidationError {
-                        message: format!("Must be at least {}", min).into(),
-                        field_name: self.aria_label.clone(),
-                    });
+                    return Err(self.build_validation_error(format!("Must be at least {}", min)));
                 }
             }
             if let Some(max) = self.validation_rules.max_value {
                 if value > max {
-                    return Err(ValidationError {
-                        message: format!("Must be no more than {}", max).into(),
-                        field_name: self.aria_label.clone(),
-                    });
+                    return Err(
+                        self.build_validation_error(format!("Must be no more than {}", max))
+                    );
                 }
             }
         }
@@ -993,10 +987,7 @@ impl InputState {
     fn validate_phone(&self, phone: &str) -> Result<(), ValidationError> {
         let digits: String = phone.chars().filter(|c| c.is_ascii_digit()).collect();
         if digits.len() < 10 {
-            return Err(ValidationError {
-                message: "Phone number must be at least 10 digits".into(),
-                field_name: self.aria_label.clone(),
-            });
+            return Err(self.build_validation_error("Phone number must be at least 10 digits"));
         }
         Ok(())
     }
@@ -1004,10 +995,7 @@ impl InputState {
     fn validate_date(&self, date: &str) -> Result<(), ValidationError> {
         let parts: Vec<&str> = date.split('/').collect();
         if parts.len() != 3 {
-            return Err(ValidationError {
-                message: "Date must be in MM/DD/YYYY format".into(),
-                field_name: self.aria_label.clone(),
-            });
+            return Err(self.build_validation_error("Date must be in MM/DD/YYYY format"));
         }
 
         let month = parts[0].parse::<u32>().unwrap_or(0);
@@ -1015,22 +1003,13 @@ impl InputState {
         let year = parts[2].parse::<u32>().unwrap_or(0);
 
         if !(1..=12).contains(&month) {
-            return Err(ValidationError {
-                message: "Invalid month".into(),
-                field_name: self.aria_label.clone(),
-            });
+            return Err(self.build_validation_error("Invalid month"));
         }
         if !(1..=31).contains(&day) {
-            return Err(ValidationError {
-                message: "Invalid day".into(),
-                field_name: self.aria_label.clone(),
-            });
+            return Err(self.build_validation_error("Invalid day"));
         }
         if !(1900..=2100).contains(&year) {
-            return Err(ValidationError {
-                message: "Invalid year".into(),
-                field_name: self.aria_label.clone(),
-            });
+            return Err(self.build_validation_error("Invalid year"));
         }
         Ok(())
     }
@@ -1038,26 +1017,17 @@ impl InputState {
     fn validate_time(&self, time: &str) -> Result<(), ValidationError> {
         let parts: Vec<&str> = time.split(':').collect();
         if parts.len() != 2 {
-            return Err(ValidationError {
-                message: "Time must be in HH:MM format".into(),
-                field_name: self.aria_label.clone(),
-            });
+            return Err(self.build_validation_error("Time must be in HH:MM format"));
         }
 
         let hours = parts[0].parse::<u32>().unwrap_or(25);
         let minutes = parts[1].parse::<u32>().unwrap_or(61);
 
         if hours > 23 {
-            return Err(ValidationError {
-                message: "Invalid hours (0-23)".into(),
-                field_name: self.aria_label.clone(),
-            });
+            return Err(self.build_validation_error("Invalid hours (0-23)"));
         }
         if minutes > 59 {
-            return Err(ValidationError {
-                message: "Invalid minutes (0-59)".into(),
-                field_name: self.aria_label.clone(),
-            });
+            return Err(self.build_validation_error("Invalid minutes (0-59)"));
         }
         Ok(())
     }
@@ -1065,10 +1035,7 @@ impl InputState {
     fn validate_credit_card(&self, card: &str) -> Result<(), ValidationError> {
         let digits: String = card.chars().filter(|c| c.is_ascii_digit()).collect();
         if digits.len() < 13 || digits.len() > 19 {
-            return Err(ValidationError {
-                message: "Invalid credit card number".into(),
-                field_name: self.aria_label.clone(),
-            });
+            return Err(self.build_validation_error("Invalid credit card number"));
         }
 
         let mut sum = 0;
@@ -1088,10 +1055,7 @@ impl InputState {
         }
 
         if sum % 10 != 0 {
-            return Err(ValidationError {
-                message: "Invalid credit card number".into(),
-                field_name: self.aria_label.clone(),
-            });
+            return Err(self.build_validation_error("Invalid credit card number"));
         }
         Ok(())
     }
