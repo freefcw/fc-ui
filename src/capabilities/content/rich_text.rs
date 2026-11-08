@@ -146,6 +146,10 @@ fn needs_font_size_segments(segments: &[FontSizeSegment], base_font_size: f32) -
         .any(|segment| !font_sizes_equal(segment.font_size, base_font_size))
 }
 
+fn segment_element_id(base_id: &ElementId, index: usize) -> ElementId {
+    ElementId::NamedChild(Box::new(base_id.clone()), format!("segment-{index}").into())
+}
+
 /// Appends items to `runs` as a `(font_size, inlines)` run, merging with the
 /// previous run when it targets the same size and is adjacent in document
 /// order.
@@ -590,7 +594,7 @@ fn render_inline_segment(
 
     let mut container = div().text_size(size).line_height(relative(1.5));
 
-    if debug_links {
+    if debug_links && !flattened.links.is_empty() {
         container = container.debug_selector(|| "rich-text-link".into());
     }
 
@@ -624,10 +628,7 @@ fn render_font_size_segments(
     element_id: Option<ElementId>,
     debug_links: bool,
 ) -> AnyElement {
-    let base_name = match &element_id {
-        Some(ElementId::Name(name)) => name.clone(),
-        _ => SharedString::from("rich-text-inline"),
-    };
+    let base_id = element_id.unwrap_or_else(|| ElementId::Name("rich-text-inline".into()));
 
     let mut container = div()
         .flex()
@@ -636,13 +637,9 @@ fn render_font_size_segments(
         .items_baseline()
         .line_height(relative(1.5));
 
-    if debug_links {
-        container = container.debug_selector(|| "rich-text-link".into());
-    }
-
     for (index, segment) in segments.iter().enumerate() {
         let segment_size = px(segment.font_size);
-        let segment_id = ElementId::NamedInteger(base_name.clone(), index as u64);
+        let segment_id = segment_element_id(&base_id, index);
         container = container.child(render_inline_segment(
             &segment.inlines,
             segment_size,
@@ -997,8 +994,10 @@ fn render_table(
 
 #[cfg(test)]
 mod tests {
-    use super::{dispatch_link_click, needs_font_size_segments, LinkClickHandler};
-    use gpui::{Empty, TestApp, TestAppContext};
+    use super::{
+        dispatch_link_click, needs_font_size_segments, segment_element_id, LinkClickHandler,
+    };
+    use gpui::{ElementId, Empty, TestApp, TestAppContext};
     use std::{cell::Cell, rc::Rc};
 
     use super::{has_explicit_font_size, split_by_font_size};
@@ -1092,6 +1091,17 @@ mod tests {
             url: "https://example.com".to_string(),
         }];
         assert!(has_explicit_font_size(&sized_in_link));
+    }
+
+    #[test]
+    fn sized_segments_preserve_arbitrary_element_ids() {
+        let base_id = ElementId::Integer(42);
+        let segment_id = segment_element_id(&base_id, 3);
+        assert!(matches!(
+            segment_id,
+            ElementId::NamedChild(parent, label)
+                if *parent == base_id && label == "segment-3"
+        ));
     }
 
     #[gpui::test]
