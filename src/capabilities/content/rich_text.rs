@@ -355,11 +355,11 @@ impl InlineFlattener {
                     let prev_italic = self.italic;
                     let prev_color = self.color_override;
                     let prev_bg = self.bg_override;
-                    if let Some(true) = bold {
-                        self.bold = true;
+                    if let Some(bold) = bold {
+                        self.bold = *bold;
                     }
-                    if let Some(true) = italic {
-                        self.italic = true;
+                    if let Some(italic) = italic {
+                        self.italic = *italic;
                     }
                     if color.is_some() {
                         self.color_override = *color;

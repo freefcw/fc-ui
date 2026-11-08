@@ -125,6 +125,7 @@ const DEFAULT_BASE_FONT_PX: f32 = 14.0;
 #[derive(Clone, Copy)]
 struct HtmlParseContext {
     font_size: f32,
+    has_explicit_font_size: bool,
 }
 
 #[cfg(feature = "html-render")]
@@ -132,14 +133,32 @@ impl HtmlParseContext {
     fn new(base_font_size: f32) -> Self {
         Self {
             font_size: base_font_size,
+            has_explicit_font_size: false,
         }
     }
 
-    /// Builds a fresh context carrying only `font_size`; reads `font_size` off
-    /// the struct so future fields are never silently dropped.
-    fn at_font_size(font_size: f32) -> Self {
-        Self { font_size }
+    /// Builds a child context with the effective font size for descendants.
+    fn at_font_size(self, font_size: f32) -> Self {
+        Self {
+            font_size,
+            has_explicit_font_size: true,
+            ..self
+        }
     }
+}
+
+#[cfg(feature = "html-render")]
+fn parse_element_style(
+    node: &Handle,
+    context: HtmlParseContext,
+) -> (Option<InlineStyle>, HtmlParseContext) {
+    let style = get_attr(node, "style").map(|value| parse_inline_style(&value, context.font_size));
+    let child_context = style
+        .as_ref()
+        .and_then(|style| style.font_size)
+        .map(|font_size| context.at_font_size(font_size))
+        .unwrap_or(context);
+    (style, child_context)
 }
 
 /// Scan `source` without building a tree and report the deepest element nesting
@@ -290,10 +309,11 @@ fn walk_children_blocks(node: &Handle, context: HtmlParseContext) -> Vec<RichBlo
                 if !is_allowed_tag(tag) {
                     continue;
                 }
+                let (style, child_context) = parse_element_style(child, context);
                 match tag {
                     "p" | "div" => {
                         flush_inlines(&mut pending_inlines, &mut blocks);
-                        let inlines = walk_block_inlines(child, context);
+                        let inlines = walk_block_inlines(child, child_context, style.as_ref());
                         if !inlines.is_empty() {
                             blocks.push(RichBlock::Paragraph(inlines));
                         }
@@ -301,7 +321,7 @@ fn walk_children_blocks(node: &Handle, context: HtmlParseContext) -> Vec<RichBlo
                     "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
                         flush_inlines(&mut pending_inlines, &mut blocks);
                         let level = tag.as_bytes()[1] - b'0';
-                        let inlines = walk_block_inlines(child, context);
+                        let inlines = walk_block_inlines(child, child_context, style.as_ref());
                         blocks.push(RichBlock::Heading {
                             level,
                             content: inlines,
@@ -317,12 +337,12 @@ fn walk_children_blocks(node: &Handle, context: HtmlParseContext) -> Vec<RichBlo
                     }
                     "blockquote" => {
                         flush_inlines(&mut pending_inlines, &mut blocks);
-                        let inner = walk_children_blocks(child, context);
+                        let inner = walk_children_blocks(child, child_context);
                         blocks.push(RichBlock::BlockQuote(inner));
                     }
                     "ul" => {
                         flush_inlines(&mut pending_inlines, &mut blocks);
-                        let items = walk_list_items(child, context);
+                        let items = walk_list_items(child, child_context);
                         blocks.push(RichBlock::UnorderedList { items });
                     }
                     "ol" => {
@@ -330,7 +350,7 @@ fn walk_children_blocks(node: &Handle, context: HtmlParseContext) -> Vec<RichBlo
                         let start = get_attr(child, "start")
                             .and_then(|s| s.parse::<u64>().ok())
                             .unwrap_or(1);
-                        let items = walk_list_items(child, context);
+                        let items = walk_list_items(child, child_context);
                         blocks.push(RichBlock::OrderedList { start, items });
                     }
                     "hr" => {
@@ -339,7 +359,7 @@ fn walk_children_blocks(node: &Handle, context: HtmlParseContext) -> Vec<RichBlo
                     }
                     "table" => {
                         flush_inlines(&mut pending_inlines, &mut blocks);
-                        let table = walk_table(child, context);
+                        let table = walk_table(child, child_context);
                         blocks.push(table);
                     }
                     "img" => {
@@ -349,7 +369,7 @@ fn walk_children_blocks(node: &Handle, context: HtmlParseContext) -> Vec<RichBlo
                         blocks.push(RichBlock::Image { alt, url: src });
                     }
                     _ => {
-                        let inlines = walk_children_inlines(child, context);
+                        let inlines = walk_children_inlines(child, child_context);
                         pending_inlines.extend(inlines);
                     }
                 }
@@ -385,66 +405,67 @@ fn walk_children_inlines(node: &Handle, context: HtmlParseContext) -> Vec<RichIn
                 if !is_allowed_tag(tag) {
                     continue;
                 }
+                let (style, child_context) = parse_element_style(child, context);
                 match tag {
                     "strong" | "b" => {
-                        let children = walk_children_inlines(child, context);
-                        inlines.push(RichInline::Bold(children));
+                        let children = walk_children_inlines(child, child_context);
+                        inlines.push(RichInline::Bold(style_children(children, style.as_ref())));
                     }
                     "em" | "i" => {
-                        let children = walk_children_inlines(child, context);
-                        inlines.push(RichInline::Italic(children));
+                        let children = walk_children_inlines(child, child_context);
+                        inlines.push(RichInline::Italic(style_children(children, style.as_ref())));
                     }
                     "s" | "strike" | "del" => {
-                        let children = walk_children_inlines(child, context);
-                        inlines.push(RichInline::Strikethrough(children));
+                        let children = walk_children_inlines(child, child_context);
+                        inlines.push(RichInline::Strikethrough(style_children(
+                            children,
+                            style.as_ref(),
+                        )));
                     }
                     "code" => {
                         let text = collect_text(child);
-                        inlines.push(RichInline::Code(text));
+                        inlines.push(wrap_inline_style(RichInline::Code(text), style.as_ref()));
                     }
                     "a" => {
                         let href = get_attr(child, "href").unwrap_or_default();
-                        let children = walk_children_inlines(child, context);
-                        inlines.push(RichInline::Link {
-                            text: children,
-                            url: href,
-                        });
+                        let children = walk_children_inlines(child, child_context);
+                        inlines.push(wrap_inline_style(
+                            RichInline::Link {
+                                text: children,
+                                url: href,
+                            },
+                            style.as_ref(),
+                        ));
                     }
                     "br" => {
-                        inlines.push(RichInline::LineBreak);
+                        inlines.push(wrap_inline_style(RichInline::LineBreak, style.as_ref()));
                     }
                     "img" => {
                         let src = get_attr(child, "src").unwrap_or_default();
                         let alt = get_attr(child, "alt").unwrap_or_default();
-                        inlines.push(RichInline::Image { alt, url: src });
+                        inlines.push(wrap_inline_style(
+                            RichInline::Image { alt, url: src },
+                            style.as_ref(),
+                        ));
                     }
                     "span" | "div" => {
-                        let style_attr = get_attr(child, "style");
-                        if let Some(style_str) = style_attr {
-                            let parsed = parse_inline_style(&style_str, context.font_size);
-                            let child_context = HtmlParseContext::at_font_size(
-                                parsed.font_size.unwrap_or(context.font_size),
-                            );
-                            if parsed.has_any() {
-                                inlines.push(RichInline::Styled {
-                                    children: walk_children_inlines(child, child_context),
-                                    color: parsed.color,
-                                    background_color: parsed.background_color,
-                                    bold: parsed.bold,
-                                    italic: parsed.italic,
-                                    font_size: parsed.font_size,
-                                });
-                            } else {
-                                inlines.extend(walk_children_inlines(child, context));
-                            }
+                        if let Some(style) = style.as_ref().filter(|style| style.has_any()) {
+                            inlines.push(styled_inline(
+                                walk_children_inlines(child, child_context),
+                                style,
+                            ));
                         } else {
-                            inlines.extend(walk_children_inlines(child, context));
+                            inlines.extend(walk_children_inlines(child, child_context));
                         }
                     }
                     "ul" | "ol" => {}
                     _ => {
-                        let children = walk_children_inlines(child, context);
-                        inlines.extend(children);
+                        let children = walk_children_inlines(child, child_context);
+                        if let Some(style) = style.as_ref().filter(|style| style.has_any()) {
+                            inlines.push(styled_inline(children, style));
+                        } else {
+                            inlines.extend(children);
+                        }
                     }
                 }
             }
@@ -457,9 +478,20 @@ fn walk_children_inlines(node: &Handle, context: HtmlParseContext) -> Vec<RichIn
 }
 
 #[cfg(feature = "html-render")]
-fn walk_block_inlines(node: &Handle, context: HtmlParseContext) -> Vec<RichInline> {
+fn walk_block_inlines(
+    node: &Handle,
+    context: HtmlParseContext,
+    style: Option<&InlineStyle>,
+) -> Vec<RichInline> {
     let mut inlines = walk_children_inlines(node, context);
     trim_inlines(&mut inlines);
+    let mut effective_style = style.copied().unwrap_or_default();
+    if effective_style.font_size.is_none() && context.has_explicit_font_size {
+        effective_style.font_size = Some(context.font_size);
+    }
+    if effective_style.has_any() && !inlines.is_empty() {
+        inlines = vec![styled_inline(inlines, &effective_style)];
+    }
     inlines
 }
 
@@ -639,14 +671,15 @@ fn walk_list_items(node: &Handle, context: HtmlParseContext) -> Vec<ListItem> {
     for child in node.children.borrow().iter() {
         if let NodeData::Element { name, .. } = &child.data {
             if name.local.as_ref() == "li" {
-                let inlines = walk_block_inlines(child, context);
+                let (style, child_context) = parse_element_style(child, context);
+                let inlines = walk_block_inlines(child, child_context, style.as_ref());
                 let mut sub_items = Vec::new();
 
                 for sub in child.children.borrow().iter() {
                     if let NodeData::Element { name: sub_name, .. } = &sub.data {
                         let sub_tag = sub_name.local.as_ref();
                         if sub_tag == "ul" || sub_tag == "ol" {
-                            sub_items = walk_list_items(sub, context);
+                            sub_items = walk_list_items(sub, child_context);
                         }
                     }
                 }
@@ -726,7 +759,8 @@ fn walk_table_cells(
         if let NodeData::Element { name, .. } = &child.data {
             let tag = name.local.as_ref();
             if tag == "th" || tag == "td" {
-                let inlines = walk_block_inlines(child, context);
+                let (style, child_context) = parse_element_style(child, context);
+                let inlines = walk_block_inlines(child, child_context, style.as_ref());
                 cells.push(inlines);
 
                 if is_header {
@@ -785,6 +819,7 @@ fn is_allowed_tag(tag: &str) -> bool {
 }
 
 #[cfg(feature = "html-render")]
+#[derive(Clone, Copy, Default)]
 struct InlineStyle {
     color: Option<Hsla>,
     background_color: Option<Hsla>,
@@ -801,6 +836,34 @@ impl InlineStyle {
             || self.bold.is_some()
             || self.italic.is_some()
             || self.font_size.is_some()
+    }
+}
+
+#[cfg(feature = "html-render")]
+fn styled_inline(children: Vec<RichInline>, style: &InlineStyle) -> RichInline {
+    RichInline::Styled {
+        children,
+        color: style.color,
+        background_color: style.background_color,
+        bold: style.bold,
+        italic: style.italic,
+        font_size: style.font_size,
+    }
+}
+
+#[cfg(feature = "html-render")]
+fn wrap_inline_style(inline: RichInline, style: Option<&InlineStyle>) -> RichInline {
+    match style.filter(|style| style.has_any()) {
+        Some(style) => styled_inline(vec![inline], style),
+        None => inline,
+    }
+}
+
+#[cfg(feature = "html-render")]
+fn style_children(children: Vec<RichInline>, style: Option<&InlineStyle>) -> Vec<RichInline> {
+    match style.filter(|style| style.has_any()) {
+        Some(style) => vec![styled_inline(children, style)],
+        None => children,
     }
 }
 
@@ -1154,6 +1217,62 @@ mod tests {
             },
             other => panic!("expected paragraph, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn font_sizes_apply_to_block_and_inline_style_attributes() {
+        use super::{parse_html, DEFAULT_BASE_FONT_PX};
+        use crate::capabilities::content::rich_text::{RichBlock, RichInline};
+
+        let blocks = parse_html(
+            "<p style=\"font-size: 2em\">paragraph</p>\
+             <p><strong style=\"font-size: 1.5em\">bold</strong></p>\
+             <p><a style=\"font-size: 1.25em\" href=\"https://example.com\">link</a></p>\
+             <ul><li style=\"font-size: 1.25em\">item</li></ul>",
+            DEFAULT_BASE_FONT_PX,
+        );
+
+        assert!(matches!(
+            &blocks[0],
+            RichBlock::Paragraph(inlines)
+                if matches!(&inlines[0], RichInline::Styled { font_size: Some(size), .. } if (*size - 28.0).abs() < f32::EPSILON)
+        ));
+        assert!(matches!(
+            &blocks[1],
+            RichBlock::Paragraph(inlines)
+                if matches!(&inlines[0], RichInline::Bold(children)
+                    if matches!(&children[0], RichInline::Styled { font_size: Some(size), .. }
+                        if (*size - 21.0).abs() < f32::EPSILON))
+        ));
+        assert!(matches!(
+            &blocks[2],
+            RichBlock::Paragraph(inlines)
+                if matches!(&inlines[0], RichInline::Styled { font_size: Some(size), children, .. }
+                    if (*size - 17.5).abs() < f32::EPSILON
+                        && matches!(&children[0], RichInline::Link { .. }))
+        ));
+        assert!(matches!(
+            &blocks[3],
+            RichBlock::UnorderedList { items }
+                if matches!(&items[0].content[0], RichInline::Styled { font_size: Some(size), .. } if (*size - 17.5).abs() < f32::EPSILON)
+        ));
+    }
+
+    #[test]
+    fn inherited_block_font_size_reaches_nested_blocks() {
+        use super::{parse_html, DEFAULT_BASE_FONT_PX};
+        use crate::capabilities::content::rich_text::{RichBlock, RichInline};
+
+        let blocks = parse_html(
+            "<div style=\"font-size: 2em\"><p>nested</p></div>",
+            DEFAULT_BASE_FONT_PX,
+        );
+
+        assert!(matches!(
+            &blocks[0],
+            RichBlock::Paragraph(inlines)
+                if matches!(&inlines[0], RichInline::Styled { font_size: Some(size), .. } if (*size - 28.0).abs() < f32::EPSILON)
+        ));
     }
 
     #[test]
