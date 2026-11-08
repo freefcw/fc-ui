@@ -113,6 +113,14 @@ const DEFAULT_BASE_FONT_PX: f32 = 14.0;
 /// currently in effect for the node being visited; a styled subtree with an
 /// explicit `em`/`px` font size updates it for its descendants, mirroring how
 /// CSS font-size inheritance works.
+///
+/// The resolution base is the component's configured base font size (or
+/// `DEFAULT_BASE_FONT_PX`). It deliberately does not account for block-level
+/// presentation applied later during rendering — headings, blockquotes and
+/// list items scale their text in the renderer, which is invisible at parse
+/// time. As a result `em` sizes inside a heading resolve against the base
+/// size, not the heading's variant size; this differs from CSS but keeps
+/// resolution deterministic and independent of theme.
 #[cfg(feature = "html-render")]
 #[derive(Clone, Copy)]
 struct HtmlParseContext {
@@ -127,7 +135,9 @@ impl HtmlParseContext {
         }
     }
 
-    fn with_font_size(&self, font_size: f32) -> Self {
+    /// Builds a fresh context carrying only `font_size`; reads `font_size` off
+    /// the struct so future fields are never silently dropped.
+    fn at_font_size(font_size: f32) -> Self {
         Self { font_size }
     }
 }
@@ -412,8 +422,9 @@ fn walk_children_inlines(node: &Handle, context: HtmlParseContext) -> Vec<RichIn
                         let style_attr = get_attr(child, "style");
                         if let Some(style_str) = style_attr {
                             let parsed = parse_inline_style(&style_str, context.font_size);
-                            let child_context = context
-                                .with_font_size(parsed.font_size.unwrap_or(context.font_size));
+                            let child_context = HtmlParseContext::at_font_size(
+                                parsed.font_size.unwrap_or(context.font_size),
+                            );
                             if parsed.has_any() {
                                 inlines.push(RichInline::Styled {
                                     children: walk_children_inlines(child, child_context),

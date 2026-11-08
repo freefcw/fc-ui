@@ -99,8 +99,31 @@ struct FontSizeSegment {
     inlines: Vec<RichInline>,
 }
 
+/// Tolerance for comparing effective font sizes (px). Large enough to absorb
+/// float arithmetic differences across `em` multiplications, small enough to
+/// distinguish any visually distinct size.
+const FONT_SIZE_EPSILON_PX: f32 = 0.001;
+
 fn font_sizes_equal(a: f32, b: f32) -> bool {
-    (a - b).abs() < f32::EPSILON
+    (a - b).abs() < FONT_SIZE_EPSILON_PX
+}
+
+/// Returns true when any `Styled` node in `inlines` carries an explicit font
+/// size. A cheap read-only walk used to decide whether the font-size segment
+/// split (which clones the tree) is needed at all.
+fn has_explicit_font_size(inlines: &[RichInline]) -> bool {
+    inlines.iter().any(|inline| match inline {
+        RichInline::Styled {
+            font_size,
+            children,
+            ..
+        } => font_size.is_some() || has_explicit_font_size(children),
+        RichInline::Bold(children)
+        | RichInline::Italic(children)
+        | RichInline::Strikethrough(children) => has_explicit_font_size(children),
+        RichInline::Link { text, .. } => has_explicit_font_size(text),
+        _ => false,
+    })
 }
 
 /// Split inline content into consecutive segments of uniform effective font
@@ -230,15 +253,23 @@ fn wrap_children_runs(
     }
 }
 
-struct InlineFlattener {
-    text: String,
-    runs: Vec<TextRun>,
-    links: Vec<LinkInfo>,
+/// Theme-derived text styling shared by every inline rendering path. Bundled
+/// into one struct so the single-element fast path and the font-size segment
+/// path stay in lockstep without threading five parameters through each call.
+#[derive(Clone)]
+struct InlineSegmentStyle {
     font_family: SharedString,
     font_mono: SharedString,
     text_color: Hsla,
     link_color: Hsla,
     code_bg: Hsla,
+}
+
+struct InlineFlattener {
+    text: String,
+    runs: Vec<TextRun>,
+    links: Vec<LinkInfo>,
+    style: InlineSegmentStyle,
     bold: bool,
     italic: bool,
     strikethrough: bool,
@@ -248,22 +279,12 @@ struct InlineFlattener {
 }
 
 impl InlineFlattener {
-    fn new(
-        font_family: SharedString,
-        font_mono: SharedString,
-        text_color: Hsla,
-        link_color: Hsla,
-        code_bg: Hsla,
-    ) -> Self {
+    fn new(style: InlineSegmentStyle) -> Self {
         Self {
             text: String::new(),
             runs: Vec::new(),
             links: Vec::new(),
-            font_family,
-            font_mono,
-            text_color,
-            link_color,
-            code_bg,
+            style,
             bold: false,
             italic: false,
             strikethrough: false,
@@ -365,7 +386,7 @@ impl InlineFlattener {
 
         let font = if is_code {
             Font {
-                family: self.font_mono.clone(),
+                family: self.style.font_mono.clone(),
                 features: FontFeatures::default(),
                 weight: FontWeight::default(),
                 style: FontStyle::default(),
@@ -373,7 +394,7 @@ impl InlineFlattener {
             }
         } else {
             Font {
-                family: self.font_family.clone(),
+                family: self.style.font_family.clone(),
                 features: FontFeatures::default(),
                 weight: if self.bold {
                     FontWeight::BOLD
@@ -390,17 +411,17 @@ impl InlineFlattener {
         };
 
         let color = if is_link {
-            self.link_color
+            self.style.link_color
         } else if let Some(c) = self.color_override {
             c
         } else {
-            self.text_color
+            self.style.text_color
         };
 
         let underline = if is_link {
             Some(UnderlineStyle {
                 thickness: px(1.0),
-                color: Some(self.link_color),
+                color: Some(self.style.link_color),
                 wavy: false,
             })
         } else {
@@ -410,14 +431,14 @@ impl InlineFlattener {
         let strikethrough = if self.strikethrough {
             Some(StrikethroughStyle {
                 thickness: px(1.0),
-                color: Some(self.text_color),
+                color: Some(self.style.text_color),
             })
         } else {
             None
         };
 
         let background_color = if is_code {
-            Some(self.code_bg)
+            Some(self.style.code_bg)
         } else {
             self.bg_override
         };
@@ -509,29 +530,57 @@ fn render_inline_content(
     cx: &App,
 ) -> AnyElement {
     let theme = use_theme(cx);
-    let font_family = theme.tokens.font_family.clone();
-    let font_mono = theme.tokens.font_mono.clone();
-    let text_color = theme.tokens.foreground;
-    let link_color = theme.tokens.primary;
-    let code_bg = theme.tokens.muted.opacity(0.3);
+    let style = InlineSegmentStyle {
+        font_family: theme.tokens.font_family.clone(),
+        font_mono: theme.tokens.font_mono.clone(),
+        text_color: theme.tokens.foreground,
+        link_color: theme.tokens.primary,
+        code_bg: theme.tokens.muted.opacity(0.3),
+    };
 
-    let segments = split_by_font_size(inlines, f32::from(base_size));
-    if needs_font_size_segments(&segments, f32::from(base_size)) {
-        return render_font_size_segments(
-            &segments,
-            &font_family,
-            &font_mono,
-            text_color,
-            link_color,
-            code_bg,
+    let base_f32 = f32::from(base_size);
+    // Content without any explicit font size keeps the single-element fast
+    // path; only sized content pays for the segment split.
+    if !has_explicit_font_size(inlines) {
+        return render_inline_segment(
+            inlines,
+            base_size,
+            style,
             link_handler,
-            element_id,
+            element_id.unwrap_or_else(|| ElementId::Name("rich-text-inline".into())),
             debug_links,
         );
     }
 
-    let flattened = InlineFlattener::new(font_family, font_mono, text_color, link_color, code_bg)
-        .flatten(inlines);
+    let segments = split_by_font_size(inlines, base_f32);
+    if !needs_font_size_segments(&segments, base_f32) {
+        // Every explicit size resolved to the base size (e.g. `font-size: 1em`),
+        // so a single element renders identically and keeps link semantics.
+        return render_inline_segment(
+            inlines,
+            base_size,
+            style,
+            link_handler,
+            element_id.unwrap_or_else(|| ElementId::Name("rich-text-inline".into())),
+            debug_links,
+        );
+    }
+
+    render_font_size_segments(&segments, style, link_handler, element_id, debug_links)
+}
+
+/// Renders one run of inline content at a single font size, including the
+/// empty-content, link-interactivity and debug-selector handling shared by
+/// every inline rendering path.
+fn render_inline_segment(
+    inlines: &[RichInline],
+    size: Pixels,
+    style: InlineSegmentStyle,
+    link_handler: Option<LinkClickHandler>,
+    element_id: ElementId,
+    debug_links: bool,
+) -> AnyElement {
+    let flattened = InlineFlattener::new(style).flatten(inlines);
 
     if flattened.text.is_empty() {
         return div().into_any_element();
@@ -539,19 +588,19 @@ fn render_inline_content(
 
     let styled = StyledText::new(SharedString::from(flattened.text)).with_runs(flattened.runs);
 
+    let mut container = div().text_size(size).line_height(relative(1.5));
+
+    if debug_links {
+        container = container.debug_selector(|| "rich-text-link".into());
+    }
+
     if !flattened.links.is_empty() {
-        let id = element_id.unwrap_or_else(|| ElementId::Name("rich-text-inline".into()));
         let click_ranges: Vec<std::ops::Range<usize>> =
             flattened.links.iter().map(|l| l.range.clone()).collect();
         let link_urls: Vec<String> = flattened.links.iter().map(|l| l.url.clone()).collect();
-        let mut container = div().text_size(base_size).line_height(relative(1.5));
-
-        if debug_links {
-            container = container.debug_selector(|| "rich-text-link".into());
-        }
 
         return container
-            .child(InteractiveText::new(id, styled).on_click(
+            .child(InteractiveText::new(element_id, styled).on_click(
                 click_ranges,
                 move |idx, window, cx| {
                     if let Some(url) = link_urls.get(idx) {
@@ -562,24 +611,15 @@ fn render_inline_content(
             .into_any_element();
     }
 
-    div()
-        .text_size(base_size)
-        .line_height(relative(1.5))
-        .child(styled)
-        .into_any_element()
+    container.child(styled).into_any_element()
 }
 
 /// Renders inline content containing more than one effective font size by
 /// giving every segment its own text container. Baseline alignment keeps the
 /// segments flowing on one line like a mixed-size text run.
-#[allow(clippy::too_many_arguments)]
 fn render_font_size_segments(
     segments: &[FontSizeSegment],
-    font_family: &SharedString,
-    font_mono: &SharedString,
-    text_color: Hsla,
-    link_color: Hsla,
-    code_bg: Hsla,
+    style: InlineSegmentStyle,
     link_handler: Option<LinkClickHandler>,
     element_id: Option<ElementId>,
     debug_links: bool,
@@ -601,41 +641,16 @@ fn render_font_size_segments(
     }
 
     for (index, segment) in segments.iter().enumerate() {
-        let flattened = InlineFlattener::new(
-            font_family.clone(),
-            font_mono.clone(),
-            text_color,
-            link_color,
-            code_bg,
-        )
-        .flatten(&segment.inlines);
-
-        if flattened.text.is_empty() {
-            continue;
-        }
-
-        let styled = StyledText::new(SharedString::from(flattened.text)).with_runs(flattened.runs);
         let segment_size = px(segment.font_size);
         let segment_id = ElementId::NamedInteger(base_name.clone(), index as u64);
-
-        if flattened.links.is_empty() {
-            container = container.child(div().text_size(segment_size).child(styled));
-        } else {
-            let click_ranges: Vec<std::ops::Range<usize>> =
-                flattened.links.iter().map(|l| l.range.clone()).collect();
-            let link_urls: Vec<String> = flattened.links.iter().map(|l| l.url.clone()).collect();
-            let handler = link_handler.clone();
-            container = container.child(div().text_size(segment_size).child(
-                InteractiveText::new(segment_id, styled).on_click(
-                    click_ranges,
-                    move |idx, window, cx| {
-                        if let Some(url) = link_urls.get(idx) {
-                            dispatch_link_click(&handler, url, window, cx);
-                        }
-                    },
-                ),
-            ));
-        }
+        container = container.child(render_inline_segment(
+            &segment.inlines,
+            segment_size,
+            style.clone(),
+            link_handler.clone(),
+            segment_id,
+            debug_links,
+        ));
     }
 
     container.into_any_element()
@@ -983,10 +998,10 @@ fn render_table(
 #[cfg(test)]
 mod tests {
     use super::{dispatch_link_click, needs_font_size_segments, LinkClickHandler};
-    use gpui::{Empty, TestApp};
+    use gpui::{Empty, TestApp, TestAppContext};
     use std::{cell::Cell, rc::Rc};
 
-    use super::split_by_font_size;
+    use super::{has_explicit_font_size, split_by_font_size};
     use crate::capabilities::content::rich_text::RichInline;
 
     fn text(value: &str) -> RichInline {
@@ -1056,6 +1071,59 @@ mod tests {
         ));
         assert_eq!(segments[1].font_size, 24.0);
         assert_eq!(segments[2].font_size, 14.0);
+    }
+
+    #[test]
+    fn only_explicit_sizes_trigger_the_segment_path() {
+        let plain = vec![
+            text("plain "),
+            RichInline::Bold(vec![styled(vec![text("colored")], None)]),
+        ];
+        assert!(!has_explicit_font_size(&plain));
+
+        let sized_deep = vec![RichInline::Bold(vec![styled(
+            vec![styled(vec![text("deep")], Some(20.0))],
+            None,
+        )])];
+        assert!(has_explicit_font_size(&sized_deep));
+
+        let sized_in_link = vec![RichInline::Link {
+            text: vec![styled(vec![text("link")], Some(20.0))],
+            url: "https://example.com".to_string(),
+        }];
+        assert!(has_explicit_font_size(&sized_in_link));
+    }
+
+    #[gpui::test]
+    fn render_inlines_without_an_id_uses_the_shared_fallback(cx: &mut TestAppContext) {
+        use crate::capabilities::content::rich_text::render_inlines;
+        use gpui::{px, Context, IntoElement, Render};
+
+        struct FallbackIdView;
+
+        impl Render for FallbackIdView {
+            fn render(
+                &mut self,
+                _w: &mut gpui::Window,
+                _cx: &mut Context<Self>,
+            ) -> impl IntoElement {
+                let inlines = vec![RichInline::Link {
+                    text: vec![text("link")],
+                    url: "https://example.com".to_string(),
+                }];
+                // `None` element id on the public entry point: the link must
+                // still render under the shared "rich-text-inline" fallback so
+                // debug selectors stay stable regardless of the caller.
+                render_inlines(&inlines, px(14.0), None, None, _cx)
+            }
+        }
+
+        let (_view, cx) = cx.add_window_view(|_, _| FallbackIdView);
+        cx.update(|window, cx| window.draw(cx).clear());
+        assert!(
+            cx.debug_bounds("rich-text-link").is_some(),
+            "link should render with the shared debug selector"
+        );
     }
 
     #[gpui::test]
