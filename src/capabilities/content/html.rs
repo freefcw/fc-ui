@@ -104,6 +104,34 @@ const MAX_NESTING_DEPTH: usize = 4096;
 #[cfg(feature = "html-render")]
 const MAX_SOURCE_LEN: usize = 4 * 1024 * 1024;
 
+/// Base font size (px) used to resolve relative `em` font sizes when the
+/// component's `base_font_size` is not configured.
+#[cfg(feature = "html-render")]
+const DEFAULT_BASE_FONT_PX: f32 = 14.0;
+
+/// Font size state threaded through the HTML walk. `font_size` is the size
+/// currently in effect for the node being visited; a styled subtree with an
+/// explicit `em`/`px` font size updates it for its descendants, mirroring how
+/// CSS font-size inheritance works.
+#[cfg(feature = "html-render")]
+#[derive(Clone, Copy)]
+struct HtmlParseContext {
+    font_size: f32,
+}
+
+#[cfg(feature = "html-render")]
+impl HtmlParseContext {
+    fn new(base_font_size: f32) -> Self {
+        Self {
+            font_size: base_font_size,
+        }
+    }
+
+    fn with_font_size(&self, font_size: f32) -> Self {
+        Self { font_size }
+    }
+}
+
 /// Scan `source` without building a tree and report the deepest element nesting
 /// it reaches. Only tags are counted, so text containing `<` is not charged as
 /// markup. Unbalanced closing tags are ignored rather than treated as errors —
@@ -188,7 +216,7 @@ fn max_nesting_depth(source: &str) -> usize {
 }
 
 #[cfg(feature = "html-render")]
-fn parse_html(source: &str) -> Vec<RichBlock> {
+fn parse_html(source: &str, base_font_size: f32) -> Vec<RichBlock> {
     if source.len() > MAX_SOURCE_LEN || max_nesting_depth(source) > MAX_NESTING_DEPTH {
         eprintln!(
             "fc-ui: html-render refused to parse {} bytes with nesting deeper than {} \
@@ -207,7 +235,7 @@ fn parse_html(source: &str) -> Vec<RichBlock> {
 
     let body = find_body(&dom.document);
     match body {
-        Some(node) => walk_children_blocks(&node),
+        Some(node) => walk_children_blocks(&node, HtmlParseContext::new(base_font_size)),
         None => Vec::new(),
     }
 }
@@ -241,7 +269,7 @@ fn flush_inlines(pending: &mut Vec<RichInline>, blocks: &mut Vec<RichBlock>) {
 }
 
 #[cfg(feature = "html-render")]
-fn walk_children_blocks(node: &Handle) -> Vec<RichBlock> {
+fn walk_children_blocks(node: &Handle, context: HtmlParseContext) -> Vec<RichBlock> {
     let mut blocks = Vec::new();
     let mut pending_inlines: Vec<RichInline> = Vec::new();
 
@@ -255,7 +283,7 @@ fn walk_children_blocks(node: &Handle) -> Vec<RichBlock> {
                 match tag {
                     "p" | "div" => {
                         flush_inlines(&mut pending_inlines, &mut blocks);
-                        let inlines = walk_block_inlines(child);
+                        let inlines = walk_block_inlines(child, context);
                         if !inlines.is_empty() {
                             blocks.push(RichBlock::Paragraph(inlines));
                         }
@@ -263,7 +291,7 @@ fn walk_children_blocks(node: &Handle) -> Vec<RichBlock> {
                     "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
                         flush_inlines(&mut pending_inlines, &mut blocks);
                         let level = tag.as_bytes()[1] - b'0';
-                        let inlines = walk_block_inlines(child);
+                        let inlines = walk_block_inlines(child, context);
                         blocks.push(RichBlock::Heading {
                             level,
                             content: inlines,
@@ -279,12 +307,12 @@ fn walk_children_blocks(node: &Handle) -> Vec<RichBlock> {
                     }
                     "blockquote" => {
                         flush_inlines(&mut pending_inlines, &mut blocks);
-                        let inner = walk_children_blocks(child);
+                        let inner = walk_children_blocks(child, context);
                         blocks.push(RichBlock::BlockQuote(inner));
                     }
                     "ul" => {
                         flush_inlines(&mut pending_inlines, &mut blocks);
-                        let items = walk_list_items(child);
+                        let items = walk_list_items(child, context);
                         blocks.push(RichBlock::UnorderedList { items });
                     }
                     "ol" => {
@@ -292,7 +320,7 @@ fn walk_children_blocks(node: &Handle) -> Vec<RichBlock> {
                         let start = get_attr(child, "start")
                             .and_then(|s| s.parse::<u64>().ok())
                             .unwrap_or(1);
-                        let items = walk_list_items(child);
+                        let items = walk_list_items(child, context);
                         blocks.push(RichBlock::OrderedList { start, items });
                     }
                     "hr" => {
@@ -301,7 +329,7 @@ fn walk_children_blocks(node: &Handle) -> Vec<RichBlock> {
                     }
                     "table" => {
                         flush_inlines(&mut pending_inlines, &mut blocks);
-                        let table = walk_table(child);
+                        let table = walk_table(child, context);
                         blocks.push(table);
                     }
                     "img" => {
@@ -311,7 +339,7 @@ fn walk_children_blocks(node: &Handle) -> Vec<RichBlock> {
                         blocks.push(RichBlock::Image { alt, url: src });
                     }
                     _ => {
-                        let inlines = walk_children_inlines(child);
+                        let inlines = walk_children_inlines(child, context);
                         pending_inlines.extend(inlines);
                     }
                 }
@@ -331,7 +359,7 @@ fn walk_children_blocks(node: &Handle) -> Vec<RichBlock> {
 }
 
 #[cfg(feature = "html-render")]
-fn walk_children_inlines(node: &Handle) -> Vec<RichInline> {
+fn walk_children_inlines(node: &Handle, context: HtmlParseContext) -> Vec<RichInline> {
     let mut inlines = Vec::new();
 
     for child in node.children.borrow().iter() {
@@ -349,15 +377,15 @@ fn walk_children_inlines(node: &Handle) -> Vec<RichInline> {
                 }
                 match tag {
                     "strong" | "b" => {
-                        let children = walk_children_inlines(child);
+                        let children = walk_children_inlines(child, context);
                         inlines.push(RichInline::Bold(children));
                     }
                     "em" | "i" => {
-                        let children = walk_children_inlines(child);
+                        let children = walk_children_inlines(child, context);
                         inlines.push(RichInline::Italic(children));
                     }
                     "s" | "strike" | "del" => {
-                        let children = walk_children_inlines(child);
+                        let children = walk_children_inlines(child, context);
                         inlines.push(RichInline::Strikethrough(children));
                     }
                     "code" => {
@@ -366,7 +394,7 @@ fn walk_children_inlines(node: &Handle) -> Vec<RichInline> {
                     }
                     "a" => {
                         let href = get_attr(child, "href").unwrap_or_default();
-                        let children = walk_children_inlines(child);
+                        let children = walk_children_inlines(child, context);
                         inlines.push(RichInline::Link {
                             text: children,
                             url: href,
@@ -381,13 +409,14 @@ fn walk_children_inlines(node: &Handle) -> Vec<RichInline> {
                         inlines.push(RichInline::Image { alt, url: src });
                     }
                     "span" | "div" => {
-                        let children = walk_children_inlines(child);
                         let style_attr = get_attr(child, "style");
                         if let Some(style_str) = style_attr {
-                            let parsed = parse_inline_style(&style_str);
+                            let parsed = parse_inline_style(&style_str, context.font_size);
+                            let child_context = context
+                                .with_font_size(parsed.font_size.unwrap_or(context.font_size));
                             if parsed.has_any() {
                                 inlines.push(RichInline::Styled {
-                                    children,
+                                    children: walk_children_inlines(child, child_context),
                                     color: parsed.color,
                                     background_color: parsed.background_color,
                                     bold: parsed.bold,
@@ -395,15 +424,15 @@ fn walk_children_inlines(node: &Handle) -> Vec<RichInline> {
                                     font_size: parsed.font_size,
                                 });
                             } else {
-                                inlines.extend(children);
+                                inlines.extend(walk_children_inlines(child, context));
                             }
                         } else {
-                            inlines.extend(children);
+                            inlines.extend(walk_children_inlines(child, context));
                         }
                     }
                     "ul" | "ol" => {}
                     _ => {
-                        let children = walk_children_inlines(child);
+                        let children = walk_children_inlines(child, context);
                         inlines.extend(children);
                     }
                 }
@@ -417,8 +446,8 @@ fn walk_children_inlines(node: &Handle) -> Vec<RichInline> {
 }
 
 #[cfg(feature = "html-render")]
-fn walk_block_inlines(node: &Handle) -> Vec<RichInline> {
-    let mut inlines = walk_children_inlines(node);
+fn walk_block_inlines(node: &Handle, context: HtmlParseContext) -> Vec<RichInline> {
+    let mut inlines = walk_children_inlines(node, context);
     trim_inlines(&mut inlines);
     inlines
 }
@@ -593,20 +622,20 @@ fn extract_code_block(pre_node: &Handle) -> (Option<String>, String) {
 }
 
 #[cfg(feature = "html-render")]
-fn walk_list_items(node: &Handle) -> Vec<ListItem> {
+fn walk_list_items(node: &Handle, context: HtmlParseContext) -> Vec<ListItem> {
     let mut items = Vec::new();
 
     for child in node.children.borrow().iter() {
         if let NodeData::Element { name, .. } = &child.data {
             if name.local.as_ref() == "li" {
-                let inlines = walk_block_inlines(child);
+                let inlines = walk_block_inlines(child, context);
                 let mut sub_items = Vec::new();
 
                 for sub in child.children.borrow().iter() {
                     if let NodeData::Element { name: sub_name, .. } = &sub.data {
                         let sub_tag = sub_name.local.as_ref();
                         if sub_tag == "ul" || sub_tag == "ol" {
-                            sub_items = walk_list_items(sub);
+                            sub_items = walk_list_items(sub, context);
                         }
                     }
                 }
@@ -624,7 +653,7 @@ fn walk_list_items(node: &Handle) -> Vec<ListItem> {
 }
 
 #[cfg(feature = "html-render")]
-fn walk_table(node: &Handle) -> RichBlock {
+fn walk_table(node: &Handle, context: HtmlParseContext) -> RichBlock {
     let mut headers: Vec<Vec<RichInline>> = Vec::new();
     let mut rows: Vec<Vec<Vec<RichInline>>> = Vec::new();
     let mut alignments: Vec<TableAlignment> = Vec::new();
@@ -636,7 +665,7 @@ fn walk_table(node: &Handle) -> RichBlock {
                     for tr in child.children.borrow().iter() {
                         if let NodeData::Element { name: tr_name, .. } = &tr.data {
                             if tr_name.local.as_ref() == "tr" {
-                                headers = walk_table_cells(tr, &mut alignments, true);
+                                headers = walk_table_cells(tr, &mut alignments, true, context);
                             }
                         }
                     }
@@ -646,7 +675,7 @@ fn walk_table(node: &Handle) -> RichBlock {
                         if let NodeData::Element { name: tr_name, .. } = &tr.data {
                             if tr_name.local.as_ref() == "tr" {
                                 let mut dummy = Vec::new();
-                                let row = walk_table_cells(tr, &mut dummy, false);
+                                let row = walk_table_cells(tr, &mut dummy, false, context);
                                 rows.push(row);
                             }
                         }
@@ -654,10 +683,10 @@ fn walk_table(node: &Handle) -> RichBlock {
                 }
                 "tr" => {
                     if headers.is_empty() {
-                        headers = walk_table_cells(child, &mut alignments, true);
+                        headers = walk_table_cells(child, &mut alignments, true, context);
                     } else {
                         let mut dummy = Vec::new();
-                        let row = walk_table_cells(child, &mut dummy, false);
+                        let row = walk_table_cells(child, &mut dummy, false, context);
                         rows.push(row);
                     }
                 }
@@ -678,6 +707,7 @@ fn walk_table_cells(
     tr: &Handle,
     alignments: &mut Vec<TableAlignment>,
     is_header: bool,
+    context: HtmlParseContext,
 ) -> Vec<Vec<RichInline>> {
     let mut cells = Vec::new();
 
@@ -685,7 +715,7 @@ fn walk_table_cells(
         if let NodeData::Element { name, .. } = &child.data {
             let tag = name.local.as_ref();
             if tag == "th" || tag == "td" {
-                let inlines = walk_block_inlines(child);
+                let inlines = walk_block_inlines(child, context);
                 cells.push(inlines);
 
                 if is_header {
@@ -764,7 +794,7 @@ impl InlineStyle {
 }
 
 #[cfg(feature = "html-render")]
-fn parse_inline_style(style: &str) -> InlineStyle {
+fn parse_inline_style(style: &str, base_font_size: f32) -> InlineStyle {
     let mut result = InlineStyle {
         color: None,
         background_color: None,
@@ -806,7 +836,7 @@ fn parse_inline_style(style: &str) -> InlineStyle {
                         }
                     } else if let Some(stripped) = value.strip_suffix("em") {
                         if let Ok(size) = stripped.trim().parse::<f32>() {
-                            result.font_size = Some(size * 14.0);
+                            result.font_size = Some(size * base_font_size);
                         }
                     }
                 }
@@ -944,9 +974,9 @@ fn rgb_to_hsla(r: u8, g: u8, b: u8, a: f32) -> Hsla {
 impl RenderOnce for Html {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = use_theme(cx);
-        let base_size = self.base_font_size.unwrap_or(px(14.0));
+        let base_size = self.base_font_size.unwrap_or(px(DEFAULT_BASE_FONT_PX));
 
-        let blocks = parse_html(&self.source);
+        let blocks = parse_html(&self.source, f32::from(base_size));
         let elements = render_blocks(&blocks, base_size, &self.on_link_click, "html", cx);
 
         self.base
@@ -1022,10 +1052,13 @@ mod tests {
 
     #[test]
     fn nested_list_text_is_not_duplicated_in_parent_item() {
-        use super::parse_html;
+        use super::{parse_html, DEFAULT_BASE_FONT_PX};
         use crate::capabilities::content::rich_text::{RichBlock, RichInline};
 
-        let blocks = parse_html("<ul><li>a\n  <ul><li>b</li></ul>\n</li></ul>");
+        let blocks = parse_html(
+            "<ul><li>a\n  <ul><li>b</li></ul>\n</li></ul>",
+            DEFAULT_BASE_FONT_PX,
+        );
         assert_eq!(blocks.len(), 1);
         match &blocks[0] {
             RichBlock::UnorderedList { items } => {
@@ -1043,10 +1076,13 @@ mod tests {
 
     #[test]
     fn inline_whitespace_collapses_and_trims_at_block_edges() {
-        use super::parse_html;
+        use super::{parse_html, DEFAULT_BASE_FONT_PX};
         use crate::capabilities::content::rich_text::{RichBlock, RichInline};
 
-        let blocks = parse_html("<p>\n  hello\n   <strong>world</strong>\n</p>");
+        let blocks = parse_html(
+            "<p>\n  hello\n   <strong>world</strong>\n</p>",
+            DEFAULT_BASE_FONT_PX,
+        );
         assert_eq!(blocks.len(), 1);
         match &blocks[0] {
             RichBlock::Paragraph(inlines) => {
@@ -1056,6 +1092,55 @@ mod tests {
                     matches!(&inlines[1], RichInline::Bold(children) if children.len() == 1 && matches!(&children[0], RichInline::Text(t) if t == "world"))
                 );
             }
+            other => panic!("expected paragraph, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn em_font_size_resolves_against_the_configured_base() {
+        use super::parse_html;
+        use crate::capabilities::content::rich_text::{RichBlock, RichInline};
+
+        let blocks = parse_html("<p><span style=\"font-size: 2em\">big</span></p>", 16.0);
+        assert_eq!(blocks.len(), 1);
+        match &blocks[0] {
+            RichBlock::Paragraph(inlines) => match &inlines[0] {
+                RichInline::Styled { font_size, .. } => {
+                    assert_eq!(*font_size, Some(32.0));
+                }
+                other => panic!("expected styled inline, got {:?}", other),
+            },
+            other => panic!("expected paragraph, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn nested_em_font_sizes_cascade_against_the_effective_size() {
+        use super::{parse_html, DEFAULT_BASE_FONT_PX};
+        use crate::capabilities::content::rich_text::{RichBlock, RichInline};
+
+        let blocks = parse_html(
+            "<p><span style=\"font-size: 2em\"><span style=\"font-size: 1.5em\">x</span></span></p>",
+            DEFAULT_BASE_FONT_PX,
+        );
+        assert_eq!(blocks.len(), 1);
+        match &blocks[0] {
+            RichBlock::Paragraph(inlines) => match &inlines[0] {
+                RichInline::Styled {
+                    font_size,
+                    children,
+                    ..
+                } => {
+                    assert_eq!(*font_size, Some(28.0));
+                    match &children[0] {
+                        RichInline::Styled { font_size, .. } => {
+                            assert_eq!(*font_size, Some(42.0));
+                        }
+                        other => panic!("expected styled inline, got {:?}", other),
+                    }
+                }
+                other => panic!("expected styled inline, got {:?}", other),
+            },
             other => panic!("expected paragraph, got {:?}", other),
         }
     }
@@ -1084,25 +1169,28 @@ mod tests {
 
     #[test]
     fn deeply_nested_input_is_refused_instead_of_parsed() {
+        use super::DEFAULT_BASE_FONT_PX;
         let depth = MAX_NESTING_DEPTH + 1;
         let deep = format!("{}x{}", "<div>".repeat(depth), "</div>".repeat(depth));
         assert!(max_nesting_depth(&deep) > MAX_NESTING_DEPTH);
-        assert!(parse_html(&deep).is_empty());
+        assert!(parse_html(&deep, DEFAULT_BASE_FONT_PX).is_empty());
     }
 
     #[test]
     fn self_closing_chains_are_refused_like_explicit_nesting() {
+        use super::DEFAULT_BASE_FONT_PX;
         // html5ever ignores the slash on non-void elements, so `<div/>` nests.
         let deep = "<div/>".repeat(MAX_NESTING_DEPTH + 1);
         assert!(max_nesting_depth(&deep) > MAX_NESTING_DEPTH);
-        assert!(parse_html(&deep).is_empty());
+        assert!(parse_html(&deep, DEFAULT_BASE_FONT_PX).is_empty());
     }
 
     #[test]
     fn nesting_within_the_limit_still_parses() {
+        use super::DEFAULT_BASE_FONT_PX;
         let depth = 64;
         let nested = format!("{}x{}", "<div>".repeat(depth), "</div>".repeat(depth));
         assert_eq!(max_nesting_depth(&nested), depth);
-        assert!(!parse_html(&nested).is_empty());
+        assert!(!parse_html(&nested, DEFAULT_BASE_FONT_PX).is_empty());
     }
 }

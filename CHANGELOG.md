@@ -98,6 +98,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Loading audio while muted keeps the playback backend muted and retains its
   configured speed.
 - Crop selections use their rendered bounds for dragging.
+- `Html` inline `em` font sizes now honor `base_font_size` and cascade like
+  CSS (nested `em` multiplies against the effective parent size), and styled
+  runs with explicit font sizes render at that size instead of being clamped
+  to the block's base size.
 - Animated presence uses the same exit timing for drawing and unmounting and
   cancels an exit when shown again. Zero toast capacity is normalized to one.
 - Overlay exit timers keep weak references so a removed dialog cannot run a
