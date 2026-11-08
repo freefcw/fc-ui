@@ -109,6 +109,10 @@ const MAX_SOURCE_LEN: usize = 4 * 1024 * 1024;
 #[cfg(feature = "html-render")]
 const DEFAULT_BASE_FONT_PX: f32 = 14.0;
 
+/// Reject pathological values before they reach GPUI's layout engine.
+#[cfg(feature = "html-render")]
+const MAX_FONT_SIZE_PX: f32 = 1024.0;
+
 /// Font size state threaded through the HTML walk. `font_size` is the size
 /// currently in effect for the node being visited; a styled subtree with an
 /// explicit `em`/`px` font size updates it for its descendants, mirroring how
@@ -852,6 +856,11 @@ fn styled_inline(children: Vec<RichInline>, style: &InlineStyle) -> RichInline {
 }
 
 #[cfg(feature = "html-render")]
+fn sanitize_font_size(size: f32) -> Option<f32> {
+    (size.is_finite() && (0.0..=MAX_FONT_SIZE_PX).contains(&size)).then_some(size)
+}
+
+#[cfg(feature = "html-render")]
 fn wrap_inline_style(inline: RichInline, style: Option<&InlineStyle>) -> RichInline {
     match style.filter(|style| style.has_any()) {
         Some(style) => styled_inline(vec![inline], style),
@@ -904,13 +913,14 @@ fn parse_inline_style(style: &str, base_font_size: f32) -> InlineStyle {
                     _ => {}
                 },
                 "font-size" => {
-                    if let Some(stripped) = value.strip_suffix("px") {
+                    let normalized = value.to_ascii_lowercase();
+                    if let Some(stripped) = normalized.strip_suffix("px") {
                         if let Ok(size) = stripped.trim().parse::<f32>() {
-                            result.font_size = Some(size);
+                            result.font_size = sanitize_font_size(size);
                         }
-                    } else if let Some(stripped) = value.strip_suffix("em") {
+                    } else if let Some(stripped) = normalized.strip_suffix("em") {
                         if let Ok(size) = stripped.trim().parse::<f32>() {
-                            result.font_size = Some(size * base_font_size);
+                            result.font_size = sanitize_font_size(size * base_font_size);
                         }
                     }
                 }
@@ -1048,7 +1058,12 @@ fn rgb_to_hsla(r: u8, g: u8, b: u8, a: f32) -> Hsla {
 impl RenderOnce for Html {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = use_theme(cx);
-        let base_size = self.base_font_size.unwrap_or(px(DEFAULT_BASE_FONT_PX));
+        let base_size = self
+            .base_font_size
+            .map(f32::from)
+            .and_then(sanitize_font_size)
+            .map(px)
+            .unwrap_or(px(DEFAULT_BASE_FONT_PX));
 
         let blocks = parse_html(&self.source, f32::from(base_size));
         let elements = render_blocks(&blocks, base_size, &self.on_link_click, "html", cx);
@@ -1273,6 +1288,38 @@ mod tests {
             RichBlock::Paragraph(inlines)
                 if matches!(&inlines[0], RichInline::Styled { font_size: Some(size), .. } if (*size - 28.0).abs() < f32::EPSILON)
         ));
+    }
+
+    #[test]
+    fn invalid_font_sizes_are_ignored_and_units_are_case_insensitive() {
+        use super::{parse_html, DEFAULT_BASE_FONT_PX};
+        use crate::capabilities::content::rich_text::{RichBlock, RichInline};
+
+        let blocks = parse_html(
+            "<p><span style=\"font-size: NaNpx\">nan</span>\
+                  <span style=\"font-size: infpx\">inf</span>\
+                  <span style=\"font-size: -4px\">negative</span>\
+                  <span style=\"font-size: 2PX\">upper</span></p>",
+            DEFAULT_BASE_FONT_PX,
+        );
+
+        match &blocks[0] {
+            RichBlock::Paragraph(inlines) => {
+                let styled_sizes: Vec<f32> = inlines
+                    .iter()
+                    .filter_map(|inline| match inline {
+                        RichInline::Styled {
+                            font_size: Some(size),
+                            ..
+                        } => Some(*size),
+                        _ => None,
+                    })
+                    .collect();
+                assert_eq!(styled_sizes.len(), 1);
+                assert!((styled_sizes[0] - 2.0).abs() < 0.001);
+            }
+            other => panic!("expected paragraph, got {:?}", other),
+        }
     }
 
     #[test]
