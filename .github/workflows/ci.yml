@@ -14,21 +14,102 @@ permissions:
   contents: read
 
 jobs:
-  checks:
+  # `fmt-check` is host-independent. `build-ci` links the default-feature
+  # library plus `gpui/runtime_shaders` and this package has no bin target, so
+  # that link does not need a macos-15 runner. macOS `target_os = "macos"`
+  # coverage stays on the `macos` job: `clippy-ci` typechecks `--all-targets`
+  # with the same feature, and `test-ci` links and runs the full suite there.
+  portable:
     name: ${{ matrix.name }}
-    runs-on: macos-15
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: build
-            target: build-ci
           - name: fmt
             target: fmt-check
+            components: rustfmt
+            native_deps: "false"
+          - name: build
+            target: build-ci
+            components: ""
+            native_deps: "true"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux native dependencies
+        if: matrix.native_deps == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            libwayland-dev \
+            libxcb1-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            mesa-vulkan-drivers \
+            pkg-config
+
+      - name: Install just
+        uses: extractions/setup-just@v3
+        with:
+          just-version: 1.54.0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: ${{ matrix.components }}
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ runner.os }}-cargo-${{ matrix.name }}
+
+      - name: Run ${{ matrix.name }}
+        env:
+          JUST_TARGET: ${{ matrix.target }}
+        run: just "$JUST_TARGET"
+
+  # Bound: this is the only `runs-on: macos-15` job. `strategy.max-parallel`
+  # limits concurrent legs of a single matrix job and does not apply across
+  # separate jobs, so every macos-15 check is a leg here. `max-parallel: 2`
+  # dispatches at most two runners at a time; the other legs stay queued
+  # until a slot frees. Queued legs are not skipped and are not success.
+  # `fail-fast` is false, so one failing leg does not cancel the others.
+  # Failed commands fail the leg; nothing is marked success on failure.
+  macos:
+    name: ${{ matrix.name }}
+    runs-on: macos-15
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          # visual-macos keeps a 20 minute execution timeout, so it is in the
+          # first pair rather than waiting behind the long test leg.
           - name: clippy
             target: clippy-ci
+            components: clippy
+            timeout: 360
+            cache_key: clippy
+          - name: visual-macos
+            target: visual-smoke-ci
+            components: ""
+            timeout: 20
+            cache_key: real-visual-smoke
+            require_visual: "1"
           - name: test
             target: test-ci
+            components: ""
+            timeout: 360
+            cache_key: test
+          # This leg runs: just verify-capabilities-ci
+          - name: capability-contract
+            target: verify-capabilities-ci
+            components: ""
+            timeout: 360
+            cache_key: capabilities
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -41,15 +122,26 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          components: ${{ matrix.components }}
 
       - name: Cache Rust artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ${{ runner.os }}-cargo-${{ matrix.name }}
+          shared-key: ${{ runner.os }}-cargo-${{ matrix.cache_key }}
 
+      # These two conditions partition every input, so exactly one step runs.
       - name: Run ${{ matrix.name }}
-        run: just ${{ matrix.target }}
+        if: matrix.require_visual != '1'
+        env:
+          JUST_TARGET: ${{ matrix.target }}
+        run: just "$JUST_TARGET"
+
+      - name: Run real renderer smoke
+        if: matrix.require_visual == '1'
+        env:
+          JUST_TARGET: ${{ matrix.target }}
+          FC_UI_REQUIRE_REAL_VISUAL: "1"
+        run: just "$JUST_TARGET"
 
   platform-checks:
     name: platform-${{ matrix.name }}
@@ -96,20 +188,10 @@ jobs:
       - name: Run locked platform check
         run: just ${{ matrix.target }}
 
-  visual-smoke:
-    name: visual-${{ matrix.name }}
-    runs-on: ${{ matrix.os }}
+  visual-windows:
+    name: visual-windows
+    runs-on: windows-2022
     timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: macos
-            os: macos-15
-            target: visual-smoke-ci
-          - name: windows
-            os: windows-2022
-            target: visual-smoke-ci
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -130,30 +212,7 @@ jobs:
       - name: Run real renderer smoke
         env:
           FC_UI_REQUIRE_REAL_VISUAL: "1"
-        run: just ${{ matrix.target }}
-
-  capabilities:
-    name: capability-contract
-    runs-on: macos-15
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Install just
-        uses: extractions/setup-just@v3
-        with:
-          just-version: 1.54.0
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ${{ runner.os }}-cargo-capabilities
-
-      - name: Verify capability, feature, and public API contracts
-        run: just verify-capabilities-ci
+        run: just visual-smoke-ci
 
   agents-md:
     name: agents-md
